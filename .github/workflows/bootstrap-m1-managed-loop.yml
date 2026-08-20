@@ -1,0 +1,1318 @@
+name: One-time M1 playable-loop bootstrap
+
+on:
+  push:
+    branches: ["feature/m1-playable-loop"]
+    paths:
+      - ".github/workflows/bootstrap-m1-managed-loop.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-test-publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: feature/m1-playable-loop
+          fetch-depth: 0
+
+      - name: Rebase onto latest main
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin main
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rebase origin/main
+
+      - name: Write M1 game model
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p client/YGOPro2Overlay/Assets/SomeCardGame/M1
+          cat > client/YGOPro2Overlay/Assets/SomeCardGame/M1/ScgsM1Game.cs <<'CS'
+          using System;
+          using System.Collections.Generic;
+
+          namespace SomeCardGame.M1
+          {
+              public enum ScgsM1Outcome
+              {
+                  Playing = 0,
+                  PlayerOneWon = 1,
+                  PlayerTwoWon = 2,
+                  Draw = 3
+              }
+
+              public sealed class ScgsM1Card
+              {
+                  public readonly int Id;
+                  public readonly string Name;
+                  public readonly int Cost;
+                  public readonly int Attack;
+                  public readonly int Health;
+
+                  public ScgsM1Card(int id, string name, int cost, int attack, int health)
+                  {
+                      Id = id;
+                      Name = name;
+                      Cost = cost;
+                      Attack = attack;
+                      Health = health;
+                  }
+              }
+
+              public sealed class ScgsM1Unit
+              {
+                  public readonly ScgsM1Card Card;
+                  public int Attack;
+                  public int Health;
+                  public int MaximumHealth;
+                  public bool Ready;
+
+                  public ScgsM1Unit(ScgsM1Card card)
+                  {
+                      Card = card;
+                      Attack = card.Attack;
+                      Health = card.Health;
+                      MaximumHealth = card.Health;
+                      Ready = false;
+                  }
+              }
+
+              public sealed class ScgsM1Player
+              {
+                  public int LeaderHealth;
+                  public int MaximumPP;
+                  public int CurrentPP;
+                  public int Fatigue;
+                  public readonly List<ScgsM1Card> Deck;
+                  public readonly List<ScgsM1Card> Hand;
+                  public readonly ScgsM1Unit[] Board;
+
+                  public ScgsM1Player()
+                  {
+                      LeaderHealth = ScgsM1Game.StartingLeaderHealth;
+                      MaximumPP = 0;
+                      CurrentPP = 0;
+                      Fatigue = 0;
+                      Deck = new List<ScgsM1Card>();
+                      Hand = new List<ScgsM1Card>();
+                      Board = new ScgsM1Unit[ScgsM1Game.BoardSlots];
+                  }
+              }
+
+              public sealed class ScgsM1Game
+              {
+                  public const int StartingLeaderHealth = 25;
+                  public const int MaximumPP = 10;
+                  public const int MaximumHandSize = 9;
+                  public const int BoardSlots = 5;
+                  public const int StartingHandSize = 4;
+
+                  private Random random;
+
+                  public readonly ScgsM1Player[] Players;
+                  public int CurrentPlayer { get; private set; }
+                  public int TurnNumber { get; private set; }
+                  public bool AwaitingHandoff { get; private set; }
+                  public ScgsM1Outcome Outcome { get; private set; }
+                  public string LastAction { get; private set; }
+
+                  public ScgsM1Game()
+                  {
+                      Players = new ScgsM1Player[2];
+                      Reset(1);
+                  }
+
+                  public void Reset(int seed)
+                  {
+                      random = new Random(seed);
+                      Players[0] = new ScgsM1Player();
+                      Players[1] = new ScgsM1Player();
+                      BuildDeck(Players[0], 1000);
+                      BuildDeck(Players[1], 2000);
+                      Shuffle(Players[0].Deck);
+                      Shuffle(Players[1].Deck);
+                      DrawCards(0, StartingHandSize);
+                      DrawCards(1, StartingHandSize);
+                      CurrentPlayer = 0;
+                      TurnNumber = 1;
+                      Outcome = ScgsM1Outcome.Playing;
+                      StartTurn(0, false);
+                      AwaitingHandoff = true;
+                      LastAction = "Pass the device to Player 1.";
+                  }
+
+                  public int OpponentOf(int player)
+                  {
+                      return 1 - player;
+                  }
+
+                  public bool AcknowledgeHandoff(int player)
+                  {
+                      if (Outcome != ScgsM1Outcome.Playing || !AwaitingHandoff || player != CurrentPlayer)
+                      {
+                          return false;
+                      }
+                      AwaitingHandoff = false;
+                      LastAction = "Player " + (CurrentPlayer + 1).ToString() + " may act.";
+                      return true;
+                  }
+
+                  public bool PlayUnit(int handIndex, int boardSlot)
+                  {
+                      if (!CanCurrentPlayerAct())
+                      {
+                          return false;
+                      }
+                      ScgsM1Player player = Players[CurrentPlayer];
+                      if (handIndex < 0 || handIndex >= player.Hand.Count)
+                      {
+                          return false;
+                      }
+                      if (boardSlot < 0 || boardSlot >= BoardSlots || player.Board[boardSlot] != null)
+                      {
+                          return false;
+                      }
+                      ScgsM1Card card = player.Hand[handIndex];
+                      if (card.Cost > player.CurrentPP)
+                      {
+                          return false;
+                      }
+                      player.CurrentPP -= card.Cost;
+                      player.Hand.RemoveAt(handIndex);
+                      player.Board[boardSlot] = new ScgsM1Unit(card);
+                      LastAction = "Player " + (CurrentPlayer + 1).ToString() + " played " + card.Name + ".";
+                      return true;
+                  }
+
+                  public bool AttackUnit(int attackerSlot, int defenderSlot)
+                  {
+                      if (!CanCurrentPlayerAct())
+                      {
+                          return false;
+                      }
+                      int defenderPlayer = OpponentOf(CurrentPlayer);
+                      ScgsM1Unit attacker = GetUnit(CurrentPlayer, attackerSlot);
+                      ScgsM1Unit defender = GetUnit(defenderPlayer, defenderSlot);
+                      if (attacker == null || defender == null || !attacker.Ready)
+                      {
+                          return false;
+                      }
+                      attacker.Ready = false;
+                      int attackerDamage = defender.Attack;
+                      int defenderDamage = attacker.Attack;
+                      attacker.Health -= attackerDamage;
+                      defender.Health -= defenderDamage;
+                      LastAction = attacker.Card.Name + " battled " + defender.Card.Name + ".";
+                      RemoveDeadUnits();
+                      CheckOutcome();
+                      return true;
+                  }
+
+                  public bool AttackLeader(int attackerSlot)
+                  {
+                      if (!CanCurrentPlayerAct())
+                      {
+                          return false;
+                      }
+                      ScgsM1Unit attacker = GetUnit(CurrentPlayer, attackerSlot);
+                      if (attacker == null || !attacker.Ready)
+                      {
+                          return false;
+                      }
+                      attacker.Ready = false;
+                      int opponent = OpponentOf(CurrentPlayer);
+                      Players[opponent].LeaderHealth -= attacker.Attack;
+                      LastAction = attacker.Card.Name + " dealt " + attacker.Attack.ToString() + " damage to Player " + (opponent + 1).ToString() + ".";
+                      CheckOutcome();
+                      return true;
+                  }
+
+                  public bool EndTurn()
+                  {
+                      if (!CanCurrentPlayerAct())
+                      {
+                          return false;
+                      }
+                      CurrentPlayer = OpponentOf(CurrentPlayer);
+                      TurnNumber += 1;
+                      StartTurn(CurrentPlayer, true);
+                      AwaitingHandoff = Outcome == ScgsM1Outcome.Playing;
+                      if (AwaitingHandoff)
+                      {
+                          LastAction = "Pass the device to Player " + (CurrentPlayer + 1).ToString() + ".";
+                      }
+                      return true;
+                  }
+
+                  public bool Surrender(int player)
+                  {
+                      if (Outcome != ScgsM1Outcome.Playing || player < 0 || player > 1)
+                      {
+                          return false;
+                      }
+                      Outcome = player == 0 ? ScgsM1Outcome.PlayerTwoWon : ScgsM1Outcome.PlayerOneWon;
+                      AwaitingHandoff = false;
+                      LastAction = "Player " + (player + 1).ToString() + " surrendered.";
+                      return true;
+                  }
+
+                  public ScgsM1Unit GetUnit(int player, int slot)
+                  {
+                      if (player < 0 || player > 1 || slot < 0 || slot >= BoardSlots)
+                      {
+                          return null;
+                      }
+                      return Players[player].Board[slot];
+                  }
+
+                  public int WinnerIndex()
+                  {
+                      if (Outcome == ScgsM1Outcome.PlayerOneWon)
+                      {
+                          return 0;
+                      }
+                      if (Outcome == ScgsM1Outcome.PlayerTwoWon)
+                      {
+                          return 1;
+                      }
+                      return -1;
+                  }
+
+                  private bool CanCurrentPlayerAct()
+                  {
+                      return Outcome == ScgsM1Outcome.Playing && !AwaitingHandoff;
+                  }
+
+                  private void StartTurn(int playerIndex, bool drawCard)
+                  {
+                      ScgsM1Player player = Players[playerIndex];
+                      if (player.MaximumPP < MaximumPP)
+                      {
+                          player.MaximumPP += 1;
+                      }
+                      player.CurrentPP = player.MaximumPP;
+                      int i;
+                      for (i = 0; i < BoardSlots; ++i)
+                      {
+                          if (player.Board[i] != null)
+                          {
+                              player.Board[i].Ready = true;
+                          }
+                      }
+                      if (drawCard)
+                      {
+                          DrawCards(playerIndex, 1);
+                      }
+                  }
+
+                  private void DrawCards(int playerIndex, int amount)
+                  {
+                      int i;
+                      for (i = 0; i < amount; ++i)
+                      {
+                          DrawOne(playerIndex);
+                          if (Outcome != ScgsM1Outcome.Playing)
+                          {
+                              return;
+                          }
+                      }
+                  }
+
+                  private void DrawOne(int playerIndex)
+                  {
+                      ScgsM1Player player = Players[playerIndex];
+                      if (player.Deck.Count == 0)
+                      {
+                          player.Fatigue += 1;
+                          player.LeaderHealth -= player.Fatigue;
+                          LastAction = "Player " + (playerIndex + 1).ToString() + " took " + player.Fatigue.ToString() + " fatigue damage.";
+                          CheckOutcome();
+                          return;
+                      }
+                      int last = player.Deck.Count - 1;
+                      ScgsM1Card card = player.Deck[last];
+                      player.Deck.RemoveAt(last);
+                      if (player.Hand.Count < MaximumHandSize)
+                      {
+                          player.Hand.Add(card);
+                      }
+                      else
+                      {
+                          LastAction = card.Name + " was archived because the hand was full.";
+                      }
+                  }
+
+                  private void RemoveDeadUnits()
+                  {
+                      int player;
+                      int slot;
+                      for (player = 0; player < 2; ++player)
+                      {
+                          for (slot = 0; slot < BoardSlots; ++slot)
+                          {
+                              ScgsM1Unit unit = Players[player].Board[slot];
+                              if (unit != null && unit.Health <= 0)
+                              {
+                                  Players[player].Board[slot] = null;
+                              }
+                          }
+                      }
+                  }
+
+                  private void CheckOutcome()
+                  {
+                      bool p0Dead = Players[0].LeaderHealth <= 0;
+                      bool p1Dead = Players[1].LeaderHealth <= 0;
+                      if (p0Dead && p1Dead)
+                      {
+                          Outcome = ScgsM1Outcome.Draw;
+                      }
+                      else if (p0Dead)
+                      {
+                          Outcome = ScgsM1Outcome.PlayerTwoWon;
+                      }
+                      else if (p1Dead)
+                      {
+                          Outcome = ScgsM1Outcome.PlayerOneWon;
+                      }
+                      if (Outcome != ScgsM1Outcome.Playing)
+                      {
+                          AwaitingHandoff = false;
+                      }
+                  }
+
+                  private void BuildDeck(ScgsM1Player player, int idBase)
+                  {
+                      AddCopies(player.Deck, new ScgsM1Card(idBase + 1, "Recruit", 1, 1, 1), 6);
+                      AddCopies(player.Deck, new ScgsM1Card(idBase + 2, "Sentry", 2, 2, 3), 6);
+                      AddCopies(player.Deck, new ScgsM1Card(idBase + 3, "Striker", 3, 3, 3), 6);
+                      AddCopies(player.Deck, new ScgsM1Card(idBase + 4, "Knight", 4, 4, 5), 6);
+                      AddCopies(player.Deck, new ScgsM1Card(idBase + 5, "Golem", 5, 5, 6), 6);
+                  }
+
+                  private static void AddCopies(List<ScgsM1Card> deck, ScgsM1Card card, int copies)
+                  {
+                      int i;
+                      for (i = 0; i < copies; ++i)
+                      {
+                          deck.Add(card);
+                      }
+                  }
+
+                  private void Shuffle(List<ScgsM1Card> cards)
+                  {
+                      int i;
+                      for (i = cards.Count - 1; i > 0; --i)
+                      {
+                          int j = random.Next(i + 1);
+                          ScgsM1Card temp = cards[i];
+                          cards[i] = cards[j];
+                          cards[j] = temp;
+                      }
+                  }
+              }
+          }
+          CS
+
+      - name: Write M1 YGOPro2 UI
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > client/YGOPro2Overlay/Assets/SomeCardGame/M1/ScgsM1PlayableLoop.cs <<'CS'
+          using System;
+          using System.IO;
+          using UnityEngine;
+
+          namespace SomeCardGame.M1
+          {
+              public static class ScgsM1Bootstrap
+              {
+                  public static void Attach(GameObject host)
+                  {
+                      if (host == null || !ShouldStart())
+                      {
+                          return;
+                      }
+                      if (host.GetComponent<ScgsM1PlayableLoop>() == null)
+                      {
+                          host.AddComponent<ScgsM1PlayableLoop>();
+                      }
+                  }
+
+                  public static bool ShouldStart()
+                  {
+          #if UNITY_EDITOR
+                      return true;
+          #else
+                      string[] args = Environment.GetCommandLineArgs();
+                      int i;
+                      for (i = 0; i < args.Length; ++i)
+                      {
+                          if (string.Equals(args[i], "--scgs-m1", StringComparison.OrdinalIgnoreCase))
+                          {
+                              return true;
+                          }
+                      }
+                      return File.Exists("scgs-m1.flag");
+          #endif
+                  }
+              }
+
+              public sealed class ScgsM1PlayableLoop : MonoBehaviour
+              {
+                  private ScgsM1Game game;
+                  private int selectedHand;
+                  private int selectedAttacker;
+                  private GUIStyle titleStyle;
+                  private GUIStyle centeredStyle;
+                  private GUIStyle smallStyle;
+
+                  private void Awake()
+                  {
+                      ResetGame();
+                  }
+
+                  private void ResetGame()
+                  {
+                      game = new ScgsM1Game();
+                      game.Reset(Environment.TickCount);
+                      selectedHand = -1;
+                      selectedAttacker = -1;
+                  }
+
+                  private void EnsureStyles()
+                  {
+                      if (titleStyle != null)
+                      {
+                          return;
+                      }
+                      titleStyle = new GUIStyle(GUI.skin.label);
+                      titleStyle.fontSize = 24;
+                      titleStyle.alignment = TextAnchor.MiddleCenter;
+                      titleStyle.wordWrap = true;
+
+                      centeredStyle = new GUIStyle(GUI.skin.label);
+                      centeredStyle.fontSize = 17;
+                      centeredStyle.alignment = TextAnchor.MiddleCenter;
+                      centeredStyle.wordWrap = true;
+
+                      smallStyle = new GUIStyle(GUI.skin.label);
+                      smallStyle.fontSize = 13;
+                      smallStyle.wordWrap = true;
+                  }
+
+                  private void OnGUI()
+                  {
+                      EnsureStyles();
+                      GUI.depth = -10000;
+                      Color oldColor = GUI.color;
+                      GUI.color = game.AwaitingHandoff ? new Color(0f, 0f, 0f, 1f) : new Color(0.04f, 0.05f, 0.08f, 0.97f);
+                      GUI.Box(new Rect(0f, 0f, Screen.width, Screen.height), string.Empty);
+                      GUI.color = Color.white;
+
+                      if (game.AwaitingHandoff)
+                      {
+                          DrawHandoff();
+                      }
+                      else if (game.Outcome != ScgsM1Outcome.Playing)
+                      {
+                          DrawFinished();
+                      }
+                      else
+                      {
+                          DrawGame();
+                      }
+                      GUI.color = oldColor;
+                  }
+
+                  private void DrawHandoff()
+                  {
+                      float width = 520f;
+                      float height = 260f;
+                      GUILayout.BeginArea(new Rect((Screen.width - width) / 2f, (Screen.height - height) / 2f, width, height), GUI.skin.box);
+                      GUILayout.Space(24f);
+                      GUILayout.Label("PASS THE DEVICE", titleStyle, GUILayout.Height(45f));
+                      GUILayout.Label("Player " + (game.CurrentPlayer + 1).ToString() + ", reveal your hand when the other player cannot see the screen.", centeredStyle, GUILayout.Height(80f));
+                      GUILayout.Space(16f);
+                      if (GUILayout.Button("REVEAL PLAYER " + (game.CurrentPlayer + 1).ToString() + " HAND", GUILayout.Height(52f)))
+                      {
+                          game.AcknowledgeHandoff(game.CurrentPlayer);
+                          selectedHand = -1;
+                          selectedAttacker = -1;
+                      }
+                      GUILayout.EndArea();
+                  }
+
+                  private void DrawFinished()
+                  {
+                      float width = 540f;
+                      float height = 300f;
+                      string result = game.Outcome == ScgsM1Outcome.Draw ? "DRAW" : "PLAYER " + (game.WinnerIndex() + 1).ToString() + " WINS";
+                      GUILayout.BeginArea(new Rect((Screen.width - width) / 2f, (Screen.height - height) / 2f, width, height), GUI.skin.box);
+                      GUILayout.Space(24f);
+                      GUILayout.Label(result, titleStyle, GUILayout.Height(60f));
+                      GUILayout.Label(game.LastAction, centeredStyle, GUILayout.Height(70f));
+                      GUILayout.Space(18f);
+                      if (GUILayout.Button("PLAY AGAIN", GUILayout.Height(50f)))
+                      {
+                          ResetGame();
+                      }
+                      GUILayout.EndArea();
+                  }
+
+                  private void DrawGame()
+                  {
+                      float margin = 18f;
+                      GUILayout.BeginArea(new Rect(margin, margin, Screen.width - margin * 2f, Screen.height - margin * 2f));
+
+                      GUILayout.BeginHorizontal(GUI.skin.box);
+                      GUILayout.Label("SCGS M1 LOCAL HOTSEAT", titleStyle, GUILayout.Height(38f));
+                      GUILayout.FlexibleSpace();
+                      GUILayout.Label("Turn " + game.TurnNumber.ToString() + " | Player " + (game.CurrentPlayer + 1).ToString(), centeredStyle, GUILayout.Width(250f));
+                      GUILayout.EndHorizontal();
+
+                      DrawPlayerStatus(game.OpponentOf(game.CurrentPlayer), false);
+                      DrawLeaderTarget();
+                      DrawBoard(game.OpponentOf(game.CurrentPlayer), false);
+
+                      GUILayout.Space(8f);
+                      GUILayout.BeginHorizontal(GUI.skin.box);
+                      GUILayout.Label(game.LastAction, smallStyle, GUILayout.Height(34f));
+                      GUILayout.EndHorizontal();
+                      GUILayout.Space(8f);
+
+                      DrawBoard(game.CurrentPlayer, true);
+                      DrawPlayerStatus(game.CurrentPlayer, true);
+                      DrawHand();
+                      DrawActionBar();
+
+                      GUILayout.EndArea();
+                  }
+
+                  private void DrawPlayerStatus(int playerIndex, bool own)
+                  {
+                      ScgsM1Player player = game.Players[playerIndex];
+                      GUILayout.BeginHorizontal(GUI.skin.box);
+                      GUILayout.Label((own ? "ACTIVE " : "OPPONENT ") + "PLAYER " + (playerIndex + 1).ToString(), centeredStyle, GUILayout.Width(210f), GUILayout.Height(42f));
+                      GUILayout.Label("HP " + Math.Max(0, player.LeaderHealth).ToString() + "/" + ScgsM1Game.StartingLeaderHealth.ToString(), centeredStyle, GUILayout.Width(150f));
+                      GUILayout.Label("PP " + player.CurrentPP.ToString() + "/" + player.MaximumPP.ToString(), centeredStyle, GUILayout.Width(140f));
+                      GUILayout.Label("Deck " + player.Deck.Count.ToString(), centeredStyle, GUILayout.Width(120f));
+                      GUILayout.Label(own ? "Hand " + player.Hand.Count.ToString() : "Hidden hand: " + player.Hand.Count.ToString(), centeredStyle, GUILayout.Width(180f));
+                      GUILayout.FlexibleSpace();
+                      GUILayout.EndHorizontal();
+                  }
+
+                  private void DrawLeaderTarget()
+                  {
+                      bool previousEnabled = GUI.enabled;
+                      GUI.enabled = selectedAttacker >= 0;
+                      if (GUILayout.Button(selectedAttacker >= 0 ? "ATTACK OPPONENT LEADER" : "Select a READY unit to attack the leader", GUILayout.Height(38f)))
+                      {
+                          if (game.AttackLeader(selectedAttacker))
+                          {
+                              selectedAttacker = -1;
+                              selectedHand = -1;
+                          }
+                      }
+                      GUI.enabled = previousEnabled;
+                  }
+
+                  private void DrawBoard(int playerIndex, bool own)
+                  {
+                      GUILayout.BeginHorizontal();
+                      int slot;
+                      for (slot = 0; slot < ScgsM1Game.BoardSlots; ++slot)
+                      {
+                          ScgsM1Unit unit = game.GetUnit(playerIndex, slot);
+                          string caption;
+                          bool canClick = false;
+
+                          if (unit == null)
+                          {
+                              caption = own && selectedHand >= 0 ? "PLAY HERE" : "EMPTY";
+                              canClick = own && selectedHand >= 0;
+                          }
+                          else
+                          {
+                              caption = UnitCaption(unit, own && slot == selectedAttacker);
+                              canClick = own ? unit.Ready : selectedAttacker >= 0;
+                          }
+
+                          bool previousEnabled = GUI.enabled;
+                          GUI.enabled = canClick;
+                          if (GUILayout.Button(caption, GUILayout.Height(105f), GUILayout.MinWidth(130f)))
+                          {
+                              if (own)
+                              {
+                                  if (unit == null && selectedHand >= 0)
+                                  {
+                                      if (game.PlayUnit(selectedHand, slot))
+                                      {
+                                          selectedHand = -1;
+                                          selectedAttacker = -1;
+                                      }
+                                  }
+                                  else if (unit != null && unit.Ready)
+                                  {
+                                      selectedAttacker = slot;
+                                      selectedHand = -1;
+                                  }
+                              }
+                              else if (unit != null && selectedAttacker >= 0)
+                              {
+                                  if (game.AttackUnit(selectedAttacker, slot))
+                                  {
+                                      selectedAttacker = -1;
+                                      selectedHand = -1;
+                                  }
+                              }
+                          }
+                          GUI.enabled = previousEnabled;
+                      }
+                      GUILayout.EndHorizontal();
+                  }
+
+                  private void DrawHand()
+                  {
+                      ScgsM1Player player = game.Players[game.CurrentPlayer];
+                      GUILayout.BeginHorizontal(GUI.skin.box);
+                      GUILayout.Label("HAND", centeredStyle, GUILayout.Width(70f), GUILayout.Height(92f));
+                      int index;
+                      for (index = 0; index < player.Hand.Count; ++index)
+                      {
+                          ScgsM1Card card = player.Hand[index];
+                          bool affordable = card.Cost <= player.CurrentPP;
+                          bool previousEnabled = GUI.enabled;
+                          GUI.enabled = affordable;
+                          string prefix = index == selectedHand ? "> " : string.Empty;
+                          if (GUILayout.Button(prefix + CardCaption(card), GUILayout.Width(125f), GUILayout.Height(88f)))
+                          {
+                              selectedHand = index;
+                              selectedAttacker = -1;
+                          }
+                          GUI.enabled = previousEnabled;
+                      }
+                      GUILayout.FlexibleSpace();
+                      GUILayout.EndHorizontal();
+                  }
+
+                  private void DrawActionBar()
+                  {
+                      GUILayout.BeginHorizontal(GUI.skin.box);
+                      if (GUILayout.Button("CANCEL SELECTION", GUILayout.Height(42f)))
+                      {
+                          selectedHand = -1;
+                          selectedAttacker = -1;
+                      }
+                      GUILayout.FlexibleSpace();
+                      if (GUILayout.Button("SURRENDER", GUILayout.Width(150f), GUILayout.Height(42f)))
+                      {
+                          game.Surrender(game.CurrentPlayer);
+                      }
+                      if (GUILayout.Button("END TURN", GUILayout.Width(190f), GUILayout.Height(42f)))
+                      {
+                          if (game.EndTurn())
+                          {
+                              selectedHand = -1;
+                              selectedAttacker = -1;
+                          }
+                      }
+                      GUILayout.EndHorizontal();
+                  }
+
+                  private static string CardCaption(ScgsM1Card card)
+                  {
+                      return card.Name + "\nCost " + card.Cost.ToString() + "\n" + card.Attack.ToString() + "/" + card.Health.ToString();
+                  }
+
+                  private static string UnitCaption(ScgsM1Unit unit, bool selected)
+                  {
+                      string state = unit.Ready ? "READY" : "EXHAUSTED";
+                      string prefix = selected ? "> SELECTED\n" : string.Empty;
+                      return prefix + unit.Card.Name + "\n" + unit.Attack.ToString() + "/" + unit.Health.ToString() + " (max " + unit.MaximumHealth.ToString() + ")\n" + state;
+                  }
+              }
+          }
+          CS
+
+      - name: Write YGOPro2 patcher and tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p tools/tests tools/unity_stubs scripts
+          cat > tools/apply_m1_ygo2.py <<'PY'
+          #!/usr/bin/env python3
+          from __future__ import annotations
+
+          import argparse
+          import shutil
+          import subprocess
+          import sys
+          from pathlib import Path
+
+          EXPECTED_UNITY = "5.6.7f1"
+
+
+          def copy_tree(source: Path, destination: Path) -> None:
+              destination.mkdir(parents=True, exist_ok=True)
+              for path in source.rglob("*"):
+                  relative = path.relative_to(source)
+                  target = destination / relative
+                  if path.is_dir():
+                      target.mkdir(parents=True, exist_ok=True)
+                  else:
+                      target.parent.mkdir(parents=True, exist_ok=True)
+                      shutil.copy2(str(path), str(target))
+
+
+          def patch_program(program_path: Path) -> None:
+              raw = program_path.read_bytes()
+              has_bom = raw.startswith(b"\xef\xbb\xbf")
+              text = raw.decode("utf-8-sig")
+              injection = "        SomeCardGame.M1.ScgsM1Bootstrap.Attach(gameObject);"
+              if injection in text:
+                  if text.count(injection) != 1:
+                      raise RuntimeError("Program.cs contains the M1 bootstrap more than once")
+                  return
+              needle = "        instance = this;\n        initialize();"
+              if needle not in text:
+                  needle = "        instance = this;\r\n        initialize();"
+                  if needle not in text:
+                      raise RuntimeError("Could not find the Program.Start bootstrap insertion point")
+                  replacement = "        instance = this;\r\n" + injection + "\r\n        initialize();"
+              else:
+                  replacement = "        instance = this;\n" + injection + "\n        initialize();"
+              if text.count(needle) != 1:
+                  raise RuntimeError("Program.Start insertion point is ambiguous")
+              text = text.replace(needle, replacement)
+              encoding = "utf-8-sig" if has_bom else "utf-8"
+              program_path.write_text(text, encoding=encoding, newline="")
+
+
+          def validate_unity_version(target: Path) -> None:
+              version_file = target / "ProjectSettings" / "ProjectVersion.txt"
+              if not version_file.exists():
+                  return
+              text = version_file.read_text(encoding="utf-8-sig")
+              if EXPECTED_UNITY not in text:
+                  raise RuntimeError("Expected Unity " + EXPECTED_UNITY + ", got: " + text.strip())
+
+
+          def apply(target: Path, skip_base_overlay: bool = False) -> None:
+              root = Path(__file__).resolve().parents[1]
+              target = target.resolve()
+              if not target.exists():
+                  raise RuntimeError("YGOPro2 target does not exist: " + str(target))
+              validate_unity_version(target)
+              if not skip_base_overlay:
+                  subprocess.run(
+                      [sys.executable, str(root / "tools" / "apply_ygo2_overlay.py"), str(target)],
+                      check=True,
+                  )
+              source = root / "client" / "YGOPro2Overlay" / "Assets" / "SomeCardGame" / "M1"
+              destination = target / "Assets" / "SomeCardGame" / "M1"
+              copy_tree(source, destination)
+              patch_program(target / "Assets" / "SibylSystem" / "Program.cs")
+              (target / "SCGS_M1_README.txt").write_text(
+                  "SomeCardGameShit M1 local hotseat\n\n"
+                  "Unity Editor: open Assets/main.unity; M1 starts automatically.\n"
+                  "Windows build: launch the executable with --scgs-m1 or place an empty scgs-m1.flag beside it.\n",
+                  encoding="utf-8",
+              )
+
+
+          def main() -> int:
+              parser = argparse.ArgumentParser()
+              parser.add_argument("target", type=Path)
+              parser.add_argument("--skip-base-overlay", action="store_true")
+              args = parser.parse_args()
+              apply(args.target, args.skip_base_overlay)
+              print("M1 overlay applied to " + str(args.target.resolve()))
+              return 0
+
+
+          if __name__ == "__main__":
+              raise SystemExit(main())
+          PY
+          chmod +x tools/apply_m1_ygo2.py
+
+          cat > tools/tests/test_apply_m1_ygo2.py <<'PY'
+          import subprocess
+          import sys
+          import tempfile
+          import unittest
+          from pathlib import Path
+
+
+          class ApplyM1Ygo2Tests(unittest.TestCase):
+              def make_target(self, version="5.6.7f1"):
+                  temporary = tempfile.TemporaryDirectory()
+                  target = Path(temporary.name)
+                  (target / "Assets" / "SibylSystem").mkdir(parents=True)
+                  (target / "ProjectSettings").mkdir(parents=True)
+                  (target / "ProjectSettings" / "ProjectVersion.txt").write_text(
+                      "m_EditorVersion: " + version + "\n", encoding="utf-8"
+                  )
+                  (target / "Assets" / "SibylSystem" / "Program.cs").write_text(
+                      "public class Program {\n"
+                      "    public object gameObject;\n"
+                      "    void Start()\n"
+                      "    {\n"
+                      "        instance = this;\n"
+                      "        initialize();\n"
+                      "    }\n"
+                      "    static Program instance;\n"
+                      "    void initialize() {}\n"
+                      "}\n",
+                      encoding="utf-8",
+                  )
+                  return temporary, target
+
+              def run_patcher(self, target, expect_success=True):
+                  root = Path(__file__).resolve().parents[2]
+                  result = subprocess.run(
+                      [sys.executable, str(root / "tools" / "apply_m1_ygo2.py"), str(target), "--skip-base-overlay"],
+                      text=True,
+                      stdout=subprocess.PIPE,
+                      stderr=subprocess.PIPE,
+                  )
+                  if expect_success and result.returncode != 0:
+                      self.fail(result.stdout + "\n" + result.stderr)
+                  return result
+
+              def test_copies_m1_and_patches_program_once(self):
+                  temporary, target = self.make_target()
+                  try:
+                      self.run_patcher(target)
+                      self.run_patcher(target)
+                      program = (target / "Assets" / "SibylSystem" / "Program.cs").read_text(encoding="utf-8-sig")
+                      self.assertEqual(program.count("ScgsM1Bootstrap.Attach(gameObject)"), 1)
+                      self.assertTrue((target / "Assets" / "SomeCardGame" / "M1" / "ScgsM1Game.cs").exists())
+                      self.assertTrue((target / "Assets" / "SomeCardGame" / "M1" / "ScgsM1PlayableLoop.cs").exists())
+                      self.assertTrue((target / "SCGS_M1_README.txt").exists())
+                  finally:
+                      temporary.cleanup()
+
+              def test_rejects_wrong_unity_version(self):
+                  temporary, target = self.make_target("2022.3.0f1")
+                  try:
+                      result = self.run_patcher(target, expect_success=False)
+                      self.assertNotEqual(result.returncode, 0)
+                      self.assertIn("Expected Unity 5.6.7f1", result.stderr)
+                  finally:
+                      temporary.cleanup()
+
+
+          if __name__ == "__main__":
+              unittest.main()
+          PY
+
+          cat > tools/unity_stubs/UnityEngine.cs <<'CS'
+          using System;
+
+          namespace UnityEngine
+          {
+              public class Object { }
+              public class Component : Object
+              {
+                  public GameObject gameObject;
+              }
+              public class Behaviour : Component
+              {
+                  public bool enabled;
+              }
+              public class MonoBehaviour : Behaviour { }
+              public class GameObject : Object
+              {
+                  public T AddComponent<T>() where T : new() { return new T(); }
+                  public T GetComponent<T>() where T : class { return null; }
+              }
+              public struct Rect
+              {
+                  public Rect(float x, float y, float width, float height) { }
+              }
+              public struct Color
+              {
+                  public Color(float r, float g, float b, float a) { }
+                  public static Color white { get { return new Color(1f, 1f, 1f, 1f); } }
+              }
+              public static class Screen
+              {
+                  public static int width = 1280;
+                  public static int height = 720;
+              }
+              public enum TextAnchor
+              {
+                  MiddleCenter
+              }
+              public class GUIStyle
+              {
+                  public int fontSize;
+                  public bool wordWrap;
+                  public TextAnchor alignment;
+                  public GUIStyle() { }
+                  public GUIStyle(GUIStyle other) { }
+              }
+              public class GUISkin
+              {
+                  public GUIStyle label = new GUIStyle();
+                  public GUIStyle box = new GUIStyle();
+              }
+              public static class GUI
+              {
+                  public static int depth;
+                  public static bool enabled = true;
+                  public static Color color;
+                  public static GUISkin skin = new GUISkin();
+                  public static void Box(Rect position, string text) { }
+              }
+              public class GUILayoutOption { }
+              public static class GUILayout
+              {
+                  public static void BeginArea(Rect screenRect) { }
+                  public static void BeginArea(Rect screenRect, GUIStyle style) { }
+                  public static void EndArea() { }
+                  public static void BeginHorizontal(params GUILayoutOption[] options) { }
+                  public static void BeginHorizontal(GUIStyle style, params GUILayoutOption[] options) { }
+                  public static void EndHorizontal() { }
+                  public static void Space(float pixels) { }
+                  public static void FlexibleSpace() { }
+                  public static void Label(string text, params GUILayoutOption[] options) { }
+                  public static void Label(string text, GUIStyle style, params GUILayoutOption[] options) { }
+                  public static bool Button(string text, params GUILayoutOption[] options) { return false; }
+                  public static GUILayoutOption Width(float width) { return new GUILayoutOption(); }
+                  public static GUILayoutOption MinWidth(float width) { return new GUILayoutOption(); }
+                  public static GUILayoutOption Height(float height) { return new GUILayoutOption(); }
+              }
+          }
+          CS
+
+          cat > tools/tests/ScgsM1GameSmoke.cs <<'CS'
+          using System;
+          using SomeCardGame.M1;
+
+          public static class ScgsM1GameSmoke
+          {
+              private static int assertions;
+
+              private static void Assert(bool condition, string message)
+              {
+                  assertions += 1;
+                  if (!condition)
+                  {
+                      throw new Exception(message);
+                  }
+              }
+
+              private static int FindAffordableCard(ScgsM1Game game, int player)
+              {
+                  int i;
+                  for (i = 0; i < game.Players[player].Hand.Count; ++i)
+                  {
+                      if (game.Players[player].Hand[i].Cost <= game.Players[player].CurrentPP)
+                      {
+                          return i;
+                      }
+                  }
+                  return -1;
+              }
+
+              public static int Main()
+              {
+                  ScgsM1Game game = new ScgsM1Game();
+                  game.Reset(7);
+                  Assert(game.CurrentPlayer == 0, "Player 1 should start");
+                  Assert(game.Players[0].Hand.Count == 4 && game.Players[1].Hand.Count == 4, "Both players need four cards");
+                  Assert(game.Players[0].MaximumPP == 1 && game.Players[0].CurrentPP == 1, "Player 1 needs one PP");
+                  Assert(game.AwaitingHandoff, "Opening hand must be concealed");
+                  Assert(!game.PlayUnit(0, 0), "Actions must be blocked during handoff");
+                  Assert(game.AcknowledgeHandoff(0), "Player 1 should reveal");
+
+                  int card = FindAffordableCard(game, 0);
+                  Assert(card >= 0, "Player 1 needs an affordable card");
+                  Assert(game.PlayUnit(card, 0), "Player 1 should play a unit");
+                  Assert(game.GetUnit(0, 0) != null, "Played unit should be on board");
+                  Assert(!game.GetUnit(0, 0).Ready, "New unit must have summoning sickness");
+                  Assert(!game.AttackLeader(0), "New unit must not attack");
+                  Assert(game.EndTurn(), "Player 1 should end turn");
+                  Assert(game.CurrentPlayer == 1 && game.AwaitingHandoff, "Turn should pass safely");
+                  Assert(game.Players[1].MaximumPP == 1, "Player 2 first turn needs one PP");
+                  Assert(game.AcknowledgeHandoff(1), "Player 2 should reveal");
+                  card = FindAffordableCard(game, 1);
+                  Assert(card >= 0 && game.PlayUnit(card, 0), "Player 2 should play a unit");
+                  Assert(game.EndTurn(), "Player 2 should end turn");
+                  Assert(game.AcknowledgeHandoff(0), "Player 1 second reveal");
+                  Assert(game.Players[0].MaximumPP == 2 && game.Players[0].CurrentPP == 2, "PP should grow and refill");
+                  Assert(game.GetUnit(0, 0).Ready, "Older unit should be ready");
+
+                  int enemyHealth = game.GetUnit(1, 0).Health;
+                  int ownAttack = game.GetUnit(0, 0).Attack;
+                  Assert(game.AttackUnit(0, 0), "Unit combat should resolve");
+                  ScgsM1Unit enemy = game.GetUnit(1, 0);
+                  if (enemy != null)
+                  {
+                      Assert(enemy.Health == enemyHealth - ownAttack, "Unit damage must persist");
+                  }
+
+                  game.Reset(11);
+                  Assert(game.AcknowledgeHandoff(0), "Fresh Player 1 reveal");
+                  card = FindAffordableCard(game, 0);
+                  Assert(card >= 0 && game.PlayUnit(card, 0), "Fresh unit play");
+                  Assert(game.EndTurn(), "Pass to Player 2");
+                  Assert(game.AcknowledgeHandoff(1), "Player 2 reveal");
+                  Assert(game.EndTurn(), "Player 2 may pass");
+                  Assert(game.AcknowledgeHandoff(0), "Player 1 reveal again");
+                  int before = game.Players[1].LeaderHealth;
+                  Assert(game.AttackLeader(0), "Ready unit should attack leader");
+                  Assert(game.Players[1].LeaderHealth < before, "Leader damage should apply");
+                  Assert(game.Surrender(0), "Surrender should finish game");
+                  Assert(game.Outcome == ScgsM1Outcome.PlayerTwoWon, "Opponent should win surrender");
+                  Assert(!game.EndTurn(), "Finished game must reject actions");
+
+                  Console.WriteLine("M1 managed smoke passed: " + assertions.ToString() + " assertions");
+                  return 0;
+              }
+          }
+          CS
+
+          cat > scripts/test-m1-managed.sh <<'SH'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          root=$(cd "$(dirname "$0")/.." && pwd)
+          out="$root/build/m1-managed"
+          rm -rf "$out"
+          mkdir -p "$out"
+          mcs -warn:4 -warnaserror+ \
+            -out:"$out/ScgsM1GameSmoke.exe" \
+            "$root/client/YGOPro2Overlay/Assets/SomeCardGame/M1/ScgsM1Game.cs" \
+            "$root/tools/tests/ScgsM1GameSmoke.cs"
+          mono "$out/ScgsM1GameSmoke.exe"
+          mcs -warn:4 -warnaserror+ -target:library \
+            -out:"$out/ScgsM1UnityOverlay.dll" \
+            "$root/tools/unity_stubs/UnityEngine.cs" \
+            "$root/client/YGOPro2Overlay/Assets/SomeCardGame/M1/ScgsM1Game.cs" \
+            "$root/client/YGOPro2Overlay/Assets/SomeCardGame/M1/ScgsM1PlayableLoop.cs"
+          python3 -m unittest tools.tests.test_apply_m1_ygo2
+          SH
+          chmod +x scripts/test-m1-managed.sh
+
+      - name: Write M1 documentation and workflows
+        shell: bash
+        run: |
+          set -euo pipefail
+          cat > docs/m1-playable-loop.md <<'MD'
+          # M1: first human-playable loop
+
+          M1 is a deliberately small local-hotseat vertical slice inside the locked YGOPro2 Unity 5.6.7 project.
+
+          ## Acceptance scope
+
+          - two human players on one computer;
+          - an opaque handoff screen conceals the next player's hand;
+          - both players start at 25 leader health;
+          - PP grows by one per personal turn and refills, capped at 10;
+          - fixed 30-card placeholder decks and four-card starting hands;
+          - click a hand card, then an empty unit slot, to play it;
+          - five unit slots per player;
+          - played units cannot attack until their controller's next turn;
+          - click a READY unit, then an enemy unit or the enemy leader, to attack;
+          - unit combat deals simultaneous damage and unit damage persists;
+          - end turn, surrender, fatigue damage and win screens;
+          - restart a completed match without restarting Unity.
+
+          ## Run it
+
+          1. Install Unity 5.6.7f1.
+          2. Run `./scripts/bootstrap-upstream.sh`.
+          3. Run `python3 tools/apply_m1_ygo2.py vendor/YGOProUnity_V2`.
+          4. Open `vendor/YGOProUnity_V2/Assets/main.unity`.
+
+          In the Unity editor the M1 overlay starts automatically. A Windows player build starts it with `--scgs-m1`, or when an empty `scgs-m1.flag` is placed beside the executable.
+
+          ## Honest limitation
+
+          This milestone proves the first human interaction loop in the YGOPro2 client shell. Its placeholder card pool and hotseat state machine are managed C# so the UI can be tested independently. The M0 C++ rules core remains the deeper rules reference, but M1 does not yet claim that every click is executed by a production `ocgcore.dll` bridge. Replacing the managed adapter with the native authoritative bridge is the next integration gate, not something hidden behind the M1 label.
+          MD
+
+          cat > M1_STATUS.md <<'MD'
+          # M1 status
+
+          **State:** first human-playable local-hotseat candidate.
+
+          The repository now contains an M1 YGOPro2 overlay with leader health, PP, hidden handoffs, fixed hands/decks, five unit slots, unit play, unit/leader attacks, persistent simultaneous combat damage, end turn, surrender, fatigue, win and restart.
+
+          Automated gates cover:
+
+          - the pure managed game-state smoke path;
+          - compilation of the Unity-facing C# files against a minimal Unity 5-era API stub;
+          - idempotent patching of the locked YGOPro2 `Program.cs` startup path;
+          - rejection of the wrong Unity project version;
+          - all pre-existing M0 C++ tests;
+          - application of the overlay to the real locked upstream source.
+
+          What automation cannot honestly prove is the visual result of launching Unity 5.6.7 on a human desktop. The source is a playable candidate, but a captured Windows/editor run remains the final visual acceptance step before calling M1 fully signed off.
+          MD
+
+          python3 - <<'PY'
+          from pathlib import Path
+          p=Path('README.md')
+          text=p.read_text(encoding='utf-8')
+          marker='## M1：第一个真人可玩闭环'
+          block='''\n\n## M1：第一个真人可玩闭环\n\n仓库现已加入 YGOPro2 内的本地热座候选：双方 25 生命、PP、四张起手、五个单位位、点击打出、单位/主战者攻击、持续战斗伤害、结束回合、投降、疲劳、胜负与重新开始。交接玩家时会使用完全不透明的遮罩隐藏手牌。\n\n```bash\n./scripts/bootstrap-upstream.sh\npython3 tools/apply_m1_ygo2.py vendor/YGOProUnity_V2\n```\n\n随后用 Unity 5.6.7f1 打开 `vendor/YGOProUnity_V2/Assets/main.unity`。编辑器会自动进入 M1；Windows 构建可使用 `--scgs-m1` 启动。完整范围和限制见 [`docs/m1-playable-loop.md`](docs/m1-playable-loop.md) 与 [`M1_STATUS.md`](M1_STATUS.md)。\n'''
+          if marker not in text:
+              p.write_text(text.rstrip()+block+'\n',encoding='utf-8')
+          PY
+
+          cat > .github/workflows/ci.yml <<'YML'
+          name: CI
+
+          on:
+            push:
+              branches: [main, "prototype/**", "feature/**"]
+            pull_request:
+
+          permissions:
+            contents: read
+
+          jobs:
+            linux-gcc:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v4
+                - name: Configure
+                  run: cmake -S . -B build/ci-gcc -G Ninja -DCMAKE_BUILD_TYPE=Release -DSCGS_WARNINGS_AS_ERRORS=ON
+                - name: Build
+                  run: cmake --build build/ci-gcc --parallel 2
+                - name: Test
+                  run: ctest --test-dir build/ci-gcc --output-on-failure
+
+            linux-clang-sanitizers:
+              runs-on: ubuntu-latest
+              env:
+                CC: clang
+                CXX: clang++
+                ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+                UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+              steps:
+                - uses: actions/checkout@v4
+                - name: Configure
+                  run: cmake -S . -B build/ci-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DSCGS_WARNINGS_AS_ERRORS=ON -DSCGS_ENABLE_SANITIZERS=ON
+                - name: Build
+                  run: cmake --build build/ci-asan --parallel 2
+                - name: Test
+                  run: ctest --test-dir build/ci-asan --output-on-failure
+
+            windows-msvc:
+              runs-on: windows-latest
+              steps:
+                - uses: actions/checkout@v4
+                - name: Configure
+                  run: cmake -S . -B build/ci-msvc -A x64 -DSCGS_WARNINGS_AS_ERRORS=ON
+                - name: Build
+                  run: cmake --build build/ci-msvc --config Release --parallel 2
+                - name: Test
+                  run: ctest --test-dir build/ci-msvc -C Release --output-on-failure
+
+            m1-managed-and-ygo2-patch:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v4
+                - name: Install managed compiler
+                  run: |
+                    sudo apt-get update
+                    sudo apt-get install -y mono-mcs
+                - name: Managed model, UI compile and patcher tests
+                  run: ./scripts/test-m1-managed.sh
+                - name: Apply to locked YGOPro2 source
+                  run: |
+                    ./scripts/bootstrap-upstream.sh
+                    python3 tools/apply_m1_ygo2.py vendor/YGOProUnity_V2
+                    grep -F "ScgsM1Bootstrap.Attach(gameObject)" vendor/YGOProUnity_V2/Assets/SibylSystem/Program.cs
+                    test -f vendor/YGOProUnity_V2/Assets/SomeCardGame/M1/ScgsM1PlayableLoop.cs
+          YML
+
+          cat > .github/workflows/fetch-ygo2-source.yml <<'YML'
+          name: Fetch locked YGOPro2 M1 source
+
+          on:
+            workflow_dispatch:
+
+          permissions:
+            contents: read
+
+          jobs:
+            package:
+              runs-on: ubuntu-latest
+              steps:
+                - uses: actions/checkout@v4
+                - name: Fetch locked upstream and apply M1 overlay
+                  shell: bash
+                  run: |
+                    set -euo pipefail
+                    ./scripts/bootstrap-upstream.sh
+                    python3 tools/apply_m1_ygo2.py vendor/YGOProUnity_V2
+                    rm -rf vendor/YGOProUnity_V2/.git
+                - name: Upload patched source
+                  uses: actions/upload-artifact@v4
+                  with:
+                    name: ygopro2-m1-source
+                    path: vendor/YGOProUnity_V2
+                    if-no-files-found: error
+                    retention-days: 7
+          YML
+
+      - name: Install test dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mono-mcs ninja-build
+
+      - name: Run M0 and M1 tests
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake -S . -B build/bootstrap-release -G Ninja -DCMAKE_BUILD_TYPE=Release -DSCGS_WARNINGS_AS_ERRORS=ON
+          cmake --build build/bootstrap-release --parallel 2
+          ctest --test-dir build/bootstrap-release --output-on-failure
+          ./scripts/test-m1-managed.sh
+
+      - name: Test against locked upstream YGOPro2
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/bootstrap-upstream.sh
+          python3 tools/apply_m1_ygo2.py vendor/YGOProUnity_V2
+          grep -F "SomeCardGame.M1.ScgsM1Bootstrap.Attach(gameObject);" vendor/YGOProUnity_V2/Assets/SibylSystem/Program.cs
+          test "$(grep -Fc 'ScgsM1Bootstrap.Attach(gameObject)' vendor/YGOProUnity_V2/Assets/SibylSystem/Program.cs)" -eq 1
+          test -f vendor/YGOProUnity_V2/Assets/SomeCardGame/M1/ScgsM1PlayableLoop.cs
+
+      - name: Commit and publish tested M1
+        shell: bash
+        run: |
+          set -euo pipefail
+          git rm -f .github/workflows/bootstrap-m1-managed-loop.yml
+          git add -- \
+            .github/workflows/ci.yml \
+            .github/workflows/fetch-ygo2-source.yml \
+            README.md \
+            M1_STATUS.md \
+            docs/m1-playable-loop.md \
+            client/YGOPro2Overlay/Assets/SomeCardGame/M1/ScgsM1Game.cs \
+            client/YGOPro2Overlay/Assets/SomeCardGame/M1/ScgsM1PlayableLoop.cs \
+            tools/apply_m1_ygo2.py \
+            tools/tests/test_apply_m1_ygo2.py \
+            tools/tests/ScgsM1GameSmoke.cs \
+            tools/unity_stubs/UnityEngine.cs \
+            scripts/test-m1-managed.sh
+          git diff --cached --check
+          git commit -m "feat: add M1 human-playable YGOPro2 hotseat loop"
+          git push --force-with-lease origin HEAD:feature/m1-playable-loop
+          git fetch origin main
+          git merge-base --is-ancestor origin/main HEAD
+          git push origin HEAD:main

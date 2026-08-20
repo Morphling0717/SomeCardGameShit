@@ -1,0 +1,33 @@
+name: Fetch locked YGOPro2 source
+
+on:
+  push:
+    branches: ["feature/m1-playable-loop"]
+    paths:
+      - ".github/workflows/fetch-ygo2-source.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Fetch locked upstream and apply overlay
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/bootstrap-upstream.sh
+          python3 tools/apply_ygo2_overlay.py vendor/YGOProUnity_V2
+          rm -rf vendor/YGOProUnity_V2/.git
+
+      - name: Upload patched source
+        uses: actions/upload-artifact@v4
+        with:
+          name: ygopro2-m1-source
+          path: vendor/YGOProUnity_V2
+          if-no-files-found: error
+          retention-days: 1

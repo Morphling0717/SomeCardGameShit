@@ -1,0 +1,17 @@
+{
+  "schema": 1,
+  "dependencies": {
+    "YGOProUnity_V2": {
+      "url": "https://github.com/lllyasviel/YGOProUnity_V2.git",
+      "revision": "b90f5bbdb0ae60df4060152b94e25a60783040b8",
+      "path": "vendor/YGOProUnity_V2",
+      "role": "pinned Unity client baseline"
+    },
+    "ygopro-core": {
+      "url": "https://github.com/Fluorohydride/ygopro-core.git",
+      "revision": "8046f3fb7fceae5aef13a889655f8211c9087174",
+      "path": "vendor/ygopro-core",
+      "role": "core and Lua API research baseline; ABI compatibility not assumed"
+    }
+  }
+}

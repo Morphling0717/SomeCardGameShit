@@ -1,0 +1,48 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "prototype/**", "feature/**"]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  linux-gcc:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build/ci-gcc -G Ninja -DCMAKE_BUILD_TYPE=Release -DSCGS_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build/ci-gcc --parallel 2
+      - name: Test
+        run: ctest --test-dir build/ci-gcc --output-on-failure
+
+  linux-clang-sanitizers:
+    runs-on: ubuntu-latest
+    env:
+      CC: clang
+      CXX: clang++
+      ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
+      UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build/ci-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DSCGS_WARNINGS_AS_ERRORS=ON -DSCGS_ENABLE_SANITIZERS=ON
+      - name: Build
+        run: cmake --build build/ci-asan --parallel 2
+      - name: Test
+        run: ctest --test-dir build/ci-asan --output-on-failure
+
+  windows-msvc:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure
+        run: cmake -S . -B build/ci-msvc -A x64 -DSCGS_WARNINGS_AS_ERRORS=ON
+      - name: Build
+        run: cmake --build build/ci-msvc --config Release --parallel 2
+      - name: Test
+        run: ctest --test-dir build/ci-msvc -C Release --output-on-failure

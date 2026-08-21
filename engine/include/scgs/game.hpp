@@ -32,6 +32,8 @@ enum class EventType : std::uint8_t {
     AttackDeclared,
     AttackCancelled,
     UnitEvolved,
+    EvolutionEnergyChanged, // v0.4: energy gained from a class charge condition
+    UnitDeployed,          // v0.4: standby deployment resolved
     TrapWindowOpened,
     TrapActivated,
     LeaderSkillUsed,
@@ -68,9 +70,14 @@ struct CardInstance {
     bool evolved = false;
     bool attacked_this_turn = false;
     bool entered_this_turn = false;
-    bool temporary_rush = false; // granted by evolution or advance effect
+    bool temporary_rush = false; // granted by evolution or card effects
+    bool deployed_from_standby = false; // v0.4: entered via 部署; leaves to archive
     bool face_down = false;
     int countdown = 0;
+
+    // v0.4 组件能力: runtime granted modifier from the card that paid the
+    // deployment cost. Cleared when the unit leaves the field; never re-granted.
+    ComponentSpec granted_component;
 };
 
 struct PlayerState {
@@ -86,8 +93,16 @@ struct PlayerState {
     bool mulligan_done = false;
     bool evolution_used_this_turn = false;
     bool advance_used_this_turn = false; // v0.4: 动用未来 (advance+burn both count)
+    bool deploy_used_this_turn = false;  // v0.4: 战备部署 once per turn
     bool trap_set_this_turn = false;
     bool leader_skill_used = false;
+
+    // v0.4 charge-condition bookkeeping (turn cycle = own turn start to next
+    // own turn start; at most one energy point granted per cycle).
+    bool charge_granted_this_cycle = false;
+    int friendly_deaths_this_cycle = 0;
+    int spells_used_this_turn = 0;
+    int units_played_this_turn = 0;
 
     std::vector<InstanceId> deck;
     std::vector<InstanceId> hand;
@@ -157,6 +172,8 @@ public:
         std::optional<Target> ability_target = std::nullopt,
         bool use_advance = false);
 
+    // v0.4 §5: the tactic zone never auto-replaces; a full zone rejects the
+    // placement unless an effect removes a card first.
     [[nodiscard]] Status play_tactic(
         PlayerId player,
         InstanceId card,
@@ -164,13 +181,25 @@ public:
         bool use_advance = false);
 
     [[nodiscard]] Status attack(PlayerId player, InstanceId attacker, Target target);
+
+    // v0.4 §22: single evolution form. Costs 2 evolution energy, at most once
+    // per turn, unlocked on own turn 5 (first) / 4 (second). The unit changes
+    // to its evolution state (per-card evolved stats, default +2/+2), triggers
+    // "进化时" effects and may attack enemy units this turn.
     [[nodiscard]] Status evolve(
         PlayerId player,
         InstanceId unit,
-        EvolutionMode mode,
-        std::optional<Target> ability_target = std::nullopt,
-        bool free_evolution = false,
-        bool ignore_turn_limit = false);
+        std::optional<Target> ability_target = std::nullopt);
+
+    // v0.4 §25 战备部署: deploy a standby card. Deployment cannot use advance.
+    // component_donor is the friendly unit archived as the deployment cost;
+    // its printed component ability is granted to the deployed unit.
+    [[nodiscard]] Status deploy(
+        PlayerId player,
+        InstanceId standby_card,
+        std::optional<std::size_t> preferred_slot = std::nullopt,
+        std::optional<InstanceId> component_donor = std::nullopt,
+        std::optional<Target> ability_target = std::nullopt);
 
     [[nodiscard]] Status use_leader_skill(
         PlayerId player,
@@ -194,11 +223,13 @@ public:
     [[nodiscard]] GameResult result() const noexcept;
     [[nodiscard]] ReactionWindow reaction_window() const noexcept;
     [[nodiscard]] const std::vector<InstanceId>& eligible_traps() const noexcept;
+    [[nodiscard]] std::size_t response_depth() const noexcept; // v0.4: layers on the stack
     [[nodiscard]] std::vector<GameEvent> drain_events();
     [[nodiscard]] std::vector<std::string> validate_invariants() const;
 
     [[nodiscard]] std::optional<InstanceId> find_in_hand(PlayerId player, CardId card_id) const;
     [[nodiscard]] std::optional<InstanceId> find_on_field(PlayerId player, CardId card_id) const;
+    [[nodiscard]] std::optional<InstanceId> find_in_standby(PlayerId player, CardId card_id) const;
 
 private:
     struct PendingAttack {
@@ -207,12 +238,30 @@ private:
         Target target;
     };
 
-    struct PendingReaction {
+    // v0.4 §26: the suspended original action that a response layer may wrap.
+    struct SuspendedAction {
+        enum class Kind : std::uint8_t {
+            None,
+            Spell,        // spell OnPlay effects are about to resolve
+            EntryEffect,  // unit OnEntry effects are about to resolve
+            Attack,       // attack damage is about to resolve
+        };
+        Kind kind = Kind::None;
+        PlayerId player = PlayerId::Player0;
+        InstanceId card = 0;
+        std::optional<Target> target;
+        bool advanced = false;
+        PendingAttack attack;
+    };
+
+    // One layer of the v0.4 response stack (原行动 → 响应 → 反制, max 3).
+    struct ResponseLayer {
         ReactionWindow window = ReactionWindow::None;
-        PlayerId responder = PlayerId::Player0;
+        PlayerId responder = PlayerId::Player0; // who may act on this layer
         InstanceId subject = 0;
         std::vector<InstanceId> eligible_traps;
-        std::optional<PendingAttack> attack;
+        std::optional<InstanceId> activated_trap; // declared but unresolved (LIFO)
+        SuspendedAction suspended;                // non-None only on the base layer
     };
 
     CardCatalog catalog_;
@@ -225,7 +274,7 @@ private:
     PlayerId active_player_ = PlayerId::Player0;
     Phase phase_ = Phase::NotStarted;
     GameResult result_ = GameResult::Ongoing;
-    std::optional<PendingReaction> pending_reaction_;
+    std::vector<ResponseLayer> response_stack_;
     std::vector<GameEvent> events_;
 
     [[nodiscard]] Status ensure_action_player(PlayerId player) const;
@@ -252,6 +301,7 @@ private:
     void repair_cracks(PlayerId player, int amount);
     void gain_pp_capacity(PlayerId player, int amount);
     int damage_unit(InstanceId unit, int amount);
+    void grant_evolution_energy(PlayerId player, int amount);
     void resolve_deaths();
 
     // Resolve all effects in `effects` whose trigger matches `trigger`.
@@ -268,23 +318,36 @@ private:
     [[nodiscard]] bool contains_guard(PlayerId player) const;
     [[nodiscard]] bool target_is_guard(const Target& target) const;
     [[nodiscard]] bool can_attack_now(const CardInstance& attacker, const Target& target) const;
-    [[nodiscard]] Status validate_attack(PlayerId player, InstanceId attacker, const Target& target) const;
-    void resolve_pending_attack();
+    void resolve_pending_attack(const PendingAttack& attack);
     void resolve_unit_combat(InstanceId attacker, InstanceId defender);
     void resolve_leader_attack(InstanceId attacker, PlayerId defender);
 
-    void open_reaction_window(
+public:
+    // Legality query for clients: full validation of an attack command without
+    // mutating state (returns the same ErrorCode attack() would).
+    [[nodiscard]] Status validate_attack(PlayerId player, InstanceId attacker, const Target& target) const;
+
+private:
+
+    // v0.4 response stack -----------------------------------------------------
+    // Opens a window for `responder`, suspending `suspended`. When the responder
+    // has no eligible trap the suspended action resolves immediately.
+    void open_response_window(
         ReactionWindow window,
         PlayerId responder,
         InstanceId subject,
-        std::optional<PendingAttack> attack = std::nullopt);
+        SuspendedAction suspended);
     [[nodiscard]] std::vector<InstanceId> matching_traps(PlayerId responder, ReactionWindow window) const;
     [[nodiscard]] bool trap_matches_window(const CardDefinition& trap, ReactionWindow window) const;
+    // Resolve the whole stack LIFO: counter → response → original action.
+    void resolve_response_chain();
+    // Resolve one suspended original action (base layer of the chain).
+    void resolve_suspended_action(const SuspendedAction& suspended);
     void close_reaction_window();
 
     void move_from_current_zone(InstanceId card);
     void put_in_hand(PlayerId player, InstanceId card);
-    void put_in_unit_slot(PlayerId player, InstanceId card, std::size_t slot);
+    void put_in_unit_slot(PlayerId player, InstanceId card, std::size_t slot, bool deployed_from_standby = false);
     void put_in_tactic_slot(PlayerId player, InstanceId card, std::size_t slot);
     void put_in_graveyard(PlayerId player, InstanceId card);
     void put_in_archive(PlayerId player, InstanceId card);
@@ -294,6 +357,7 @@ private:
     [[nodiscard]] bool is_controlled_unit(PlayerId player, InstanceId id) const;
     [[nodiscard]] bool is_enemy_unit(PlayerId player, InstanceId id) const;
     [[nodiscard]] bool is_valid_target_for_ability(PlayerId actor, const Target& target, bool require_enemy_unit) const;
+    [[nodiscard]] bool deployment_condition_met(PlayerId player, const DeploymentSpec& spec) const;
 
     void evaluate_result();
     void emit(EventType type, PlayerId player, InstanceId card = 0, int value = 0, int secondary_value = 0, std::string text = {});

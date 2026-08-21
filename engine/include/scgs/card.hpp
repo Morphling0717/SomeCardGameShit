@@ -32,8 +32,21 @@ struct CardDefinition {
     bool printed_lifesteal = false; // damage dealt heals the controller's leader
     bool printed_bane     = false; // any damage dealt destroys target
 
+    // v0.4 evolution state. evolved_attack/evolved_health are the stats after
+    // evolution; when both are 0 the default +2/+2 applies (rules-v0.4 §22).
+    int evolved_attack = 0;
+    int evolved_health = 0;
+
     // 燃耗X: additional cost that permanently reduces PP capacity.
     AdditionalCost additional_cost;
+
+    // 战备部署 (standby deployment) specification; only meaningful for cards
+    // that live in the standby zone (rules-v0.4 §24/§25).
+    std::optional<DeploymentSpec> deployment;
+
+    // 组件能力 (component ability): granted to the deployed unit when this card
+    // pays a deployment cost (rules-v0.4 §31).
+    ComponentSpec component;
 
     // All card effects expressed as structured records.
     std::vector<EffectRecord> effects;
@@ -61,6 +74,8 @@ struct DeckList {
     std::vector<CardId> main;
     std::vector<CardId> standby; // v0.4 战备区 (0-6 public standby cards)
     LeaderSkillDefinition leader_skill;
+    ChargeCondition charge_condition = ChargeCondition::None; // v0.4 职业进化充能条件
+    int charge_amount = 0; // parameter for the charge archetype (e.g. Nth death / N spells)
 };
 
 // -----------------------------------------------------------------------
@@ -80,8 +95,10 @@ inline constexpr CardId kEliteCommander    = 1009; // 5PP 5/5
 inline constexpr CardId kPrecisionStrike   = 1010; // 2PP Spell, DealDmg3 to EnemyUnit
 inline constexpr CardId kCombatSupply      = 1011; // 2PP Spell, HealLeader3
 inline constexpr CardId kCommandOrder      = 1012; // 2PP Relic, countdown2, OnExpire:Draw1
-inline constexpr CardId kInterceptTrap     = 1013; // 1PP Trap, OnBeforeAttack:CancelAttack
-inline constexpr CardId kCounterTrap       = 1014; // 1PP Trap, OnAfterEnemyUnit:DmgUnit2
+inline constexpr CardId kInterceptTrap     = 1013; // 1PP Trap, OnAttackDeclared:CancelAttack
+inline constexpr CardId kCounterTrap       = 1014; // 1PP Trap, OnEntryEffectPending:DmgUnit2
+inline constexpr CardId kSiegeTitan        = 3001; // 战备 5/5, 部署:己方≥2单位, 3PP
+inline constexpr CardId kGuardAce          = 3002; // 战备 4/6 Guard, 部署:4PP, 封存一己方单位(组件)
 
 } // namespace cards::midrange
 
@@ -102,7 +119,9 @@ inline constexpr CardId kRepairWave        = 2008; // 2PP Spell, Repair2 + HealL
 inline constexpr CardId kBurnBlast         = 2009; // 1PP+burn2 Spell, DealDmg5 to EnemyUnit
 inline constexpr CardId kGrowthFacility    = 2010; // 2PP Relic, countdown2, OnExpire:GainPPCapacity1
 inline constexpr CardId kDebtLord          = 2011; // 8PP 8/6 (high-cost advance target)
-inline constexpr CardId kReactionTrap      = 2012; // 1PP Trap, OnAfterEnemyUnit:DmgUnit2
+inline constexpr CardId kReactionTrap      = 2012; // 1PP Trap, OnEntryEffectPending:DmgUnit2
+inline constexpr CardId kDoomEngine        = 3011; // 战备 7/7, 部署:本回合≥2法术, 2PP
+inline constexpr CardId kDebtAvatar        = 3012; // 战备 6/6, 部署:3PP, 封存一己方单位(组件)
 
 } // namespace cards::advance
 

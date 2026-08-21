@@ -40,17 +40,9 @@ namespace {
 
 // Helpers to build effect records concisely.
 
-EffectRecord on_play_draw(const int n) {
-    return {EffectTrigger::OnPlay, EffectKind::DrawCards, n, TargetSpec::None};
-}
 EffectRecord on_play_if_advanced_rush() {
-    // Grants Rush (stored as DrawCards 0 but triggers Rush grant logic).
-    // We encode a special EffectKind and amount=-1 for "grant rush until end of turn".
-    // Instead, use CancelAttack with amount=-1 sentinel? No – better to add a
-    // BuffFriendlyUnit(0) which we special-case in game.cpp as "grant rush to self".
-    // We encode this as BuffFriendlyUnit with amount=0 and target_spec=None
-    // meaning "give self Rush keyword".
-    return {EffectTrigger::OnPlayIfAdvanced, EffectKind::BuffFriendlyUnit, 0, TargetSpec::None};
+    // v0.4 §11 example: 超前 → 本回合可以攻击敌方单位.
+    return {EffectTrigger::OnPlayIfAdvanced, EffectKind::GrantRush, 0, TargetSpec::None};
 }
 EffectRecord on_play_if_not_advanced_draw(const int n) {
     return {EffectTrigger::OnPlayIfNotAdvanced, EffectKind::DrawCards, n, TargetSpec::None};
@@ -60,9 +52,6 @@ EffectRecord on_entry_draw(const int n) {
 }
 EffectRecord on_entry_repair(const int n) {
     return {EffectTrigger::OnEntry, EffectKind::RepairCracks, n, TargetSpec::None};
-}
-EffectRecord on_entry_deal_damage_enemy_unit(const int n) {
-    return {EffectTrigger::OnEntry, EffectKind::DealDamageToEnemyUnit, n, TargetSpec::EnemyUnit};
 }
 // Special effect: deal damage to enemy unit equal to player's crack count (capped at amount).
 EffectRecord on_entry_deal_cracks_damage(const int cap) {
@@ -87,16 +76,11 @@ EffectRecord on_play_heal_leader(const int n) {
 EffectRecord on_play_repair(const int n) {
     return {EffectTrigger::OnPlay, EffectKind::RepairCracks, n, TargetSpec::None};
 }
-EffectRecord on_play_heal_leader_and_repair(const int heal, const int repair) {
-    // Two separate records; caller adds both.
-    (void)heal; (void)repair;
-    return {};  // not used directly; caller creates two records
+EffectRecord on_trap_attack_cancel() {
+    return {EffectTrigger::OnAttackDeclared, EffectKind::CancelAttack, 0, TargetSpec::None};
 }
-EffectRecord on_trap_before_attack_cancel() {
-    return {EffectTrigger::OnTrapBeforeAttack, EffectKind::CancelAttack, 0, TargetSpec::None};
-}
-EffectRecord on_trap_after_enemy_unit_damage(const int n) {
-    return {EffectTrigger::OnTrapAfterEnemyUnit, EffectKind::DamageEnteredUnit, n, TargetSpec::None};
+EffectRecord on_trap_entry_pending_damage(const int n) {
+    return {EffectTrigger::OnEntryEffectPending, EffectKind::DamageEnteredUnit, n, TargetSpec::None};
 }
 
 CardDefinition unit(
@@ -147,16 +131,6 @@ CardDefinition trap(const CardId id, std::string name, const int cost) {
     return card;
 }
 
-std::vector<CardId> twice(const std::initializer_list<CardId> ids) {
-    std::vector<CardId> result;
-    result.reserve(ids.size() * 2U);
-    for (const CardId id : ids) {
-        result.push_back(id);
-        result.push_back(id);
-    }
-    return result;
-}
-
 // Build Deck A: 标准中速 (Standard Midrange) cards.
 void add_midrange_cards(CardCatalog& catalog) {
     using namespace cards::midrange;
@@ -173,10 +147,11 @@ void add_midrange_cards(CardCatalog& catalog) {
         c.printed_guard = true;
         catalog.add(std::move(c));
     }
-    // 突击前锋: 2PP 3/1, Rush (attack units on entry turn)
+    // 突击前锋: 2PP 3/1, Rush (attack units on entry turn), 组件=突进
     {
         auto c = unit(kAssaultVanguard, "突击前锋", 2, 3, 1);
         c.printed_rush = true;
+        c.component = ComponentSpec{true, EffectKind::GrantRush, 0};
         catalog.add(std::move(c));
     }
     // 前卫盾手: 2PP 2/3, Guard
@@ -185,9 +160,11 @@ void add_midrange_cards(CardCatalog& catalog) {
         c.printed_guard = true;
         catalog.add(std::move(c));
     }
-    // 战场指挥者: 3PP 3/3, OnEvolution: Draw 1
+    // 战场指挥者: 3PP 3/3, OnEvolution: Draw 1, 进化状态 5/5
     {
         auto c = unit(kFieldCommander, "战场指挥者", 3, 3, 3);
+        c.evolved_attack = 5;
+        c.evolved_health = 5;
         c.effects.push_back(on_evolution_draw(1));
         catalog.add(std::move(c));
     }
@@ -227,16 +204,29 @@ void add_midrange_cards(CardCatalog& catalog) {
         c.effects.push_back(on_countdown_expire_draw(1));
         catalog.add(std::move(c));
     }
-    // 拦截伏策: 1PP Trap, OnTrapBeforeAttack: CancelAttack
+    // 拦截伏策: 1PP Trap, OnAttackDeclared: CancelAttack
     {
         auto c = trap(kInterceptTrap, "拦截伏策", 1);
-        c.effects.push_back(on_trap_before_attack_cancel());
+        c.effects.push_back(on_trap_attack_cancel());
         catalog.add(std::move(c));
     }
-    // 反制伏策: 1PP Trap, OnTrapAfterEnemyUnit: DamageEnteredUnit 2
+    // 反制伏策: 1PP Trap, OnEntryEffectPending: DamageEnteredUnit 2
     {
         auto c = trap(kCounterTrap, "反制伏策", 1);
-        c.effects.push_back(on_trap_after_enemy_unit_damage(2));
+        c.effects.push_back(on_trap_entry_pending_damage(2));
+        catalog.add(std::move(c));
+    }
+    // 攻城泰坦: 战备 5/5, 部署条件=己方至少2单位, 部署费用3
+    {
+        auto c = unit(kSiegeTitan, "攻城泰坦", 0, 5, 5);
+        c.deployment = DeploymentSpec{DeploymentCondition::FriendlyUnitsMin, 2, 3, false};
+        catalog.add(std::move(c));
+    }
+    // 戍卫王机: 战备 4/6 Guard, 部署费用4, 部署代价=封存一个己方单位(组件来源)
+    {
+        auto c = unit(kGuardAce, "戍卫王机", 0, 4, 6);
+        c.printed_guard = true;
+        c.deployment = DeploymentSpec{DeploymentCondition::None, 0, 4, true};
         catalog.add(std::move(c));
     }
 }
@@ -269,10 +259,11 @@ void add_advance_cards(CardCatalog& catalog) {
         c.effects.push_back(on_entry_repair(2));
         catalog.add(std::move(c));
     }
-    // 裂痕感知者: 3PP 2/4, OnEntry: Deal min(cracks,3) damage to enemy unit
+    // 裂痕感知者: 3PP 2/4, OnEntry: Deal min(cracks,3) damage to enemy unit, 组件=突进
     {
         auto c = unit(kCrackFeeder, "裂痕感知者", 3, 2, 4);
         c.effects.push_back(on_entry_deal_cracks_damage(3));
+        c.component = ComponentSpec{true, EffectKind::GrantRush, 0};
         catalog.add(std::move(c));
     }
     // 巨型先锋: 7PP 7/7 (high-cost target for advance testing)
@@ -307,15 +298,29 @@ void add_advance_cards(CardCatalog& catalog) {
         c.effects.push_back(on_countdown_expire_gain_capacity(1));
         catalog.add(std::move(c));
     }
-    // 债务领主: 8PP 8/6 (expensive unit to advance into)
+    // 债务领主: 8PP 8/6 (expensive unit to advance into), 进化状态 10/8
     {
         auto c = unit(kDebtLord, "债务领主", 8, 8, 6);
+        c.evolved_attack = 10;
+        c.evolved_health = 8;
         catalog.add(std::move(c));
     }
-    // 截击陷阱: 1PP Trap, OnTrapAfterEnemyUnit: DamageEnteredUnit 2
+    // 截击陷阱: 1PP Trap, OnEntryEffectPending: DamageEnteredUnit 2
     {
         auto c = trap(kReactionTrap, "截击陷阱", 1);
-        c.effects.push_back(on_trap_after_enemy_unit_damage(2));
+        c.effects.push_back(on_trap_entry_pending_damage(2));
+        catalog.add(std::move(c));
+    }
+    // 末日机枢: 战备 7/7, 部署条件=本回合已使用至少2法术, 部署费用2
+    {
+        auto c = unit(kDoomEngine, "末日机枢", 0, 7, 7);
+        c.deployment = DeploymentSpec{DeploymentCondition::SpellsThisTurnMin, 2, 2, false};
+        catalog.add(std::move(c));
+    }
+    // 债煞化身: 战备 6/6, 部署费用3, 部署代价=封存一个己方单位(组件来源)
+    {
+        auto c = unit(kDebtAvatar, "债煞化身", 0, 6, 6);
+        c.deployment = DeploymentSpec{DeploymentCondition::None, 0, 3, true};
         catalog.add(std::move(c));
     }
 }
@@ -357,12 +362,15 @@ DeckList make_midrange_deck() {
         deck.main.push_back(kCommandOrder);
         deck.main.push_back(kInterceptTrap);
     }
-    deck.standby = {};
+    deck.standby = {kSiegeTitan, kGuardAce};
     deck.leader_skill = {
         "战场集结",
         2,
         {EffectRecord{EffectTrigger::OnPlay, EffectKind::BuffFriendlyUnit, 1, TargetSpec::FriendlyUnit}},
     };
+    // v0.4 §23: 每个回合周期第2个己方单位被破坏后获得1点进化能量.
+    deck.charge_condition = ChargeCondition::FriendlyDeathsPerCycle;
+    deck.charge_amount = 2;
     return deck;
 }
 
@@ -396,12 +404,15 @@ DeckList make_advance_deck() {
     deck.main.push_back(kDebtLord);
     deck.main.push_back(kReactionTrap);
 
-    deck.standby = {};
+    deck.standby = {kDoomEngine, kDebtAvatar};
     deck.leader_skill = {
         "裂痕汲取",
         2,
         {EffectRecord{EffectTrigger::OnPlay, EffectKind::RepairCracks, 1, TargetSpec::None}},
     };
+    // v0.4 §23: 自己回合结束时若使用过至少2张法术且未打出单位，获得1点进化能量.
+    deck.charge_condition = ChargeCondition::SpellsNoUnitsThisTurn;
+    deck.charge_amount = 2;
     return deck;
 }
 

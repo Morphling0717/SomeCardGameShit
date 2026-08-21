@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "scgs/protocol.hpp"
 
+#include <algorithm>
 #include <limits>
 #include <stdexcept>
 #include <string>
@@ -193,18 +194,25 @@ UnitStateWire decode_unit_state(const std::span<const std::uint8_t> bytes) {
     return decode_unit_state_payload(bytes.subspan(1));
 }
 
+// The bridge maps the v0.4 engine state onto the FROZEN legacy v1 wire. The
+// wire structs, byte layout and golden vectors never change; only this
+// projection adapts. v0.4 semantics nearest to the legacy fields are used:
+// bit1 本回合已高级召唤 → 本回合已部署; bit3 高级召唤入场 → 战备部署入场.
 PlayerStateWire make_player_state_wire(const PlayerId player_id, const PlayerState& state) {
     std::uint8_t flags = 0;
     flags |= state.evolution_used_this_turn ? 1U << 0U : 0U;
-    flags |= state.advanced_summon_used_this_turn ? 1U << 1U : 0U;
+    flags |= state.deploy_used_this_turn ? 1U << 1U : 0U;
     flags |= state.trap_set_this_turn ? 1U << 2U : 0U;
     flags |= state.leader_skill_used ? 1U << 3U : 0U;
     return PlayerStateWire{
         player_id,
         narrow_i16(state.leader_health),
         narrow_i16(state.maximum_leader_health),
-        narrow_u8(state.current_pp),
-        narrow_u8(state.maximum_pp),
+        // v0.4 current_pp may legally exceed capacity; the legacy uint8 wire
+        // field saturates as well.
+        narrow_u8(std::min(state.current_pp, static_cast<int>(std::numeric_limits<std::uint8_t>::max()))),
+        // v0.4 pp_capacity is uncapped; the legacy uint8 wire field saturates.
+        narrow_u8(std::min(state.pp_capacity, static_cast<int>(std::numeric_limits<std::uint8_t>::max()))),
         narrow_u8(state.evolution_points),
         narrow_u8(state.own_turn_number),
         flags,
@@ -216,7 +224,7 @@ UnitStateWire make_unit_state_wire(const CardInstance& unit) {
     flags |= unit.evolved ? 1U << 0U : 0U;
     flags |= unit.attacked_this_turn ? 1U << 1U : 0U;
     flags |= unit.entered_this_turn ? 1U << 2U : 0U;
-    flags |= unit.advanced_summoned_this_turn ? 1U << 3U : 0U;
+    flags |= (unit.deployed_from_standby && unit.entered_this_turn) ? 1U << 3U : 0U;
     flags |= unit.face_down ? 1U << 4U : 0U;
     return UnitStateWire{
         unit.controller,

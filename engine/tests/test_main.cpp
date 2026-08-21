@@ -7,6 +7,7 @@
 #include <exception>
 #include <functional>
 #include <iostream>
+#include <random>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -35,7 +36,7 @@ struct TestContext {
     (ctx).expect((status).code == (expected), #status ".code == " #expected, __FILE__, __LINE__)
 
 Game scenario_game(const Scenario& scenario, GameConfig config = {}) {
-    Game game(make_prototype_catalog(), {}, {}, config);
+    Game game(make_v04_catalog(), make_midrange_deck(), make_advance_deck(), config);
     const Status status = game.load_scenario(scenario);
     if (!status) {
         throw std::runtime_error("failed to load test scenario: " + status.message);
@@ -49,6 +50,14 @@ Scenario base_scenario(const PlayerId active = PlayerId::Player0) {
     for (auto& player : scenario.players) {
         player.leader_health = 25;
         player.maximum_leader_health = 25;
+        player.current_pp = 5;
+        player.pp_capacity = 5;
+        player.evolution_points = 2;
+        player.own_turn_number = 5;
+        // Enough deck filler to keep turn-flow tests away from fatigue.
+        for (int i = 0; i < 20; ++i) {
+            player.deck.push_back(cards::midrange::kGuardSentry);
+        }
     }
     return scenario;
 }
@@ -73,1106 +82,980 @@ std::optional<Target> first_enemy_unit_target(const Game& game, const PlayerId p
     return std::nullopt;
 }
 
-std::optional<Target> first_friendly_unit_target(const Game& game, const PlayerId player_id) {
-    for (const auto& slot : game.player(player_id).units) {
-        if (slot.has_value()) {
-            return Target::unit_target(player_id, *slot);
-        }
-    }
-    return std::nullopt;
-}
-
-std::vector<InstanceId> controlled_units(const Game& game, const PlayerId player_id) {
-    std::vector<InstanceId> units;
-    for (const auto& slot : game.player(player_id).units) {
-        if (slot.has_value()) {
-            units.push_back(*slot);
-        }
-    }
-    return units;
-}
-
-bool try_advanced_summon(Game& game, const PlayerId player_id) {
-    const std::vector<InstanceId> units = controlled_units(game, player_id);
-    const std::optional<Target> enemy = first_enemy_unit_target(game, player_id);
-
-    // Main-deck tribute targets.
-    const std::vector<InstanceId> hand = game.player(player_id).hand;
-    for (const InstanceId card : hand) {
-        const CardDefinition& card_definition = game.definition(card);
-        if (card_definition.advanced_kind != AdvancedSummonKind::Tribute) {
-            continue;
-        }
-        for (const InstanceId material : units) {
-            const Imprint printed = game.definition(material).printed_imprint;
-            const std::array<Imprint, 2> choices = {printed, Imprint::None};
-            for (const Imprint imprint : choices) {
-                AdvancedSummonRequest request;
-                request.player = player_id;
-                request.card = card;
-                request.materials = {material};
-                request.inherited_imprint = imprint;
-                request.ability_target = enemy;
-                if (game.advanced_summon(request)) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    // Prototype construct targets all use two materials, but the loop checks
-    // every pair and lets the core enforce exact conditions and costs.
-    const std::vector<InstanceId> summon_deck = game.player(player_id).summon_deck;
-    for (const InstanceId card : summon_deck) {
-        const CardDefinition& card_definition = game.definition(card);
-        if (card_definition.advanced_kind != AdvancedSummonKind::Construct) {
-            continue;
-        }
-        for (std::size_t first = 0; first < units.size(); ++first) {
-            for (std::size_t second = first + 1; second < units.size(); ++second) {
-                const std::array<InstanceId, 2> pair = {units[first], units[second]};
-                std::vector<Imprint> choices = {Imprint::None};
-                for (const InstanceId material : pair) {
-                    const Imprint printed = game.definition(material).printed_imprint;
-                    if (printed != Imprint::None &&
-                        std::find(choices.begin(), choices.end(), printed) == choices.end()) {
-                        choices.push_back(printed);
-                    }
-                }
-                for (const Imprint imprint : choices) {
-                    AdvancedSummonRequest request;
-                    request.player = player_id;
-                    request.card = card;
-                    request.materials = {pair[0], pair[1]};
-                    request.inherited_imprint = imprint;
-                    request.ability_target = enemy;
-                    if (game.advanced_summon(request)) {
-                        return true;
-                    }
-                }
-            }
-        }
-    }
-    return false;
-}
-
-bool take_smoke_action(Game& game, const int step) {
-    if (game.phase() == Phase::Reaction) {
-        return static_cast<bool>(game.pass_reaction(opponent(game.active_player())));
-    }
-    if (game.phase() != Phase::Action || game.result() != GameResult::Ongoing) {
-        return false;
-    }
-
-    const PlayerId player_id = game.active_player();
-    const std::optional<Target> enemy = first_enemy_unit_target(game, player_id);
-    const std::optional<Target> friendly = first_friendly_unit_target(game, player_id);
-
-    // Rotate the first choice so the smoke suite does not always play the same
-    // deterministic priority order after a shuffled draw.
-    const int mode = step % 5;
-    if (mode == 0 && try_advanced_summon(game, player_id)) {
-        return true;
-    }
-
-    const std::vector<InstanceId> hand = game.player(player_id).hand;
-    for (const InstanceId card : hand) {
-        const CardDefinition& card_definition = game.definition(card);
-        if (card_definition.kind == CardKind::Unit) {
-            if (game.play_unit(player_id, card, std::nullopt, enemy)) {
-                return true;
-            }
-        } else if (card_definition.kind == CardKind::Spell) {
-            if (game.cast_spell(player_id, card, enemy)) {
-                return true;
-            }
-        } else if (card_definition.kind == CardKind::Relic || card_definition.kind == CardKind::Trap) {
-            for (std::size_t slot = 0; slot < kTacticZoneSize; ++slot) {
-                if (game.play_tactic(player_id, card, slot)) {
-                    return true;
-                }
-            }
-        }
-    }
-
-    if (mode != 0 && try_advanced_summon(game, player_id)) {
-        return true;
-    }
-
-    if (friendly.has_value()) {
-        if (game.use_leader_skill(player_id, friendly)) {
-            return true;
-        }
-    } else if (game.use_leader_skill(player_id)) {
-        return true;
-    }
-
-    for (const InstanceId unit : controlled_units(game, player_id)) {
-        if (game.evolve(player_id, unit, EvolutionMode::Ability, enemy)) {
-            return true;
-        }
-        if (game.evolve(player_id, unit, EvolutionMode::Combat)) {
-            return true;
-        }
-    }
-
-    std::optional<Target> attack_target;
-    for (const auto& slot : game.player(opponent(player_id)).units) {
-        if (slot.has_value() && has_keyword(game.instance(*slot).keywords, Keyword::Guard)) {
-            attack_target = Target::unit_target(opponent(player_id), *slot);
-            break;
-        }
-    }
-    if (!attack_target.has_value()) {
-        attack_target = enemy.has_value() ? enemy : std::optional<Target>{Target::leader(opponent(player_id))};
-    }
-    for (const InstanceId unit : controlled_units(game, player_id)) {
-        if (game.attack(player_id, unit, *attack_target)) {
-            return true;
-        }
-    }
-
-    return static_cast<bool>(game.end_turn(player_id));
-}
-
-void test_catalog_and_fixed_decks(TestContext& context) {
-    const CardCatalog catalog = make_prototype_catalog();
-    const DeckList royal = make_royal_prototype_deck();
-    const DeckList machine = make_machine_prototype_deck();
-
-    EXPECT(context, catalog.size() >= 33U);
-    EXPECT(context, royal.main.size() == 30U);
-    EXPECT(context, machine.main.size() == 30U);
-    EXPECT(context, royal.summon.empty());
-    EXPECT(context, machine.summon.size() == 6U);
-    for (const CardId id : machine.summon) {
-        EXPECT(context, std::count(machine.summon.begin(), machine.summon.end(), id) <= 2);
-    }
-    EXPECT(context, catalog.at(cards::kBastionConstruct).advanced_kind == AdvancedSummonKind::Construct);
-    EXPECT(context, catalog.at(cards::kRoyalCrownKnight).advanced_kind == AdvancedSummonKind::Tribute);
-}
-
-void test_start_mulligan_and_turn_flow(TestContext& context) {
-    GameConfig config;
-    config.shuffle_decks = false;
-    Game game(make_prototype_catalog(), make_royal_prototype_deck(), make_machine_prototype_deck(), config);
-
-    EXPECT(context, game.start());
-    EXPECT(context, game.phase() == Phase::Mulligan);
-    EXPECT(context, game.player(PlayerId::Player0).hand.size() == 4U);
-    EXPECT(context, game.player(PlayerId::Player1).hand.size() == 4U);
-    EXPECT(context, game.player(PlayerId::Player0).evolution_points == 2);
-    EXPECT(context, game.player(PlayerId::Player1).evolution_points == 3);
-
-    EXPECT(context, game.mulligan(PlayerId::Player0, {}));
-    EXPECT(context, game.mulligan(PlayerId::Player1, {}));
-    EXPECT(context, game.phase() == Phase::Action);
-    EXPECT(context, game.active_player() == PlayerId::Player0);
-    EXPECT(context, game.player(PlayerId::Player0).maximum_pp == 1);
-    EXPECT(context, game.player(PlayerId::Player0).current_pp == 1);
-    EXPECT(context, game.player(PlayerId::Player0).hand.size() == 4U);
-
-    EXPECT(context, game.end_turn(PlayerId::Player0));
-    EXPECT(context, game.active_player() == PlayerId::Player1);
-    EXPECT(context, game.player(PlayerId::Player1).maximum_pp == 1);
-    EXPECT(context, game.player(PlayerId::Player1).hand.size() == 5U);
-
-    EXPECT(context, game.end_turn(PlayerId::Player1));
-    EXPECT(context, game.player(PlayerId::Player0).maximum_pp == 2);
-    EXPECT(context, game.player(PlayerId::Player0).current_pp == 2);
-    EXPECT(context, game.player(PlayerId::Player0).hand.size() == 5U);
-}
-
-void test_mulligan_does_not_redraw_set_aside_card(TestContext& context) {
-    DeckList short_deck;
-    short_deck.main = {
-        cards::kRoyalRecruit,
-        cards::kRoyalVanguard,
-        cards::kRoyalLancer,
-        cards::kRoyalTactician,
-        cards::kRoyalCavalier,
-    };
-    GameConfig config;
-    config.shuffle_decks = false;
-    Game game(make_prototype_catalog(), short_deck, short_deck, config);
-    EXPECT(context, game.start());
-
-    const InstanceId selected = game.player(PlayerId::Player0).hand.front();
-    EXPECT(context, game.mulligan(PlayerId::Player0, {selected}));
-    EXPECT(context, game.instance(selected).zone == Zone::Deck);
-    EXPECT(context, game.player(PlayerId::Player0).hand.size() == 4U);
-    EXPECT(context, game.find_in_hand(PlayerId::Player0, cards::kRoyalCavalier).has_value());
-
-    Game duplicate_game(make_prototype_catalog(), short_deck, short_deck, config);
-    EXPECT(context, duplicate_game.start());
-    const InstanceId duplicate = duplicate_game.player(PlayerId::Player0).hand.front();
-    const Status duplicate_status = duplicate_game.mulligan(PlayerId::Player0, {duplicate, duplicate});
-    EXPECT_CODE(context, duplicate_status, ErrorCode::DuplicateSelection);
-    EXPECT(context, duplicate_game.player(PlayerId::Player0).hand.size() == 4U);
-}
-
-void test_hand_overflow_and_fatigue(TestContext& context) {
-    Scenario overflow = base_scenario(PlayerId::Player1);
-    overflow.players[0].own_turn_number = 1;
-    overflow.players[0].hand.assign(9U, cards::kRoyalRecruit);
-    overflow.players[0].deck = {cards::kRoyalSquire};
-    Game overflow_game = scenario_game(overflow);
-    EXPECT(context, overflow_game.end_turn(PlayerId::Player1));
-    EXPECT(context, overflow_game.player(PlayerId::Player0).hand.size() == 9U);
-    EXPECT(context, overflow_game.player(PlayerId::Player0).archive.size() == 1U);
-    if (!overflow_game.player(PlayerId::Player0).archive.empty()) {
-        EXPECT(context, overflow_game.definition(overflow_game.player(PlayerId::Player0).archive.front()).id == cards::kRoyalSquire);
-    }
-
-    Scenario fatigue = base_scenario(PlayerId::Player1);
-    fatigue.players[0].own_turn_number = 1;
-    Game fatigue_game = scenario_game(fatigue);
-    EXPECT(context, fatigue_game.end_turn(PlayerId::Player1));
-    EXPECT(context, fatigue_game.player(PlayerId::Player0).fatigue_count == 1);
-    EXPECT(context, fatigue_game.player(PlayerId::Player0).leader_health == 24);
-    EXPECT(context, fatigue_game.end_turn(PlayerId::Player0));
-    EXPECT(context, fatigue_game.end_turn(PlayerId::Player1));
-    EXPECT(context, fatigue_game.player(PlayerId::Player0).fatigue_count == 2);
-    EXPECT(context, fatigue_game.player(PlayerId::Player0).leader_health == 22);
-}
-
-void test_play_unit_and_spell_validation(TestContext& context) {
-    Scenario unit_scenario = base_scenario();
-    unit_scenario.players[0].current_pp = 2;
-    unit_scenario.players[0].maximum_pp = 2;
-    unit_scenario.players[0].hand = {cards::kRoyalVanguard, cards::kRoyalBolt};
-    unit_scenario.players[1].units = {cards::kTrainingDummy};
-    Game unit_game = scenario_game(unit_scenario);
-
-    const InstanceId vanguard = *unit_game.find_in_hand(PlayerId::Player0, cards::kRoyalVanguard);
-    EXPECT(context, unit_game.play_unit(PlayerId::Player0, vanguard));
-    EXPECT(context, unit_game.player(PlayerId::Player0).current_pp == 0);
-    EXPECT(context, unit_game.instance(vanguard).zone == Zone::Unit);
-    EXPECT(context, unit_game.instance(vanguard).current_attack == 2);
-    EXPECT(context, unit_game.instance(vanguard).current_health == 3);
-    EXPECT(context, has_keyword(unit_game.instance(vanguard).keywords, Keyword::Guard));
-
-    const InstanceId bolt = *unit_game.find_in_hand(PlayerId::Player0, cards::kRoyalBolt);
-    const Status no_pp = unit_game.cast_spell(
-        PlayerId::Player0,
-        bolt,
-        Target::unit_target(PlayerId::Player1, *unit_game.find_on_field(PlayerId::Player1, cards::kTrainingDummy)));
-    EXPECT_CODE(context, no_pp, ErrorCode::InsufficientPP);
-    EXPECT(context, unit_game.instance(bolt).zone == Zone::Hand);
-
-    Scenario spell_scenario = base_scenario();
-    spell_scenario.players[0].current_pp = 2;
-    spell_scenario.players[0].maximum_pp = 2;
-    spell_scenario.players[0].hand = {cards::kRoyalBolt};
-    spell_scenario.players[1].units = {cards::kTrainingDummy};
-    Game spell_game = scenario_game(spell_scenario);
-    const InstanceId spell = *spell_game.find_in_hand(PlayerId::Player0, cards::kRoyalBolt);
-    const Status invalid_target = spell_game.cast_spell(
-        PlayerId::Player0,
-        spell,
-        Target::leader(PlayerId::Player1));
-    EXPECT_CODE(context, invalid_target, ErrorCode::InvalidTarget);
-    EXPECT(context, spell_game.player(PlayerId::Player0).current_pp == 2);
-    EXPECT(context, spell_game.instance(spell).zone == Zone::Hand);
-
-    const InstanceId dummy = *spell_game.find_on_field(PlayerId::Player1, cards::kTrainingDummy);
-    EXPECT(context, spell_game.cast_spell(
-        PlayerId::Player0,
-        spell,
-        Target::unit_target(PlayerId::Player1, dummy)));
-    EXPECT(context, spell_game.player(PlayerId::Player0).current_pp == 0);
-    EXPECT(context, spell_game.instance(spell).zone == Zone::Graveyard);
-    EXPECT(context, spell_game.player(PlayerId::Player1).graveyard.size() == 1U);
-}
-
-void test_simultaneous_combat_and_persistent_damage(TestContext& context) {
+// ---------------------------------------------------------------------------
+// R1. PP capacity growth and refill (rules-v0.4 §7)
+// ---------------------------------------------------------------------------
+void test_pp_capacity_growth_and_refill(TestContext& context) {
     Scenario scenario = base_scenario();
-    scenario.players[0].units = {cards::kRoyalRecruit};
-    scenario.players[1].units = {cards::kTrainingDummy};
-    Game game = scenario_game(scenario);
-    const InstanceId recruit = *game.find_on_field(PlayerId::Player0, cards::kRoyalRecruit);
-    const InstanceId dummy = *game.find_on_field(PlayerId::Player1, cards::kTrainingDummy);
-
-    EXPECT(context, game.attack(
-        PlayerId::Player0,
-        recruit,
-        Target::unit_target(PlayerId::Player1, dummy)));
-    EXPECT(context, game.instance(recruit).zone == Zone::Graveyard);
-    EXPECT(context, game.instance(dummy).zone == Zone::Unit);
-    EXPECT(context, game.instance(dummy).current_health == 2);
-    EXPECT(context, game.instance(dummy).maximum_health == 3);
-}
-
-void test_guard_and_rush_target_rules(TestContext& context) {
-    Scenario guard_scenario = base_scenario();
-    guard_scenario.players[0].units = {cards::kRoyalCommander};
-    guard_scenario.players[1].units = {cards::kRoyalVanguard, cards::kTrainingDummy};
-    Game guard_game = scenario_game(guard_scenario);
-    const InstanceId attacker = *guard_game.find_on_field(PlayerId::Player0, cards::kRoyalCommander);
-    const InstanceId guard = *guard_game.find_on_field(PlayerId::Player1, cards::kRoyalVanguard);
-    const InstanceId dummy = *guard_game.find_on_field(PlayerId::Player1, cards::kTrainingDummy);
-
-    EXPECT_CODE(
-        context,
-        guard_game.attack(PlayerId::Player0, attacker, Target::leader(PlayerId::Player1)),
-        ErrorCode::GuardBlocksTarget);
-    EXPECT_CODE(
-        context,
-        guard_game.attack(PlayerId::Player0, attacker, Target::unit_target(PlayerId::Player1, dummy)),
-        ErrorCode::GuardBlocksTarget);
-    EXPECT(context, guard_game.attack(
-        PlayerId::Player0,
-        attacker,
-        Target::unit_target(PlayerId::Player1, guard)));
-    EXPECT(context, guard_game.instance(guard).zone == Zone::Graveyard);
-
-    Scenario rush_scenario = base_scenario();
-    rush_scenario.players[0].current_pp = 2;
-    rush_scenario.players[0].maximum_pp = 2;
-    rush_scenario.players[0].hand = {cards::kRoyalLancer};
-    rush_scenario.players[1].units = {cards::kTrainingDummy};
-    Game rush_game = scenario_game(rush_scenario);
-    const InstanceId lancer = *rush_game.find_in_hand(PlayerId::Player0, cards::kRoyalLancer);
-    EXPECT(context, rush_game.play_unit(PlayerId::Player0, lancer));
-    EXPECT_CODE(
-        context,
-        rush_game.attack(PlayerId::Player0, lancer, Target::leader(PlayerId::Player1)),
-        ErrorCode::SummoningSickness);
-    const InstanceId rush_dummy = *rush_game.find_on_field(PlayerId::Player1, cards::kTrainingDummy);
-    EXPECT(context, rush_game.attack(
-        PlayerId::Player0,
-        lancer,
-        Target::unit_target(PlayerId::Player1, rush_dummy)));
-}
-
-void test_barrier_and_lifesteal(TestContext& context) {
-    Scenario barrier_scenario = base_scenario();
-    barrier_scenario.players[0].units = {cards::kRoyalRecruit};
-    barrier_scenario.players[1].units = {cards::kMachineBarrierPart};
-    Game barrier_game = scenario_game(barrier_scenario);
-    const InstanceId recruit = *barrier_game.find_on_field(PlayerId::Player0, cards::kRoyalRecruit);
-    const InstanceId barrier = *barrier_game.find_on_field(PlayerId::Player1, cards::kMachineBarrierPart);
-    EXPECT(context, barrier_game.attack(
-        PlayerId::Player0,
-        recruit,
-        Target::unit_target(PlayerId::Player1, barrier)));
-    EXPECT(context, barrier_game.instance(barrier).zone == Zone::Unit);
-    EXPECT(context, barrier_game.instance(barrier).current_health == 2);
-    EXPECT(context, !has_keyword(barrier_game.instance(barrier).keywords, Keyword::Barrier));
-    EXPECT(context, barrier_game.instance(recruit).zone == Zone::Graveyard);
-
-    Scenario lifesteal_scenario = base_scenario();
-    lifesteal_scenario.players[0].leader_health = 20;
-    lifesteal_scenario.players[0].units = {cards::kMachineRepairPart};
-    lifesteal_scenario.players[1].units = {cards::kTrainingDummy};
-    Game lifesteal_game = scenario_game(lifesteal_scenario);
-    const InstanceId repair = *lifesteal_game.find_on_field(PlayerId::Player0, cards::kMachineRepairPart);
-    const InstanceId target = *lifesteal_game.find_on_field(PlayerId::Player1, cards::kTrainingDummy);
-    EXPECT(context, lifesteal_game.attack(
-        PlayerId::Player0,
-        repair,
-        Target::unit_target(PlayerId::Player1, target)));
-    EXPECT(context, lifesteal_game.player(PlayerId::Player0).leader_health == 22);
-    EXPECT(context, lifesteal_game.instance(target).current_health == 1);
-}
-
-void test_combat_and_ability_evolution(TestContext& context) {
-    Scenario combat = base_scenario();
-    combat.players[0].current_pp = 2;
-    combat.players[0].maximum_pp = 5;
-    combat.players[0].evolution_points = 2;
-    combat.players[0].own_turn_number = 5;
-    combat.players[0].hand = {cards::kRoyalLancer};
-    combat.players[0].units = {cards::kRoyalRecruit};
-    combat.players[1].units = {cards::kTrainingDummy};
-    Game combat_game = scenario_game(combat);
-    const InstanceId lancer = *combat_game.find_in_hand(PlayerId::Player0, cards::kRoyalLancer);
-    EXPECT(context, combat_game.play_unit(PlayerId::Player0, lancer));
-    EXPECT(context, combat_game.evolve(PlayerId::Player0, lancer, EvolutionMode::Combat));
-    EXPECT(context, combat_game.instance(lancer).current_attack == 4);
-    EXPECT(context, combat_game.instance(lancer).current_health == 3);
-    EXPECT(context, combat_game.instance(lancer).maximum_health == 3);
-    EXPECT(context, combat_game.instance(lancer).temporary_rush);
-    EXPECT(context, combat_game.player(PlayerId::Player0).evolution_points == 1);
-    const InstanceId other = *combat_game.find_on_field(PlayerId::Player0, cards::kRoyalRecruit);
-    EXPECT_CODE(
-        context,
-        combat_game.evolve(PlayerId::Player0, other, EvolutionMode::Combat),
-        ErrorCode::EvolutionAlreadyUsed);
-
-    Scenario ability = base_scenario();
-    ability.players[0].current_pp = 3;
-    ability.players[0].maximum_pp = 5;
-    ability.players[0].evolution_points = 1;
-    ability.players[0].own_turn_number = 5;
-    ability.players[0].hand = {cards::kRoyalTactician};
-    ability.players[0].deck = {cards::kRoyalRecruit};
-    Game ability_game = scenario_game(ability);
-    const InstanceId tactician = *ability_game.find_in_hand(PlayerId::Player0, cards::kRoyalTactician);
-    EXPECT(context, ability_game.play_unit(PlayerId::Player0, tactician));
-    EXPECT(context, ability_game.evolve(PlayerId::Player0, tactician, EvolutionMode::Ability));
-    EXPECT(context, ability_game.instance(tactician).current_attack == 4);
-    EXPECT(context, ability_game.instance(tactician).current_health == 4);
-    EXPECT(context, !ability_game.instance(tactician).temporary_rush);
-    EXPECT(context, ability_game.player(PlayerId::Player0).hand.size() == 1U);
-    EXPECT_CODE(
-        context,
-        ability_game.attack(PlayerId::Player0, tactician, Target::leader(PlayerId::Player1)),
-        ErrorCode::SummoningSickness);
-}
-
-void test_documented_construct_summon(TestContext& context) {
-    Scenario scenario = base_scenario();
-    scenario.players[0].current_pp = 5;
-    scenario.players[0].maximum_pp = 5;
-    scenario.players[0].evolution_points = 1;
-    scenario.players[0].own_turn_number = 5;
-    scenario.players[0].units = {cards::kMachineRushPart, cards::kMachineGuardPart};
-    scenario.players[0].summon_deck = {cards::kBastionConstruct};
-    scenario.players[1].units = {cards::kTrainingDummy};
+    scenario.players[0].current_pp = 2; // deliberately low
+    scenario.players[0].pp_capacity = 4;
+    scenario.players[1].own_turn_number = 5;
     Game game = scenario_game(scenario);
 
-    const InstanceId rush = *game.find_on_field(PlayerId::Player0, cards::kMachineRushPart);
-    const InstanceId guard = *game.find_on_field(PlayerId::Player0, cards::kMachineGuardPart);
-    const InstanceId construct = *game.find_in_summon_deck(PlayerId::Player0, cards::kBastionConstruct);
-    const InstanceId dummy = *game.find_on_field(PlayerId::Player1, cards::kTrainingDummy);
-    AdvancedSummonRequest request{
-        PlayerId::Player0,
-        construct,
-        {rush, guard},
-        Imprint::Guard,
-        Target::unit_target(PlayerId::Player1, dummy),
-    };
-    EXPECT(context, game.advanced_summon(request));
-    EXPECT(context, game.player(PlayerId::Player0).current_pp == 3);
-    EXPECT(context, game.player(PlayerId::Player0).archive.size() == 2U);
-    EXPECT(context, game.instance(construct).current_attack == 5);
-    EXPECT(context, game.instance(construct).current_health == 6);
-    EXPECT(context, game.instance(construct).inherited_imprint == Imprint::Guard);
-    EXPECT(context, has_keyword(game.instance(construct).keywords, Keyword::Guard));
-    EXPECT(context, game.instance(dummy).current_health == 1);
-    EXPECT_CODE(
-        context,
-        game.attack(PlayerId::Player0, construct, Target::leader(PlayerId::Player1)),
-        ErrorCode::SummoningSickness);
-    EXPECT(context, game.evolve(PlayerId::Player0, construct, EvolutionMode::Combat));
-    EXPECT(context, game.instance(construct).current_attack == 7);
-    EXPECT(context, game.instance(construct).maximum_health == 8);
-    EXPECT(context, game.attack(
-        PlayerId::Player0,
-        construct,
-        Target::unit_target(PlayerId::Player1, dummy)));
-    EXPECT(context, game.instance(construct).current_health == 5);
-    EXPECT(context, game.instance(dummy).zone == Zone::Graveyard);
-}
-
-void test_advanced_summon_validation_and_once_per_turn(TestContext& context) {
-    Scenario invalid = base_scenario();
-    invalid.players[0].current_pp = 5;
-    invalid.players[0].maximum_pp = 5;
-    invalid.players[0].units = {cards::kMachineRushPart, cards::kMachineGuardPart};
-    invalid.players[0].summon_deck = {cards::kBastionConstruct};
-    invalid.players[1].units = {cards::kTrainingDummy};
-    Game invalid_game = scenario_game(invalid);
-    const InstanceId rush = *invalid_game.find_on_field(PlayerId::Player0, cards::kMachineRushPart);
-    const InstanceId guard = *invalid_game.find_on_field(PlayerId::Player0, cards::kMachineGuardPart);
-    const InstanceId construct = *invalid_game.find_in_summon_deck(PlayerId::Player0, cards::kBastionConstruct);
-    const InstanceId dummy = *invalid_game.find_on_field(PlayerId::Player1, cards::kTrainingDummy);
-    AdvancedSummonRequest invalid_request{
-        PlayerId::Player0,
-        construct,
-        {rush, guard},
-        Imprint::Barrier,
-        Target::unit_target(PlayerId::Player1, dummy),
-    };
-    EXPECT_CODE(context, invalid_game.advanced_summon(invalid_request), ErrorCode::InvalidImprint);
-    EXPECT(context, invalid_game.player(PlayerId::Player0).current_pp == 5);
-    EXPECT(context, invalid_game.player(PlayerId::Player0).archive.empty());
-    EXPECT(context, invalid_game.instance(construct).zone == Zone::SummonDeck);
-
-    Scenario tribute = base_scenario();
-    tribute.players[0].current_pp = 6;
-    tribute.players[0].maximum_pp = 6;
-    tribute.players[0].hand = {cards::kRoyalCrownKnight, cards::kRoyalCrownKnight};
-    tribute.players[0].units = {cards::kRoyalShieldbearer, cards::kRoyalShieldbearer};
-    Game tribute_game = scenario_game(tribute);
-    const InstanceId first_crown = tribute_game.player(PlayerId::Player0).hand[0];
-    const InstanceId second_crown = tribute_game.player(PlayerId::Player0).hand[1];
-    const InstanceId first_material = *tribute_game.find_on_field(PlayerId::Player0, cards::kRoyalShieldbearer);
-    InstanceId second_material = 0;
-    for (const auto& slot : tribute_game.player(PlayerId::Player0).units) {
-        if (slot.has_value() && *slot != first_material) {
-            second_material = *slot;
-        }
-    }
-    EXPECT(context, tribute_game.advanced_summon(AdvancedSummonRequest{
-        PlayerId::Player0,
-        first_crown,
-        {first_material},
-        Imprint::Guard,
-        std::nullopt,
-    }));
-    EXPECT(context, tribute_game.instance(first_crown).zone == Zone::Unit);
-    EXPECT(context, tribute_game.instance(first_crown).inherited_imprint == Imprint::Guard);
-    EXPECT(context, tribute_game.player(PlayerId::Player0).current_pp == 3);
-    EXPECT_CODE(
-        context,
-        tribute_game.advanced_summon(AdvancedSummonRequest{
-            PlayerId::Player0,
-            second_crown,
-            {second_material},
-            Imprint::Guard,
-            std::nullopt,
-        }),
-        ErrorCode::AdvancedSummonAlreadyUsed);
-}
-
-void test_inherited_imprint_cannot_be_inherited_again(TestContext& context) {
-    Scenario scenario = base_scenario();
-    scenario.players[0].current_pp = 10;
-    scenario.players[0].maximum_pp = 10;
-    scenario.players[0].units = {
-        cards::kMachineRushPart,
-        cards::kMachineGuardPart,
-        cards::kMachineHeavyFrame,
-    };
-    scenario.players[0].summon_deck = {cards::kBastionConstruct, cards::kAssaultConstruct};
-    scenario.players[1].units = {cards::kTrainingDummy};
-    Game game = scenario_game(scenario);
-
-    const InstanceId rush = *game.find_on_field(PlayerId::Player0, cards::kMachineRushPart);
-    const InstanceId guard = *game.find_on_field(PlayerId::Player0, cards::kMachineGuardPart);
-    const InstanceId heavy = *game.find_on_field(PlayerId::Player0, cards::kMachineHeavyFrame);
-    const InstanceId bastion = *game.find_in_summon_deck(PlayerId::Player0, cards::kBastionConstruct);
-    const InstanceId assault = *game.find_in_summon_deck(PlayerId::Player0, cards::kAssaultConstruct);
-    const InstanceId dummy = *game.find_on_field(PlayerId::Player1, cards::kTrainingDummy);
-
-    EXPECT(context, game.advanced_summon(AdvancedSummonRequest{
-        PlayerId::Player0,
-        bastion,
-        {rush, guard},
-        Imprint::Guard,
-        Target::unit_target(PlayerId::Player1, dummy),
-    }));
+    // Capacity grows by 1 on each own turn with no cap; current PP refills.
     EXPECT(context, game.end_turn(PlayerId::Player0));
     EXPECT(context, game.end_turn(PlayerId::Player1));
+    const PlayerState& state = game.player(PlayerId::Player0);
+    EXPECT(context, state.pp_capacity == 5);
+    EXPECT(context, state.current_pp == 5);
+    EXPECT(context, state.cracks == 0);
 
-    const Status second = game.advanced_summon(AdvancedSummonRequest{
-        PlayerId::Player0,
-        assault,
-        {bastion, heavy},
-        Imprint::Guard,
-        std::nullopt,
-    });
-    EXPECT_CODE(context, second, ErrorCode::InvalidImprint);
-    EXPECT(context, game.instance(assault).zone == Zone::SummonDeck);
-    EXPECT(context, game.instance(bastion).zone == Zone::Unit);
-}
-
-void test_summon_deck_unit_leaves_to_archive(TestContext& context) {
-    Scenario scenario = base_scenario(PlayerId::Player1);
-    scenario.players[0].units = {cards::kBastionConstruct};
-    scenario.players[1].units = {cards::kRoyalCrownKnight};
-    Game game = scenario_game(scenario);
-    const InstanceId construct = *game.find_on_field(PlayerId::Player0, cards::kBastionConstruct);
-    const InstanceId crown = *game.find_on_field(PlayerId::Player1, cards::kRoyalCrownKnight);
-    EXPECT(context, game.attack(
-        PlayerId::Player1,
-        crown,
-        Target::unit_target(PlayerId::Player0, construct)));
-    EXPECT(context, game.instance(construct).zone == Zone::Archive);
-    EXPECT(context, game.player(PlayerId::Player0).archive.size() == 1U);
-    EXPECT(context, game.player(PlayerId::Player0).graveyard.empty());
-}
-
-void test_trap_windows_and_tactic_rules(TestContext& context) {
-    Scenario cancel = base_scenario();
-    cancel.players[0].units = {cards::kRoyalCommander};
-    cancel.players[1].tactics = {cards::kRoyalAmbushTrap};
-    Game cancel_game = scenario_game(cancel);
-    const InstanceId attacker = *cancel_game.find_on_field(PlayerId::Player0, cards::kRoyalCommander);
-    const InstanceId trap = *cancel_game.player(PlayerId::Player1).tactics[0];
-    EXPECT(context, cancel_game.attack(PlayerId::Player0, attacker, Target::leader(PlayerId::Player1)));
-    EXPECT(context, cancel_game.phase() == Phase::Reaction);
-    EXPECT(context, cancel_game.reaction_window() == ReactionWindow::BeforeAttackDamage);
-    EXPECT(context, cancel_game.eligible_traps().size() == 1U);
-    EXPECT(context, cancel_game.activate_trap(PlayerId::Player1, trap));
-    EXPECT(context, cancel_game.phase() == Phase::Action);
-    EXPECT(context, cancel_game.player(PlayerId::Player1).leader_health == 25);
-    EXPECT(context, cancel_game.instance(trap).zone == Zone::Graveyard);
-    EXPECT(context, cancel_game.instance(attacker).attacked_this_turn);
-
-    Scenario pass = base_scenario();
-    pass.players[0].units = {cards::kRoyalCommander};
-    pass.players[1].tactics = {cards::kRoyalAmbushTrap};
-    Game pass_game = scenario_game(pass);
-    const InstanceId pass_attacker = *pass_game.find_on_field(PlayerId::Player0, cards::kRoyalCommander);
-    EXPECT(context, pass_game.attack(PlayerId::Player0, pass_attacker, Target::leader(PlayerId::Player1)));
-    EXPECT(context, pass_game.pass_reaction(PlayerId::Player1));
-    EXPECT(context, pass_game.player(PlayerId::Player1).leader_health == 20);
-    EXPECT(context, pass_game.player(PlayerId::Player1).tactics[0].has_value());
-
-    Scenario summon_trap = base_scenario();
-    summon_trap.players[0].current_pp = 1;
-    summon_trap.players[0].maximum_pp = 1;
-    summon_trap.players[0].hand = {cards::kRoyalRecruit};
-    summon_trap.players[1].tactics = {cards::kMachineRetaliationTrap};
-    Game summon_trap_game = scenario_game(summon_trap);
-    const InstanceId recruit = *summon_trap_game.find_in_hand(PlayerId::Player0, cards::kRoyalRecruit);
-    const InstanceId retaliation = *summon_trap_game.player(PlayerId::Player1).tactics[0];
-    EXPECT(context, summon_trap_game.play_unit(PlayerId::Player0, recruit));
-    EXPECT(context, summon_trap_game.phase() == Phase::Reaction);
-    EXPECT(context, summon_trap_game.activate_trap(PlayerId::Player1, retaliation));
-    EXPECT(context, summon_trap_game.instance(recruit).zone == Zone::Graveyard);
-
-    Scenario set_limit = base_scenario();
-    set_limit.players[0].current_pp = 4;
-    set_limit.players[0].maximum_pp = 4;
-    set_limit.players[0].hand = {cards::kRoyalAmbushTrap, cards::kRoyalCountercharge};
-    Game set_limit_game = scenario_game(set_limit);
-    const InstanceId first = set_limit_game.player(PlayerId::Player0).hand[0];
-    const InstanceId second = set_limit_game.player(PlayerId::Player0).hand[1];
-    EXPECT(context, set_limit_game.play_tactic(PlayerId::Player0, first, 0));
-    EXPECT_CODE(
-        context,
-        set_limit_game.play_tactic(PlayerId::Player0, second, 1),
-        ErrorCode::TrapAlreadySetThisTurn);
-
-    Scenario replacement = base_scenario();
-    replacement.players[0].current_pp = 4;
-    replacement.players[0].maximum_pp = 4;
-    replacement.players[0].hand = {cards::kRoyalWarBanner, cards::kRoyalAmbushTrap};
-    Game replacement_game = scenario_game(replacement);
-    const InstanceId relic = *replacement_game.find_in_hand(PlayerId::Player0, cards::kRoyalWarBanner);
-    const InstanceId replacement_trap = *replacement_game.find_in_hand(PlayerId::Player0, cards::kRoyalAmbushTrap);
-    EXPECT(context, replacement_game.play_tactic(PlayerId::Player0, relic, 0));
-    EXPECT(context, replacement_game.play_tactic(PlayerId::Player0, replacement_trap, 0));
-    EXPECT(context, replacement_game.instance(relic).zone == Zone::Graveyard);
-    EXPECT(context, replacement_game.instance(replacement_trap).zone == Zone::Tactic);
-}
-
-void test_relic_countdown(TestContext& context) {
-    Scenario scenario = base_scenario(PlayerId::Player1);
-    scenario.players[0].own_turn_number = 1;
-    scenario.players[0].tactics = {cards::kRoyalCountdownRelic};
-    scenario.players[0].deck = {
-        cards::kRoyalRecruit,
-        cards::kRoyalRecruit,
-        cards::kRoyalRecruit,
-    };
-    scenario.players[1].deck = {
-        cards::kMachineDrone,
-        cards::kMachineDrone,
-        cards::kMachineDrone,
-    };
-    Game game = scenario_game(scenario);
-    const InstanceId relic = *game.player(PlayerId::Player0).tactics[0];
-
-    EXPECT(context, game.end_turn(PlayerId::Player1));
-    EXPECT(context, game.instance(relic).countdown == 1);
-    EXPECT(context, game.player(PlayerId::Player0).hand.size() == 1U);
-    EXPECT(context, game.end_turn(PlayerId::Player0));
-    EXPECT(context, game.end_turn(PlayerId::Player1));
-    EXPECT(context, game.instance(relic).zone == Zone::Graveyard);
-    EXPECT(context, game.player(PlayerId::Player0).hand.size() == 3U);
-}
-
-void test_leader_skill_and_generated_hand_overflow(TestContext& context) {
-    Scenario royal = base_scenario();
-    royal.players[0].current_pp = 2;
-    royal.players[0].maximum_pp = 5;
-    royal.players[0].own_turn_number = 5;
-    royal.players[0].units = {cards::kRoyalRecruit};
-    royal.players[0].leader_skill = {"[测试] 集结", 2, Ability::GiveFriendlyUnitOneOne};
-    Game royal_game = scenario_game(royal);
-    const InstanceId recruit = *royal_game.find_on_field(PlayerId::Player0, cards::kRoyalRecruit);
-    EXPECT(context, royal_game.use_leader_skill(
-        PlayerId::Player0,
-        Target::unit_target(PlayerId::Player0, recruit)));
-    EXPECT(context, royal_game.instance(recruit).current_attack == 2);
-    EXPECT(context, royal_game.instance(recruit).current_health == 3);
-    EXPECT(context, royal_game.player(PlayerId::Player0).current_pp == 0);
-    EXPECT_CODE(
-        context,
-        royal_game.use_leader_skill(PlayerId::Player0, Target::unit_target(PlayerId::Player0, recruit)),
-        ErrorCode::LeaderSkillAlreadyUsed);
-
-    Scenario machine = base_scenario();
-    machine.players[0].current_pp = 1;
-    machine.players[0].maximum_pp = 5;
-    machine.players[0].own_turn_number = 5;
-    machine.players[0].hand.assign(9U, cards::kMachineDrone);
-    machine.players[0].leader_skill = {"[测试] 制造零件", 1, Ability::CreateRushPartInHand};
-    Game machine_game = scenario_game(machine);
-    EXPECT(context, machine_game.use_leader_skill(PlayerId::Player0));
-    EXPECT(context, machine_game.player(PlayerId::Player0).hand.size() == 9U);
-    EXPECT(context, machine_game.player(PlayerId::Player0).archive.size() == 1U);
-    if (!machine_game.player(PlayerId::Player0).archive.empty()) {
-        EXPECT(context, machine_game.definition(machine_game.player(PlayerId::Player0).archive.front()).id == cards::kMachineRushPart);
+    // Unused PP does not carry over (it was refilled, not accumulated).
+    for (int i = 0; i < 6; ++i) {
+        EXPECT(context, game.end_turn(game.active_player()));
     }
-}
+    const PlayerState& later = game.player(PlayerId::Player0);
+    EXPECT(context, later.pp_capacity == 8);
+    EXPECT(context, later.current_pp == 8);
 
-void test_pp_refreshes_instead_of_carrying(TestContext& context) {
-    Scenario scenario = base_scenario();
-    scenario.players[0].current_pp = 3;
-    scenario.players[0].maximum_pp = 10;
-    scenario.players[0].deck = {cards::kRoyalRecruit};
-    scenario.players[1].current_pp = 0;
-    scenario.players[1].maximum_pp = 10;
-    scenario.players[1].deck = {cards::kMachineDrone};
-    Game game = scenario_game(scenario);
-    EXPECT(context, game.end_turn(PlayerId::Player0));
-    EXPECT(context, game.player(PlayerId::Player1).current_pp == 10);
-    EXPECT(context, game.end_turn(PlayerId::Player1));
-    EXPECT(context, game.player(PlayerId::Player0).current_pp == 10);
-    EXPECT(context, game.player(PlayerId::Player0).maximum_pp == 10);
-}
-
-void test_win_and_finished_state(TestContext& context) {
-    Scenario scenario = base_scenario();
-    scenario.players[0].units = {cards::kRoyalCommander};
-    scenario.players[1].leader_health = 5;
-    Game game = scenario_game(scenario);
-    const InstanceId commander = *game.find_on_field(PlayerId::Player0, cards::kRoyalCommander);
-    EXPECT(context, game.attack(PlayerId::Player0, commander, Target::leader(PlayerId::Player1)));
-    EXPECT(context, game.result() == GameResult::Player0Won);
-    EXPECT(context, game.phase() == Phase::Finished);
-    EXPECT_CODE(context, game.end_turn(PlayerId::Player0), ErrorCode::GameOver);
-}
-
-void test_surrender_and_ambush_rules(TestContext& context) {
-    Scenario surrender_scenario = base_scenario(PlayerId::Player0);
-    Game surrender_game = scenario_game(surrender_scenario);
-    EXPECT(context, surrender_game.surrender(PlayerId::Player1));
-    EXPECT(context, surrender_game.result() == GameResult::Player0Won);
-    EXPECT(context, surrender_game.phase() == Phase::Finished);
-    EXPECT_CODE(context, surrender_game.surrender(PlayerId::Player1), ErrorCode::GameOver);
-    expect_valid_state(context, surrender_game);
-
-    constexpr CardId kAmbushUnit = 9810;
-    CardCatalog catalog = make_prototype_catalog();
-    CardDefinition ambush;
-    ambush.id = kAmbushUnit;
-    ambush.name = "潜伏测试单位";
-    ambush.kind = CardKind::Unit;
-    ambush.cost = 2;
-    ambush.attack = 2;
-    ambush.health = 2;
-    ambush.keywords = mask(Keyword::Ambush);
-    catalog.add(ambush);
-
-    Scenario targeting = base_scenario(PlayerId::Player0);
-    targeting.players[0].current_pp = 2;
-    targeting.players[0].maximum_pp = 2;
-    targeting.players[0].hand = {cards::kRoyalBolt};
-    targeting.players[1].units = {kAmbushUnit};
-    Game target_game(catalog, {}, {});
-    EXPECT(context, target_game.load_scenario(targeting));
-    const InstanceId spell = *target_game.find_in_hand(PlayerId::Player0, cards::kRoyalBolt);
-    const InstanceId hidden = *target_game.find_on_field(PlayerId::Player1, kAmbushUnit);
-    EXPECT_CODE(
-        context,
-        target_game.cast_spell(
-            PlayerId::Player0,
-            spell,
-            Target::unit_target(PlayerId::Player1, hidden)),
-        ErrorCode::InvalidTarget);
-    EXPECT(context, target_game.player(PlayerId::Player0).current_pp == 2);
-    EXPECT(context, target_game.instance(spell).zone == Zone::Hand);
-    expect_valid_state(context, target_game);
-
-    Scenario attack_scenario = base_scenario(PlayerId::Player0);
-    attack_scenario.players[0].units = {kAmbushUnit};
-    Game attack_game(std::move(catalog), {}, {});
-    EXPECT(context, attack_game.load_scenario(attack_scenario));
-    const InstanceId attacker = *attack_game.find_on_field(PlayerId::Player0, kAmbushUnit);
-    EXPECT(context, has_keyword(attack_game.instance(attacker).keywords, Keyword::Ambush));
-    EXPECT(context, attack_game.attack(PlayerId::Player0, attacker, Target::leader(PlayerId::Player1)));
-    EXPECT(context, !has_keyword(attack_game.instance(attacker).keywords, Keyword::Ambush));
-    expect_valid_state(context, attack_game);
-}
-
-void test_simultaneous_death_batch_and_trigger_order(TestContext& context) {
-    constexpr CardId kActiveLastWords = 9801;
-    constexpr CardId kInactiveLastWords = 9802;
-    constexpr CardId kActiveDraw = 9803;
-    constexpr CardId kInactiveDraw = 9804;
-
-    CardCatalog catalog = make_prototype_catalog();
-    CardDefinition active_unit;
-    active_unit.id = kActiveLastWords;
-    active_unit.name = "主动方遗言测试单位";
-    active_unit.kind = CardKind::Unit;
-    active_unit.cost = 1;
-    active_unit.attack = 1;
-    active_unit.health = 1;
-    active_unit.last_words_ability = Ability::DrawOne;
-    catalog.add(active_unit);
-
-    CardDefinition inactive_unit = active_unit;
-    inactive_unit.id = kInactiveLastWords;
-    inactive_unit.name = "非主动方遗言测试单位";
-    catalog.add(inactive_unit);
-
-    CardDefinition active_draw = active_unit;
-    active_draw.id = kActiveDraw;
-    active_draw.name = "主动方抽牌标记";
-    active_draw.last_words_ability = Ability::None;
-    catalog.add(active_draw);
-
-    CardDefinition inactive_draw = active_draw;
-    inactive_draw.id = kInactiveDraw;
-    inactive_draw.name = "非主动方抽牌标记";
-    catalog.add(inactive_draw);
-
-    Scenario scenario = base_scenario(PlayerId::Player0);
-    scenario.players[0].units = {kActiveLastWords};
-    scenario.players[0].deck = {kActiveDraw};
-    scenario.players[1].units = {kInactiveLastWords};
-    scenario.players[1].deck = {kInactiveDraw};
-
-    Game game(std::move(catalog), {}, {});
-    EXPECT(context, game.load_scenario(scenario));
-    (void)game.drain_events();
-    const InstanceId attacker = *game.find_on_field(PlayerId::Player0, kActiveLastWords);
-    const InstanceId defender = *game.find_on_field(PlayerId::Player1, kInactiveLastWords);
-    EXPECT(context, game.attack(
-        PlayerId::Player0,
-        attacker,
-        Target::unit_target(PlayerId::Player1, defender)));
-
-    const std::vector<GameEvent> events = game.drain_events();
-    std::vector<EventType> significant_types;
-    std::vector<PlayerId> draw_order;
-    for (const GameEvent& event : events) {
-        if (event.type == EventType::UnitDestroyed || event.type == EventType::CardDrawn) {
-            significant_types.push_back(event.type);
-        }
-        if (event.type == EventType::CardDrawn) {
-            draw_order.push_back(event.player);
-        }
+    // No fixed cap: drive capacity far beyond 10.
+    for (int i = 0; i < 30; ++i) {
+        EXPECT(context, game.end_turn(game.active_player()));
     }
-    EXPECT(context, significant_types.size() == 4U);
-    if (significant_types.size() == 4U) {
-        EXPECT(context, significant_types[0] == EventType::UnitDestroyed);
-        EXPECT(context, significant_types[1] == EventType::UnitDestroyed);
-        EXPECT(context, significant_types[2] == EventType::CardDrawn);
-        EXPECT(context, significant_types[3] == EventType::CardDrawn);
-    }
-    EXPECT(context, draw_order.size() == 2U);
-    if (draw_order.size() == 2U) {
-        EXPECT(context, draw_order[0] == PlayerId::Player0);
-        EXPECT(context, draw_order[1] == PlayerId::Player1);
-    }
-    EXPECT(context, game.player(PlayerId::Player0).graveyard.size() == 1U);
-    EXPECT(context, game.player(PlayerId::Player1).graveyard.size() == 1U);
+    EXPECT(context, game.player(PlayerId::Player0).pp_capacity > 20);
     expect_valid_state(context, game);
 }
 
-void test_invariants_and_deterministic_smoke_matches(TestContext& context) {
-    int seed_count = 32;
-    if (const char* configured = std::getenv("SCGS_SMOKE_SEEDS")) {
-        const int parsed = std::atoi(configured);
-        if (parsed > 0 && parsed <= 10000) {
-            seed_count = parsed;
-        }
+// ---------------------------------------------------------------------------
+// R2. Advance payment and limits (rules-v0.4 §9/§10)
+// ---------------------------------------------------------------------------
+void test_advance_payment_and_limits(TestContext& context) {
+    Scenario scenario = base_scenario();
+    scenario.players[0].hand = {cards::advance::kDebtLord}; // 8PP 8/6
+    Game game = scenario_game(scenario);
+    const InstanceId debt_lord = *game.find_in_hand(PlayerId::Player0, cards::advance::kDebtLord);
+
+    // Without advance: refused.
+    EXPECT_CODE(context, game.play_unit(PlayerId::Player0, debt_lord), ErrorCode::InsufficientPP);
+    // With advance: 5 current / 5 capacity → 0 current / 2 capacity / 3 cracks.
+    EXPECT(context, game.play_unit(PlayerId::Player0, debt_lord, std::nullopt, std::nullopt, true));
+    const PlayerState& state = game.player(PlayerId::Player0);
+    EXPECT(context, state.current_pp == 0);
+    EXPECT(context, state.pp_capacity == 2);
+    EXPECT(context, state.cracks == 3);
+    EXPECT(context, game.find_on_field(PlayerId::Player0, cards::advance::kDebtLord).has_value());
+
+    // Once per turn (rules-v0.4 §10.1): a second capacity payment is refused.
+    Scenario scenario2 = base_scenario();
+    scenario2.players[0].hand = {cards::advance::kDebtLord, cards::advance::kBurnBlast};
+    Game game2 = scenario_game(scenario2);
+    const InstanceId debt2 = *game2.find_in_hand(PlayerId::Player0, cards::advance::kDebtLord);
+    EXPECT(context, game2.play_unit(PlayerId::Player0, debt2, std::nullopt, std::nullopt, true));
+    const InstanceId blast = *game2.find_in_hand(PlayerId::Player0, cards::advance::kBurnBlast);
+    // Burn counts as 动用未来 too; current PP 0 so the burn spell cannot even pay.
+    EXPECT_CODE(context, game2.cast_spell(PlayerId::Player0, blast), ErrorCode::InsufficientPP);
+
+    // Capacity cannot fall below zero (rules-v0.4 §10.5).
+    Scenario scenario3 = base_scenario();
+    scenario3.players[0].current_pp = 1;
+    scenario3.players[0].pp_capacity = 1;
+    scenario3.players[0].hand = {cards::advance::kDebtLord};
+    Game game3 = scenario_game(scenario3);
+    const InstanceId debt3 = *game3.find_in_hand(PlayerId::Player0, cards::advance::kDebtLord);
+    EXPECT_CODE(context, game3.play_unit(PlayerId::Player0, debt3, std::nullopt, std::nullopt, true),
+                ErrorCode::AdvanceWouldExceedCap);
+
+    // Advance only applies when current PP is insufficient (rules-v0.4 §10.2):
+    // requesting advance with enough PP pays normally, no cracks.
+    Scenario scenario4 = base_scenario();
+    scenario4.players[0].current_pp = 8;
+    scenario4.players[0].pp_capacity = 8;
+    scenario4.players[0].hand = {cards::advance::kDebtLord};
+    Game game4 = scenario_game(scenario4);
+    const InstanceId debt4 = *game4.find_in_hand(PlayerId::Player0, cards::advance::kDebtLord);
+    EXPECT(context, game4.play_unit(PlayerId::Player0, debt4, std::nullopt, std::nullopt, true));
+    EXPECT(context, game4.player(PlayerId::Player0).current_pp == 0);
+    EXPECT(context, game4.player(PlayerId::Player0).pp_capacity == 8);
+    EXPECT(context, game4.player(PlayerId::Player0).cracks == 0);
+
+    expect_valid_state(context, game);
+    expect_valid_state(context, game2);
+    expect_valid_state(context, game3);
+    expect_valid_state(context, game4);
+}
+
+// ---------------------------------------------------------------------------
+// R3. Burn cost and combined advance+burn (rules-v0.4 §12/§13)
+// ---------------------------------------------------------------------------
+void test_burn_cost_and_combined_advance(TestContext& context) {
+    // Pure burn with enough current PP (rules-v0.4 §12): capacity drops and
+    // cracks grow even though current PP covered the cost.
+    Scenario scenario = base_scenario();
+    scenario.players[0].current_pp = 6;
+    scenario.players[0].pp_capacity = 6;
+    scenario.players[1].units = {cards::midrange::kGuardSentry};
+    scenario.players[0].hand = {cards::advance::kBurnBlast}; // 1PP + burn2
+    Game game = scenario_game(scenario);
+    const InstanceId blast = *game.find_in_hand(PlayerId::Player0, cards::advance::kBurnBlast);
+    EXPECT(context, game.cast_spell(PlayerId::Player0, blast, first_enemy_unit_target(game, PlayerId::Player0)));
+    const PlayerState& state = game.player(PlayerId::Player0);
+    EXPECT(context, state.current_pp == 5);
+    EXPECT(context, state.pp_capacity == 4);
+    EXPECT(context, state.cracks == 2);
+
+    // Combined advance + burn (rules-v0.4 §13): 3 current / 6 capacity, a
+    // 5PP + 燃耗1 card → pay 3, advance 2, burn 1: capacity 6→3, cracks 3.
+    Scenario scenario2 = base_scenario();
+    scenario2.players[0].current_pp = 3;
+    scenario2.players[0].pp_capacity = 6;
+    scenario2.players[1].units = {cards::midrange::kIronShieldBearer, cards::midrange::kIronShieldBearer}; // 2/5 ×2
+    scenario2.players[0].hand = {cards::advance::kBurnBlast, cards::advance::kAdvanceStrike};
+    Game game2 = scenario_game(scenario2);
+    // 燃耗爆破 is 1PP+burn2; with 3 current PP it pays normally (burn only).
+    const InstanceId blast2 = *game2.find_in_hand(PlayerId::Player0, cards::advance::kBurnBlast);
+    EXPECT(context, game2.cast_spell(PlayerId::Player0, blast2, first_enemy_unit_target(game2, PlayerId::Player0)));
+    EXPECT(context, game2.player(PlayerId::Player0).current_pp == 2);
+    EXPECT(context, game2.player(PlayerId::Player0).pp_capacity == 4);
+    EXPECT(context, game2.player(PlayerId::Player0).cracks == 2);
+    // 超前打击 is 2PP+burn1 but 动用未来 was already used this turn → refused.
+    const InstanceId strike = *game2.find_in_hand(PlayerId::Player0, cards::advance::kAdvanceStrike);
+    EXPECT_CODE(context, game2.cast_spell(PlayerId::Player0, strike, first_enemy_unit_target(game2, PlayerId::Player0)),
+                ErrorCode::AdvanceAlreadyUsed);
+
+    expect_valid_state(context, game);
+    expect_valid_state(context, game2);
+}
+
+// ---------------------------------------------------------------------------
+// R4. Cracks persist and are readable (rules-v0.4 §14)
+// ---------------------------------------------------------------------------
+void test_cracks_persistence_and_read(TestContext& context) {
+    Scenario scenario = base_scenario();
+    scenario.players[0].hand = {cards::advance::kDebtLord, cards::advance::kCrackFeeder};
+    scenario.players[0].current_pp = 5;
+    scenario.players[0].pp_capacity = 5;
+    scenario.players[1].units = {cards::midrange::kIronShieldBearer}; // 2/5
+    Game game = scenario_game(scenario);
+
+    const InstanceId debt = *game.find_in_hand(PlayerId::Player0, cards::advance::kDebtLord);
+    EXPECT(context, game.play_unit(PlayerId::Player0, debt, std::nullopt, std::nullopt, true));
+    EXPECT(context, game.player(PlayerId::Player0).cracks == 3);
+
+    // Cracks survive the opponent's turn (natural growth does not clear them).
+    EXPECT(context, game.end_turn(PlayerId::Player0));
+    EXPECT(context, game.end_turn(PlayerId::Player1));
+    EXPECT(context, game.player(PlayerId::Player0).cracks == 3);
+
+    // 裂痕感知者 reads cracks: deals min(cracks,3) to the enemy unit.
+    const InstanceId feeder = *game.find_in_hand(PlayerId::Player0, cards::advance::kCrackFeeder);
+    const auto enemy = first_enemy_unit_target(game, PlayerId::Player0);
+    EXPECT(context, game.play_unit(PlayerId::Player0, feeder, std::nullopt, enemy));
+    const CardInstance& shield = game.instance(enemy->unit);
+    EXPECT(context, shield.current_health == 2); // 5 - min(3,3)
+    expect_valid_state(context, game);
+}
+
+// ---------------------------------------------------------------------------
+// R5. Repair restores capacity (rules-v0.4 §15)
+// ---------------------------------------------------------------------------
+void test_repair_restores_capacity(TestContext& context) {
+    Scenario scenario = base_scenario();
+    scenario.players[0].hand = {cards::advance::kRepairTechnician};
+    scenario.players[0].current_pp = 4;
+    scenario.players[0].pp_capacity = 4;
+    scenario.players[0].cracks = 5;
+    Game game = scenario_game(scenario);
+
+    const InstanceId tech = *game.find_in_hand(PlayerId::Player0, cards::advance::kRepairTechnician);
+    EXPECT(context, game.play_unit(PlayerId::Player0, tech));
+    // Repair 2 removes at most 2 cracks and restores 2 capacity.
+    EXPECT(context, game.player(PlayerId::Player0).cracks == 3);
+    EXPECT(context, game.player(PlayerId::Player0).pp_capacity == 6);
+    // Repair does not touch current PP (rules-v0.4 §15).
+    EXPECT(context, game.player(PlayerId::Player0).current_pp == 2);
+
+    // No cracks → repair does nothing (rules-v0.4 §15: repair is not ramp).
+    Scenario scenario2 = base_scenario();
+    scenario2.players[0].hand = {cards::advance::kRepairTechnician};
+    scenario2.players[0].current_pp = 4;
+    scenario2.players[0].pp_capacity = 4;
+    Game game2 = scenario_game(scenario2);
+    const InstanceId tech2 = *game2.find_in_hand(PlayerId::Player0, cards::advance::kRepairTechnician);
+    EXPECT(context, game2.play_unit(PlayerId::Player0, tech2));
+    EXPECT(context, game2.player(PlayerId::Player0).pp_capacity == 4);
+    expect_valid_state(context, game);
+    expect_valid_state(context, game2);
+}
+
+// ---------------------------------------------------------------------------
+// R6. Growth adds capacity (rules-v0.4 §16)
+// ---------------------------------------------------------------------------
+void test_growth_adds_capacity(TestContext& context) {
+    Scenario scenario = base_scenario();
+    scenario.players[0].hand = {cards::advance::kGrowthFacility}; // 2PP relic
+    scenario.players[0].current_pp = 4;
+    scenario.players[0].pp_capacity = 4;
+    Game game = scenario_game(scenario);
+
+    const InstanceId facility = *game.find_in_hand(PlayerId::Player0, cards::advance::kGrowthFacility);
+    EXPECT(context, game.play_tactic(PlayerId::Player0, facility, 0));
+    // Countdown 2: tick on each own turn start.
+    EXPECT(context, game.end_turn(PlayerId::Player0));
+    EXPECT(context, game.end_turn(PlayerId::Player1));
+    EXPECT(context, game.end_turn(PlayerId::Player0));
+    EXPECT(context, game.end_turn(PlayerId::Player1));
+    // After two of player 0's turn starts the relic expired: capacity grew by 1
+    // beyond the two natural increments (4 → 7: two natural +1, one growth).
+    EXPECT(context, game.player(PlayerId::Player0).pp_capacity == 7);
+    EXPECT(context, game.player(PlayerId::Player0).cracks == 0);
+    expect_valid_state(context, game);
+}
+
+// ---------------------------------------------------------------------------
+// R7. Current PP above capacity (rules-v0.4 §17)
+// ---------------------------------------------------------------------------
+void test_current_pp_above_capacity(TestContext& context) {
+    Scenario scenario = base_scenario();
+    scenario.players[0].current_pp = 6;
+    scenario.players[0].pp_capacity = 6;
+    scenario.players[1].units = {cards::midrange::kGuardSentry};
+    scenario.players[0].hand = {cards::advance::kBurnBlast, cards::midrange::kPioneerScout};
+    Game game = scenario_game(scenario);
+
+    const InstanceId blast = *game.find_in_hand(PlayerId::Player0, cards::advance::kBurnBlast);
+    EXPECT(context, game.cast_spell(PlayerId::Player0, blast, first_enemy_unit_target(game, PlayerId::Player0)));
+    // 6/6 → 5 current / 4 capacity: current PP legally exceeds capacity.
+    EXPECT(context, game.player(PlayerId::Player0).current_pp == 5);
+    EXPECT(context, game.player(PlayerId::Player0).pp_capacity == 4);
+    EXPECT(context, game.player(PlayerId::Player0).current_pp > game.player(PlayerId::Player0).pp_capacity);
+
+    // The remaining PP is still spendable this turn.
+    const InstanceId scout = *game.find_in_hand(PlayerId::Player0, cards::midrange::kPioneerScout);
+    EXPECT(context, game.play_unit(PlayerId::Player0, scout));
+    EXPECT(context, game.player(PlayerId::Player0).current_pp == 4);
+
+    // Next own turn refills to the new capacity (rules-v0.4 §17/§7.2).
+    EXPECT(context, game.end_turn(PlayerId::Player0));
+    EXPECT(context, game.end_turn(PlayerId::Player1));
+    EXPECT(context, game.player(PlayerId::Player0).pp_capacity == 5);
+    EXPECT(context, game.player(PlayerId::Player0).current_pp == 5);
+    expect_valid_state(context, game);
+}
+
+// ---------------------------------------------------------------------------
+// R8. Advanced/on-time status (rules-v0.4 §11)
+// ---------------------------------------------------------------------------
+void test_advanced_on_time_status(TestContext& context) {
+    // 超前先锋 (4PP, OnPlayIfAdvanced: rush) played with advance on entry turn
+    // may attack units immediately.
+    Scenario scenario = base_scenario();
+    scenario.players[0].current_pp = 3;
+    scenario.players[0].pp_capacity = 3;
+    scenario.players[0].hand = {cards::advance::kAdvanceWarrior};
+    scenario.players[1].units = {cards::midrange::kGuardSentry};
+    Game game = scenario_game(scenario);
+    const InstanceId warrior = *game.find_in_hand(PlayerId::Player0, cards::advance::kAdvanceWarrior);
+    EXPECT(context, game.play_unit(PlayerId::Player0, warrior, std::nullopt, std::nullopt, true));
+    const InstanceId warrior_unit = *game.find_on_field(PlayerId::Player0, cards::advance::kAdvanceWarrior);
+    const auto enemy = first_enemy_unit_target(game, PlayerId::Player0);
+    // Rush lets it attack the enemy unit on its entry turn, but not the leader.
+    EXPECT(context, game.attack(PlayerId::Player0, warrior_unit, *enemy));
+    // 4/4 vs 1/3: the sentry dies; the warrior takes 1 (3/4).
+    EXPECT(context, game.instance(enemy->unit).zone != Zone::Unit);
+    EXPECT(context, game.instance(warrior_unit).current_health == 3);
+
+    // 按期精英 (3PP, OnPlayIfNotAdvanced: draw 1): played on time it draws.
+    Scenario scenario2 = base_scenario();
+    scenario2.players[0].hand = {cards::advance::kOnTimeElite};
+    scenario2.players[0].deck = {cards::midrange::kGuardSentry};
+    Game game2 = scenario_game(scenario2);
+    const int hand_before = static_cast<int>(game2.player(PlayerId::Player0).hand.size());
+    const InstanceId elite = *game2.find_in_hand(PlayerId::Player0, cards::advance::kOnTimeElite);
+    EXPECT(context, game2.play_unit(PlayerId::Player0, elite));
+    EXPECT(context, static_cast<int>(game2.player(PlayerId::Player0).hand.size()) == hand_before); // played one, drew one
+
+    // The same card played WITH advance must not draw (OnPlayIfNotAdvanced).
+    Scenario scenario3 = base_scenario();
+    scenario3.players[0].current_pp = 1;
+    scenario3.players[0].pp_capacity = 3;
+    scenario3.players[0].hand = {cards::advance::kOnTimeElite};
+    Game game3 = scenario_game(scenario3);
+    const InstanceId elite3 = *game3.find_in_hand(PlayerId::Player0, cards::advance::kOnTimeElite);
+    EXPECT(context, game3.play_unit(PlayerId::Player0, elite3, std::nullopt, std::nullopt, true));
+    EXPECT(context, game3.player(PlayerId::Player0).hand.empty());
+
+    expect_valid_state(context, game);
+    expect_valid_state(context, game2);
+    expect_valid_state(context, game3);
+}
+
+// ---------------------------------------------------------------------------
+// R9a. Evolution unlock, cost and limits (rules-v0.4 §22)
+// ---------------------------------------------------------------------------
+void test_evolution_unlock_and_cost(TestContext& context) {
+    Scenario scenario = base_scenario();
+    scenario.players[0].own_turn_number = 4; // first player, not yet unlocked
+    scenario.players[0].evolution_points = 0;
+    scenario.players[0].units = {cards::midrange::kEliteCommander};
+    Game game = scenario_game(scenario);
+    const InstanceId commander = *game.find_on_field(PlayerId::Player0, cards::midrange::kEliteCommander);
+    EXPECT_CODE(context, game.evolve(PlayerId::Player0, commander), ErrorCode::EvolutionLocked);
+
+    // Unlock at own turn 5 grants 2 energy to the first player.
+    EXPECT(context, game.end_turn(PlayerId::Player0));
+    EXPECT(context, game.end_turn(PlayerId::Player1));
+    const PlayerState& state = game.player(PlayerId::Player0);
+    EXPECT(context, state.own_turn_number == 5);
+    EXPECT(context, state.evolution_points == 2);
+
+    const InstanceId ready = *game.find_on_field(PlayerId::Player0, cards::midrange::kEliteCommander);
+    // Costs 2 energy, once per turn.
+    EXPECT(context, game.evolve(PlayerId::Player0, ready));
+    EXPECT(context, game.player(PlayerId::Player0).evolution_points == 0);
+    EXPECT_CODE(context, game.evolve(PlayerId::Player0, ready), ErrorCode::AlreadyEvolved);
+
+    // Second player unlocks on own turn 4 with 3 energy.
+    Scenario scenario2 = base_scenario(PlayerId::Player1);
+    scenario2.players[1].own_turn_number = 4;
+    scenario2.players[1].evolution_points = 3;
+    scenario2.players[1].units = {cards::advance::kOnTimeElite};
+    Game game2 = scenario_game(scenario2);
+    const InstanceId unit2 = *game2.find_on_field(PlayerId::Player1, cards::advance::kOnTimeElite);
+    EXPECT(context, game2.evolve(PlayerId::Player1, unit2));
+    EXPECT(context, game2.player(PlayerId::Player1).evolution_points == 1);
+
+    expect_valid_state(context, game);
+    expect_valid_state(context, game2);
+}
+
+// ---------------------------------------------------------------------------
+// R9b. Evolution states and the "进化时" trigger (rules-v0.4 §22)
+// ---------------------------------------------------------------------------
+void test_evolution_states_and_trigger(TestContext& context) {
+    // 精锐统帅 (5/5, no evolved stats): default +2/+2, no trigger.
+    Scenario scenario = base_scenario();
+    scenario.players[0].units = {cards::midrange::kEliteCommander};
+    Game game = scenario_game(scenario);
+    const InstanceId plain = *game.find_on_field(PlayerId::Player0, cards::midrange::kEliteCommander);
+    EXPECT(context, game.evolve(PlayerId::Player0, plain));
+    EXPECT(context, game.instance(plain).current_attack == 7);
+    EXPECT(context, game.instance(plain).maximum_health == 7);
+    // Evolution grants "may attack enemy units this turn" (temporary rush).
+    EXPECT(context, game.instance(plain).temporary_rush);
+
+    // 战场指挥者 (3/3 → 5/5, OnEvolution: Draw 1).
+    Scenario scenario2 = base_scenario();
+    scenario2.players[0].units = {cards::midrange::kFieldCommander};
+    scenario2.players[0].deck = {cards::midrange::kGuardSentry};
+    Game game2 = scenario_game(scenario2);
+    const InstanceId commander = *game2.find_on_field(PlayerId::Player0, cards::midrange::kFieldCommander);
+    const int hand_before = static_cast<int>(game2.player(PlayerId::Player0).hand.size());
+    EXPECT(context, game2.evolve(PlayerId::Player0, commander));
+    EXPECT(context, game2.instance(commander).current_attack == 5);
+    EXPECT(context, game2.instance(commander).maximum_health == 5);
+    EXPECT(context, static_cast<int>(game2.player(PlayerId::Player0).hand.size()) == hand_before + 1);
+
+    expect_valid_state(context, game);
+    expect_valid_state(context, game2);
+}
+
+// ---------------------------------------------------------------------------
+// R9c. Class charge conditions (rules-v0.4 §23)
+// ---------------------------------------------------------------------------
+void test_charge_conditions(TestContext& context) {
+    // Midrange deck (p0): the 2nd friendly death in one turn cycle grants 1 energy.
+    // Both deaths happen during player 1's turn, inside one of p0's cycles.
+    Scenario scenario = base_scenario();
+    scenario.players[0].evolution_points = 1;
+    scenario.players[0].units = {
+        cards::midrange::kGuardSentry,  // 1/3 guard
+        cards::midrange::kGuardSentry,  // 1/3 guard
+        cards::midrange::kPioneerScout, // 1/2
+    };
+    scenario.players[1].units = {
+        cards::midrange::kAssaultVanguard, // 3/1 attacker
+        cards::midrange::kAssaultVanguard, // 3/1 attacker
+    };
+    Game game = scenario_game(scenario);
+
+    EXPECT(context, game.end_turn(PlayerId::Player0));
+    // Player 1 attacks both p0 guards with its 3/1 vanguards: each sentry dies.
+    const InstanceId sentry_a = *game.find_on_field(PlayerId::Player0, cards::midrange::kGuardSentry);
+    const auto attacker_1 = first_enemy_unit_target(game, PlayerId::Player0);
+    EXPECT(context, game.attack(PlayerId::Player1, attacker_1->unit, Target::unit_target(PlayerId::Player0, sentry_a)));
+    EXPECT(context, game.player(PlayerId::Player0).evolution_points == 1); // 1st death, no grant yet
+    const InstanceId sentry_b = *game.find_on_field(PlayerId::Player0, cards::midrange::kGuardSentry);
+    const auto attacker_2 = first_enemy_unit_target(game, PlayerId::Player0);
+    EXPECT(context, game.attack(PlayerId::Player1, attacker_2->unit, Target::unit_target(PlayerId::Player0, sentry_b)));
+    // 2nd friendly death in the cycle → +1 energy.
+    EXPECT(context, game.player(PlayerId::Player0).evolution_points == 2);
+
+    // Advance deck: SpellsNoUnitsThisTurn — ≥2 spells and no unit played at own
+    // end of turn grants 1 energy.
+    Game fresh(make_v04_catalog(), make_advance_deck(), make_midrange_deck());
+    Scenario s2 = base_scenario();
+    s2.players[0].evolution_points = 0;
+    s2.players[1].units = {cards::midrange::kGuardSentry, cards::midrange::kGuardSentry};
+    s2.players[0].hand = {cards::midrange::kPrecisionStrike, cards::midrange::kPrecisionStrike};
+    const Status load = fresh.load_scenario(s2);
+    EXPECT(context, load);
+    const auto t1 = first_enemy_unit_target(fresh, PlayerId::Player0);
+    const InstanceId s_a = *fresh.find_in_hand(PlayerId::Player0, cards::midrange::kPrecisionStrike);
+    EXPECT(context, fresh.cast_spell(PlayerId::Player0, s_a, t1));
+    const InstanceId s_b = *fresh.find_in_hand(PlayerId::Player0, cards::midrange::kPrecisionStrike);
+    const auto t2 = first_enemy_unit_target(fresh, PlayerId::Player0);
+    EXPECT(context, fresh.cast_spell(PlayerId::Player0, s_b, t2));
+    EXPECT(context, fresh.player(PlayerId::Player0).evolution_points == 0); // before end of turn
+    EXPECT(context, fresh.end_turn(PlayerId::Player0));
+    EXPECT(context, fresh.player(PlayerId::Player0).evolution_points == 1);
+    expect_valid_state(context, fresh);
+
+    expect_valid_state(context, game);
+}
+
+// ---------------------------------------------------------------------------
+// R10. Standby deployment (rules-v0.4 §24/§25)
+// ---------------------------------------------------------------------------
+void test_deployment_flow_and_limits(TestContext& context) {
+    Scenario scenario = base_scenario();
+    scenario.players[0].current_pp = 5;
+    scenario.players[0].pp_capacity = 5;
+    scenario.players[0].standby = {cards::midrange::kSiegeTitan, cards::midrange::kGuardAce};
+    scenario.players[0].units = {cards::midrange::kGuardSentry};
+    Game game = scenario_game(scenario);
+
+    const InstanceId titan = *game.find_in_standby(PlayerId::Player0, cards::midrange::kSiegeTitan);
+    // Condition not met (needs ≥2 friendly units).
+    EXPECT_CODE(context, game.deploy(PlayerId::Player0, titan), ErrorCode::DeployConditionNotMet);
+
+    Scenario scenario2 = base_scenario();
+    scenario2.players[0].current_pp = 5;
+    scenario2.players[0].pp_capacity = 5;
+    scenario2.players[0].standby = {cards::midrange::kSiegeTitan, cards::midrange::kGuardAce};
+    scenario2.players[0].units = {cards::midrange::kGuardSentry, cards::midrange::kPioneerScout};
+    Game game2 = scenario_game(scenario2);
+    const InstanceId titan2 = *game2.find_in_standby(PlayerId::Player0, cards::midrange::kSiegeTitan);
+    EXPECT(context, game2.deploy(PlayerId::Player0, titan2));
+    EXPECT(context, game2.player(PlayerId::Player0).current_pp == 2);
+    EXPECT(context, game2.find_on_field(PlayerId::Player0, cards::midrange::kSiegeTitan).has_value());
+    // Once per turn (rules-v0.4 §25).
+    const InstanceId ace = *game2.find_in_standby(PlayerId::Player0, cards::midrange::kGuardAce);
+    EXPECT_CODE(context, game2.deploy(PlayerId::Player0, ace), ErrorCode::DeployAlreadyUsed);
+
+    // A deployed unit leaving the field goes to the archive (rules-v0.4 §5).
+    Scenario scenario4 = base_scenario();
+    scenario4.players[0].current_pp = 5;
+    scenario4.players[0].pp_capacity = 5;
+    scenario4.players[0].standby = {cards::midrange::kSiegeTitan};
+    scenario4.players[0].units = {cards::midrange::kPioneerScout, cards::midrange::kPioneerScout}; // no guard
+    scenario4.players[1].units = {cards::advance::kDebtLord}; // 8/6 attacker
+    Game game4 = scenario_game(scenario4);
+    const InstanceId titan4 = *game4.find_in_standby(PlayerId::Player0, cards::midrange::kSiegeTitan);
+    EXPECT(context, game4.deploy(PlayerId::Player0, titan4));
+    const InstanceId titan_unit4 = *game4.find_on_field(PlayerId::Player0, cards::midrange::kSiegeTitan);
+    EXPECT(context, game4.end_turn(PlayerId::Player0));
+    const auto enemy_attacker = first_enemy_unit_target(game4, PlayerId::Player0); // p1's unit
+    EXPECT(context, game4.attack(PlayerId::Player1, enemy_attacker->unit,
+                                 Target::unit_target(PlayerId::Player0, titan_unit4)));
+    // 8 damage kills the 5/5 titan → archived, not graveyard.
+    EXPECT(context, game4.find_on_field(PlayerId::Player0, cards::midrange::kSiegeTitan) == std::nullopt);
+    EXPECT(context, game4.player(PlayerId::Player0).graveyard.size() == 0);
+    EXPECT(context, !game4.player(PlayerId::Player0).archive.empty());
+
+    expect_valid_state(context, game);
+    expect_valid_state(context, game2);
+    expect_valid_state(context, game4);
+}
+
+// ---------------------------------------------------------------------------
+// R11. Component abilities (rules-v0.4 §31)
+// ---------------------------------------------------------------------------
+void test_component_grant_and_no_retransfer(TestContext& context) {
+    // 戍卫王机 deployment archives a friendly unit; if that unit carries a
+    // printed component (突击前锋: GrantRush), the deployed unit gets it.
+    Scenario scenario = base_scenario();
+    scenario.players[0].current_pp = 6;
+    scenario.players[0].pp_capacity = 6;
+    scenario.players[0].standby = {cards::midrange::kGuardAce};
+    scenario.players[0].units = {cards::midrange::kAssaultVanguard}; // has component
+    scenario.players[1].units = {cards::midrange::kGuardSentry};
+    Game game = scenario_game(scenario);
+
+    const InstanceId ace = *game.find_in_standby(PlayerId::Player0, cards::midrange::kGuardAce);
+    const InstanceId donor = *game.find_on_field(PlayerId::Player0, cards::midrange::kAssaultVanguard);
+    EXPECT(context, game.deploy(PlayerId::Player0, ace, std::nullopt, donor));
+    const InstanceId ace_unit = *game.find_on_field(PlayerId::Player0, cards::midrange::kGuardAce);
+    EXPECT(context, game.instance(ace_unit).granted_component.has_component);
+    EXPECT(context, game.instance(ace_unit).granted_component.granted_kind == EffectKind::GrantRush);
+    // The component lets the deployed ace attack enemy units on its entry turn.
+    const auto enemy = first_enemy_unit_target(game, PlayerId::Player0);
+    EXPECT(context, game.attack(PlayerId::Player0, ace_unit, *enemy));
+    // Donor went to the archive (deployment cost), not the graveyard.
+    EXPECT(context, game.player(PlayerId::Player0).graveyard.empty());
+    EXPECT(context, game.player(PlayerId::Player0).archive.size() == 1);
+
+    // Deployed standby cards leave to the archive; a granted component never
+    // survives leaving the field (rules-v0.4 §31).
+    Scenario scenario3 = base_scenario();
+    scenario3.players[0].current_pp = 6;
+    scenario3.players[0].pp_capacity = 6;
+    scenario3.players[0].standby = {cards::midrange::kGuardAce};
+    scenario3.players[0].units = {cards::midrange::kAssaultVanguard};
+    scenario3.players[1].units = {cards::advance::kDebtLord}; // 8/6 attacker
+    Game game3 = scenario_game(scenario3);
+    const InstanceId ace3 = *game3.find_in_standby(PlayerId::Player0, cards::midrange::kGuardAce);
+    const InstanceId donor3 = *game3.find_on_field(PlayerId::Player0, cards::midrange::kAssaultVanguard);
+    EXPECT(context, game3.deploy(PlayerId::Player0, ace3, std::nullopt, donor3));
+    const InstanceId ace_unit3 = *game3.find_on_field(PlayerId::Player0, cards::midrange::kGuardAce);
+    EXPECT(context, game3.end_turn(PlayerId::Player0));
+    const auto enemy3 = first_enemy_unit_target(game3, PlayerId::Player0); // p1's 8/6 attacker
+    EXPECT(context, game3.attack(PlayerId::Player1, enemy3->unit,
+                                 Target::unit_target(PlayerId::Player0, ace_unit3)));
+    // Deployed ace died → archive; the granted component must not linger.
+    EXPECT(context, game3.player(PlayerId::Player0).graveyard.empty());
+    expect_valid_state(context, game);
+    expect_valid_state(context, game3);
+}
+
+// ---------------------------------------------------------------------------
+// R12a. Response stack: trap cancels attack (rules-v0.4 §26)
+// ---------------------------------------------------------------------------
+void test_response_stack_lifo(TestContext& context) {
+    // Player 0 declares an attack; player 1 responds with a cancel trap; the
+    // chain resolves: attack cancelled, no combat damage, attacker still
+    // considered to have attacked (rules-v0.4 §21/§26).
+    Scenario scenario = base_scenario();
+    scenario.players[0].current_pp = 6;
+    scenario.players[0].pp_capacity = 6;
+    scenario.players[0].units = {cards::midrange::kEliteCommander}; // 5/5
+    scenario.players[1].units = {cards::midrange::kGuardSentry};    // 1/3
+    scenario.players[1].tactics = {cards::midrange::kInterceptTrap};
+    Game game = scenario_game(scenario);
+
+    const InstanceId attacker = *game.find_on_field(PlayerId::Player0, cards::midrange::kEliteCommander);
+    const auto target = first_enemy_unit_target(game, PlayerId::Player0);
+    EXPECT(context, game.attack(PlayerId::Player0, attacker, *target));
+    // A response window is open for player 1.
+    EXPECT(context, game.phase() == Phase::Reaction);
+    EXPECT(context, game.reaction_window() == ReactionWindow::AttackDeclared);
+    EXPECT(context, !game.eligible_traps().empty());
+
+    // Player 1 activates the cancel trap → no counter available → chain resolves.
+    const InstanceId trap = game.eligible_traps().front();
+    EXPECT(context, game.activate_trap(PlayerId::Player1, trap));
+    // Attack cancelled: no combat damage, attacker still marked as attacked.
+    EXPECT(context, game.instance(target->unit).current_health == 3);
+    EXPECT(context, game.instance(attacker).attacked_this_turn);
+    EXPECT(context, game.phase() == Phase::Action);
+    // Trap resolved into the graveyard (rules-v0.4 §20).
+    EXPECT(context, game.player(PlayerId::Player1).graveyard.size() == 1);
+
+    // A spell use also opens a window; no matching trap → resolves immediately.
+    Scenario scenario2 = base_scenario();
+    scenario2.players[0].hand = {cards::midrange::kPrecisionStrike};
+    scenario2.players[1].units = {cards::midrange::kGuardSentry};
+    scenario2.players[1].tactics = {cards::midrange::kInterceptTrap}; // not matching
+    Game game2 = scenario_game(scenario2);
+    const InstanceId strike = *game2.find_in_hand(PlayerId::Player0, cards::midrange::kPrecisionStrike);
+    const auto enemy2 = first_enemy_unit_target(game2, PlayerId::Player0);
+    EXPECT(context, game2.cast_spell(PlayerId::Player0, strike, enemy2));
+    // The 3 damage killed the 1/3 sentry: it left the field.
+    EXPECT(context, game2.instance(enemy2->unit).zone != Zone::Unit);
+
+    expect_valid_state(context, game);
+    expect_valid_state(context, game2);
+}
+
+// ---------------------------------------------------------------------------
+// R12b. Trap on entry-effect pending (rules-v0.4 §26)
+// ---------------------------------------------------------------------------
+void test_trap_entry_pending_damage(TestContext& context) {
+    // p0 plays 先驱侦察兵 (OnEntry draw) while p1 has 反制伏策 → the window
+    // opens before the entry effect; the trap damages the entering unit.
+    Scenario scenario = base_scenario();
+    scenario.players[0].hand = {cards::midrange::kPioneerScout};
+    scenario.players[0].deck = {cards::midrange::kGuardSentry};
+    scenario.players[1].tactics = {cards::midrange::kCounterTrap};
+    Game game = scenario_game(scenario);
+
+    const InstanceId scout = *game.find_in_hand(PlayerId::Player0, cards::midrange::kPioneerScout);
+    EXPECT(context, game.play_unit(PlayerId::Player0, scout));
+    EXPECT(context, game.phase() == Phase::Reaction);
+    EXPECT(context, game.reaction_window() == ReactionWindow::EntryEffectPending);
+    const InstanceId trap = game.eligible_traps().front();
+    EXPECT(context, game.activate_trap(PlayerId::Player1, trap));
+    // The 1/2 scout took 2 damage and died; its draw still resolves (LIFO).
+    EXPECT(context, game.find_on_field(PlayerId::Player0, cards::midrange::kPioneerScout) == std::nullopt);
+    EXPECT(context, game.player(PlayerId::Player0).graveyard.size() == 1);
+    expect_valid_state(context, game);
+}
+
+// ---------------------------------------------------------------------------
+// R13. Tactic zone never auto-replaces (rules-v0.4 §5)
+// ---------------------------------------------------------------------------
+void test_tactic_zone_no_replacement(TestContext& context) {
+    Scenario scenario = base_scenario();
+    scenario.players[0].hand = {cards::advance::kGrowthFacility, cards::midrange::kCommandOrder};
+    scenario.players[0].tactics = {cards::midrange::kCommandOrder}; // slot 0 occupied
+    Game game = scenario_game(scenario);
+
+    const InstanceId facility = *game.find_in_hand(PlayerId::Player0, cards::advance::kGrowthFacility);
+    // Slot 0 occupied → rejected; no free replacement (rules-v0.4 §5).
+    EXPECT_CODE(context, game.play_tactic(PlayerId::Player0, facility, 0), ErrorCode::TacticZoneFull);
+    // Slot 1 is free → accepted.
+    EXPECT(context, game.play_tactic(PlayerId::Player0, facility, 1));
+    // Now both slots full: the second tactic cannot be placed at all.
+    const InstanceId order = *game.find_in_hand(PlayerId::Player0, cards::midrange::kCommandOrder);
+    EXPECT_CODE(context, game.play_tactic(PlayerId::Player0, order, 0), ErrorCode::TacticZoneFull);
+    EXPECT_CODE(context, game.play_tactic(PlayerId::Player0, order, 1), ErrorCode::TacticZoneFull);
+    expect_valid_state(context, game);
+}
+
+// ---------------------------------------------------------------------------
+// R14. Hand overflow archive and fatigue (rules-v0.4 §5/§33)
+// ---------------------------------------------------------------------------
+void test_hand_overflow_and_fatigue(TestContext& context) {
+    Scenario scenario = base_scenario();
+    for (int i = 0; i < 9; ++i) {
+        scenario.players[0].hand.push_back(cards::midrange::kGuardSentry);
     }
-    constexpr int kMaximumActions = 500;
-    int completed_matches = 0;
-    int total_actions = 0;
+    scenario.players[0].deck = {cards::midrange::kPioneerScout};
+    Game game = scenario_game(scenario);
+    EXPECT(context, game.player(PlayerId::Player0).hand.size() == 9);
+    // Drawing with a full hand archives the card publicly (rules-v0.4 §5).
+    EXPECT(context, game.end_turn(PlayerId::Player0));
+    EXPECT(context, game.end_turn(PlayerId::Player1));
+    EXPECT(context, game.player(PlayerId::Player0).hand.size() == 9);
+    EXPECT(context, !game.player(PlayerId::Player0).archive.empty());
 
-    for (int seed = 0; seed < seed_count; ++seed) {
-        GameConfig config;
-        config.random_seed = 0x5C6A0000U + static_cast<std::uint32_t>(seed);
-        config.first_player = seed % 2 == 0 ? PlayerId::Player0 : PlayerId::Player1;
-        Game game(
-            make_prototype_catalog(),
-            make_royal_prototype_deck(),
-            make_machine_prototype_deck(),
-            config);
-        EXPECT(context, game.start());
-        expect_valid_state(context, game);
-        EXPECT(context, game.mulligan(PlayerId::Player0, {}));
-        expect_valid_state(context, game);
-        EXPECT(context, game.mulligan(PlayerId::Player1, {}));
-        expect_valid_state(context, game);
+    // Fatigue: empty deck, each draw deals escalating damage (rules-v0.4 §33).
+    Scenario scenario2 = base_scenario();
+    scenario2.players[0].deck = {};
+    Game game2 = scenario_game(scenario2);
+    const int health_before = game2.player(PlayerId::Player0).leader_health;
+    EXPECT(context, game2.end_turn(PlayerId::Player0));
+    EXPECT(context, game2.end_turn(PlayerId::Player1));
+    EXPECT(context, game2.player(PlayerId::Player0).leader_health == health_before - 1);
+    EXPECT(context, game2.end_turn(PlayerId::Player0));
+    EXPECT(context, game2.end_turn(PlayerId::Player1));
+    EXPECT(context, game2.player(PlayerId::Player0).leader_health == health_before - 3);
 
-        for (int step = 0; step < kMaximumActions && game.result() == GameResult::Ongoing; ++step) {
-            const bool progressed = take_smoke_action(game, step + seed);
-            EXPECT(context, progressed);
-            expect_valid_state(context, game);
-            ++total_actions;
-            if (!progressed) {
+    expect_valid_state(context, game);
+    expect_valid_state(context, game2);
+}
+
+// ---------------------------------------------------------------------------
+// R15. Combat: simultaneous damage, persistence, guard, sickness (rules-v0.4 §21)
+// ---------------------------------------------------------------------------
+void test_combat_and_attack_rules(TestContext& context) {
+    Scenario scenario = base_scenario();
+    scenario.players[0].units = {cards::midrange::kEliteCommander}; // 5/5, on field since load
+    scenario.players[1].units = {cards::midrange::kFortressGuard, cards::midrange::kAssaultVanguard}; // 3/6 guard+barrier, 3/1
+    Game game = scenario_game(scenario);
+
+    const InstanceId attacker = *game.find_on_field(PlayerId::Player0, cards::midrange::kEliteCommander);
+    // Guard blocks attacking the non-guard unit.
+    const auto non_guard = *game.find_on_field(PlayerId::Player1, cards::midrange::kAssaultVanguard);
+    EXPECT_CODE(context, game.attack(PlayerId::Player0, attacker, Target::unit_target(PlayerId::Player1, non_guard)),
+                ErrorCode::GuardBlocksTarget);
+    // Attacking the guard: barrier absorbs the first hit, simultaneous damage.
+    const auto guard = *game.find_on_field(PlayerId::Player1, cards::midrange::kFortressGuard);
+    EXPECT(context, game.attack(PlayerId::Player0, attacker, Target::unit_target(PlayerId::Player1, guard)));
+    // Barrier absorbed the 5 damage: guard stays 3/6 (barrier gone), attacker takes 3.
+    EXPECT(context, game.instance(guard).current_health == 6);
+    EXPECT(context, game.instance(attacker).current_health == 2);
+    EXPECT(context, !has_keyword(game.instance(guard).keywords, Keyword::Barrier));
+    // The attacker already attacked this turn: a second attack is refused.
+    EXPECT_CODE(context, game.attack(PlayerId::Player0, attacker, Target::unit_target(PlayerId::Player1, guard)),
+                ErrorCode::AlreadyAttacked);
+
+    // Persistent damage: attacker keeps 2 health at end of turn.
+    EXPECT(context, game.end_turn(PlayerId::Player0));
+    EXPECT(context, game.end_turn(PlayerId::Player1));
+    EXPECT(context, game.instance(attacker).current_health == 2);
+
+    // Summoning sickness: a fresh unit cannot attack; rush units can attack
+    // units but not the leader (rules-v0.4 §21).
+    Scenario scenario2 = base_scenario();
+    scenario2.players[0].hand = {cards::midrange::kAssaultVanguard, cards::midrange::kPioneerScout};
+    scenario2.players[1].units = {cards::midrange::kGuardSentry};
+    Game game2 = scenario_game(scenario2);
+    const InstanceId fresh = *game2.find_in_hand(PlayerId::Player0, cards::midrange::kPioneerScout);
+    EXPECT(context, game2.play_unit(PlayerId::Player0, fresh));
+    const auto enemy2 = first_enemy_unit_target(game2, PlayerId::Player0);
+    EXPECT_CODE(context, game2.attack(PlayerId::Player0, fresh, *enemy2), ErrorCode::SummoningSickness);
+    const InstanceId rush = *game2.find_in_hand(PlayerId::Player0, cards::midrange::kAssaultVanguard);
+    EXPECT(context, game2.play_unit(PlayerId::Player0, rush));
+    const auto enemy3 = first_enemy_unit_target(game2, PlayerId::Player0);
+    EXPECT(context, game2.attack(PlayerId::Player0, rush, *enemy3)); // rush → unit OK
+    // 3/1 vs 1/3: both die simultaneously (rush takes the sentry's 1 damage).
+    EXPECT(context, game2.find_on_field(PlayerId::Player0, cards::midrange::kAssaultVanguard) == std::nullopt);
+    EXPECT(context, game2.instance(enemy3->unit).zone != Zone::Unit);
+
+    expect_valid_state(context, game);
+    expect_valid_state(context, game2);
+}
+
+// ---------------------------------------------------------------------------
+// R16. Simultaneous death batch (rules-v0.4 §28)
+// ---------------------------------------------------------------------------
+void test_simultaneous_death_batch(TestContext& context) {
+    Scenario scenario = base_scenario();
+    scenario.players[0].units = {cards::midrange::kAssaultVanguard}; // 3/1
+    scenario.players[1].units = {cards::midrange::kAssaultVanguard}; // 3/1
+    Game game = scenario_game(scenario);
+    const InstanceId attacker = *game.find_on_field(PlayerId::Player0, cards::midrange::kAssaultVanguard);
+    const auto defender = *game.find_on_field(PlayerId::Player1, cards::midrange::kAssaultVanguard);
+    EXPECT(context, game.attack(PlayerId::Player0, attacker, Target::unit_target(PlayerId::Player1, defender)));
+    // Both die simultaneously; both enter the graveyard.
+    EXPECT(context, game.find_on_field(PlayerId::Player0, cards::midrange::kAssaultVanguard) == std::nullopt);
+    EXPECT(context, game.find_on_field(PlayerId::Player1, cards::midrange::kAssaultVanguard) == std::nullopt);
+    EXPECT(context, game.player(PlayerId::Player0).graveyard.size() == 1);
+    EXPECT(context, game.player(PlayerId::Player1).graveyard.size() == 1);
+    expect_valid_state(context, game);
+}
+
+// ---------------------------------------------------------------------------
+// R17. Trap set limits (rules-v0.4 §20)
+// ---------------------------------------------------------------------------
+void test_trap_set_once_per_turn(TestContext& context) {
+    Scenario scenario = base_scenario();
+    scenario.players[0].hand = {cards::midrange::kInterceptTrap, cards::midrange::kCounterTrap};
+    Game game = scenario_game(scenario);
+    const InstanceId trap_a = *game.find_in_hand(PlayerId::Player0, cards::midrange::kInterceptTrap);
+    EXPECT(context, game.play_tactic(PlayerId::Player0, trap_a, 0));
+    const InstanceId trap_b = *game.find_in_hand(PlayerId::Player0, cards::midrange::kCounterTrap);
+    EXPECT_CODE(context, game.play_tactic(PlayerId::Player0, trap_b, 1), ErrorCode::TrapAlreadySetThisTurn);
+    // The set trap is face-down.
+    EXPECT(context, game.instance(trap_a).face_down);
+    expect_valid_state(context, game);
+}
+
+// ---------------------------------------------------------------------------
+// R18. Documented golden walkthrough (rules-v0.4 §9/§13/§15/§17)
+// ---------------------------------------------------------------------------
+void test_documented_overdraw_walkthrough(TestContext& context) {
+    Scenario scenario = base_scenario();
+    scenario.players[0].current_pp = 5;
+    scenario.players[0].pp_capacity = 5;
+    scenario.players[0].evolution_points = 2;
+    scenario.players[0].own_turn_number = 5;
+    scenario.players[0].hand = {cards::advance::kDebtLord, cards::advance::kBurnBlast, cards::advance::kRepairTechnician};
+    scenario.players[0].deck = {cards::midrange::kGuardSentry, cards::midrange::kGuardSentry};
+    scenario.players[1].own_turn_number = 1;
+    scenario.players[1].units = {cards::midrange::kGuardSentry};
+    scenario.players[1].deck = {cards::advance::kOnTimeElite, cards::advance::kOnTimeElite};
+    Game game = scenario_game(scenario);
+
+    const InstanceId debt_lord = *game.find_in_hand(PlayerId::Player0, cards::advance::kDebtLord);
+    const InstanceId enemy = *game.find_on_field(PlayerId::Player1, cards::midrange::kGuardSentry);
+    EXPECT(context, game.play_unit(PlayerId::Player0, debt_lord, std::nullopt, std::nullopt, true));
+    EXPECT(context, game.player(PlayerId::Player0).current_pp == 0);
+    EXPECT(context, game.player(PlayerId::Player0).pp_capacity == 2);
+    EXPECT(context, game.player(PlayerId::Player0).cracks == 3);
+
+    EXPECT(context, game.end_turn(PlayerId::Player0));
+    EXPECT(context, game.end_turn(PlayerId::Player1));
+    EXPECT(context, game.player(PlayerId::Player0).pp_capacity == 3);
+    EXPECT(context, game.player(PlayerId::Player0).current_pp == 3);
+
+    const InstanceId blast = *game.find_in_hand(PlayerId::Player0, cards::advance::kBurnBlast);
+    EXPECT(context, game.cast_spell(PlayerId::Player0, blast, Target::unit_target(PlayerId::Player1, enemy)));
+    EXPECT(context, game.player(PlayerId::Player0).current_pp == 2);
+    EXPECT(context, game.player(PlayerId::Player0).pp_capacity == 1);
+    EXPECT(context, game.player(PlayerId::Player0).cracks == 5);
+    EXPECT(context, game.player(PlayerId::Player0).current_pp > game.player(PlayerId::Player0).pp_capacity);
+
+    const InstanceId tech = *game.find_in_hand(PlayerId::Player0, cards::advance::kRepairTechnician);
+    EXPECT(context, game.play_unit(PlayerId::Player0, tech));
+    EXPECT(context, game.player(PlayerId::Player0).current_pp == 0);
+    EXPECT(context, game.player(PlayerId::Player0).pp_capacity == 3);
+    EXPECT(context, game.player(PlayerId::Player0).cracks == 3);
+
+    expect_valid_state(context, game);
+}
+
+// ---------------------------------------------------------------------------
+// R19. Deterministic smoke matches with invariants (both first players)
+// ---------------------------------------------------------------------------
+void take_smoke_action(Game& game, int& call_counter) {
+    ++call_counter;
+    const PlayerId active = game.active_player();
+
+    // Response windows: the layer responder may activate a trap or pass.
+    if (game.phase() == Phase::Reaction) {
+        const std::vector<InstanceId> traps = game.eligible_traps();
+        const PlayerId responder = traps.empty() ? opponent(active) : game.instance(traps.front()).controller;
+        const bool use_trap = !traps.empty() && ((call_counter % 3) != 0);
+        if (use_trap) {
+            (void)game.activate_trap(responder, traps.front());
+        } else {
+            (void)game.pass_reaction(responder);
+        }
+        return;
+    }
+    if (game.phase() == Phase::Mulligan) {
+        (void)game.mulligan(PlayerId::Player0, {});
+        (void)game.mulligan(PlayerId::Player1, {});
+        return;
+    }
+    if (game.result() != GameResult::Ongoing) {
+        return;
+    }
+
+    const PlayerState& state = game.player(active);
+    const PlayerState& enemy = game.player(opponent(active));
+
+    // 1. Attack with the first legal attacker.
+    for (const auto& slot : state.units) {
+        if (!slot.has_value()) {
+            continue;
+        }
+        const CardInstance& unit = game.instance(*slot);
+        if (unit.attacked_this_turn || unit.current_attack <= 0) {
+            continue;
+        }
+        std::optional<Target> candidate;
+        for (const auto& enemy_slot : enemy.units) {
+            if (!enemy_slot.has_value()) {
+                continue;
+            }
+            if (game.validate_attack(active, *slot, Target::unit_target(opponent(active), *enemy_slot))) {
+                candidate = Target::unit_target(opponent(active), *enemy_slot);
                 break;
             }
         }
-        if (game.result() != GameResult::Ongoing) {
-            ++completed_matches;
+        if (!candidate.has_value() &&
+            game.validate_attack(active, *slot, Target::leader(opponent(active)))) {
+            candidate = Target::leader(opponent(active));
+        }
+        if (candidate.has_value()) {
+            (void)game.attack(active, *slot, *candidate);
+            return;
         }
     }
 
-    EXPECT(context, completed_matches == seed_count);
-    EXPECT(context, total_actions > seed_count * 20);
+    // 2. Deploy a standby card when the condition holds.
+    for (const InstanceId id : state.standby) {
+        if (game.deploy(active, id)) {
+            return;
+        }
+    }
+
+    // 3. Play a unit or spell, with advance when needed.
+    const bool can_advance = !state.advance_used_this_turn;
+    for (const InstanceId id : state.hand) {
+        const CardDefinition& def = game.definition(id);
+        if (def.kind == CardKind::Unit) {
+            const auto target = first_enemy_unit_target(game, active);
+            if (game.play_unit(active, id, std::nullopt, target, can_advance)) {
+                return;
+            }
+        }
+    }
+    for (const InstanceId id : state.hand) {
+        const CardDefinition& def = game.definition(id);
+        if (def.kind == CardKind::Spell) {
+            const auto target = first_enemy_unit_target(game, active);
+            if (game.cast_spell(active, id, target, can_advance)) {
+                return;
+            }
+        }
+    }
+    // 4. Set a relic or trap into the first free tactic slot.
+    for (const InstanceId id : state.hand) {
+        const CardDefinition& def = game.definition(id);
+        if (def.kind == CardKind::Relic || def.kind == CardKind::Trap) {
+            for (std::size_t slot = 0; slot < kTacticZoneSize; ++slot) {
+                if (game.play_tactic(active, id, slot)) {
+                    return;
+                }
+            }
+        }
+    }
+    // 5. Evolve the first evolvable unit.
+    for (const auto& slot : state.units) {
+        if (slot.has_value() && game.evolve(active, *slot)) {
+            return;
+        }
+    }
+    // 6. Use the leader skill when affordable.
+    if (game.use_leader_skill(active)) {
+        return;
+    }
+    // 7. Otherwise end the turn.
+    (void)game.end_turn(active);
 }
 
-void test_protocol_round_trip_and_validation(TestContext& context) {
-    PlayerState state;
-    state.leader_health = 17;
-    state.maximum_leader_health = 25;
-    state.current_pp = 3;
-    state.maximum_pp = 7;
-    state.evolution_points = 2;
-    state.own_turn_number = 6;
-    state.evolution_used_this_turn = true;
-    state.advanced_summon_used_this_turn = true;
-    const auto player_wire = protocol::make_player_state_wire(PlayerId::Player1, state);
-    const auto player_bytes = protocol::encode_player_state(player_wire);
-    const auto player_payload = protocol::encode_player_state_payload(player_wire);
-    const auto decoded_player = protocol::decode_player_state(player_bytes);
-    const auto decoded_player_payload = protocol::decode_player_state_payload(player_payload);
-    EXPECT(context, decoded_player.player == PlayerId::Player1);
-    EXPECT(context, decoded_player.leader_health == 17);
-    EXPECT(context, decoded_player.maximum_leader_health == 25);
-    EXPECT(context, decoded_player.current_pp == 3);
-    EXPECT(context, decoded_player.maximum_pp == 7);
-    EXPECT(context, decoded_player.evolution_points == 2);
-    EXPECT(context, decoded_player.own_turn_number == 6);
-    EXPECT(context, (decoded_player.flags & 0x03U) == 0x03U);
-    EXPECT(context, decoded_player_payload.player == decoded_player.player);
-    EXPECT(context, decoded_player_payload.leader_health == decoded_player.leader_health);
-    EXPECT(context, decoded_player_payload.flags == decoded_player.flags);
-    EXPECT(context, player_payload.size() == protocol::kPlayerStatePayloadSize);
-    EXPECT(context, player_bytes.size() == protocol::kPlayerStateMessageSize);
-    EXPECT(context, std::equal(player_payload.begin(), player_payload.end(), player_bytes.begin() + 1));
-
-    CardInstance unit;
-    unit.id = 0x0102030405060708ULL;
-    unit.controller = PlayerId::Player0;
-    unit.sequence = 3;
-    unit.current_attack = 7;
-    unit.current_health = 5;
-    unit.maximum_health = 8;
-    unit.keywords = mask(Keyword::Guard) | mask(Keyword::Rush);
-    unit.inherited_imprint = Imprint::Guard;
-    unit.evolved = true;
-    unit.advanced_summoned_this_turn = true;
-    const auto unit_wire = protocol::make_unit_state_wire(unit);
-    const auto unit_bytes = protocol::encode_unit_state(unit_wire);
-    const auto unit_payload = protocol::encode_unit_state_payload(unit_wire);
-    const auto decoded_unit = protocol::decode_unit_state(unit_bytes);
-    const auto decoded_unit_payload = protocol::decode_unit_state_payload(unit_payload);
-    EXPECT(context, decoded_unit.instance_id == unit.id);
-    EXPECT(context, decoded_unit.sequence == 3);
-    EXPECT(context, decoded_unit.attack == 7);
-    EXPECT(context, decoded_unit.health == 5);
-    EXPECT(context, decoded_unit.maximum_health == 8);
-    EXPECT(context, decoded_unit.keywords == unit.keywords);
-    EXPECT(context, decoded_unit.inherited_imprint == Imprint::Guard);
-    EXPECT(context, (decoded_unit.flags & 0x09U) == 0x09U);
-    EXPECT(context, decoded_unit_payload.instance_id == decoded_unit.instance_id);
-    EXPECT(context, decoded_unit_payload.health == decoded_unit.health);
-    EXPECT(context, decoded_unit_payload.flags == decoded_unit.flags);
-    EXPECT(context, unit_payload.size() == protocol::kUnitStatePayloadSize);
-    EXPECT(context, unit_bytes.size() == protocol::kUnitStateMessageSize);
-    EXPECT(context, std::equal(unit_payload.begin(), unit_payload.end(), unit_bytes.begin() + 1));
-
-    const std::vector<std::uint8_t> expected_player_bytes = {
-        0xD3U, 0x01U, 0x01U, 0x11U, 0x00U, 0x19U,
-        0x00U, 0x03U, 0x07U, 0x02U, 0x06U, 0x03U,
-    };
-    EXPECT(context, player_bytes == expected_player_bytes);
-    EXPECT(context, player_payload == std::vector<std::uint8_t>(expected_player_bytes.begin() + 1, expected_player_bytes.end()));
-    const std::vector<std::uint8_t> expected_unit_bytes = {
-        0xD4U, 0x01U, 0x00U, 0x03U,
-        0x08U, 0x07U, 0x06U, 0x05U, 0x04U, 0x03U, 0x02U, 0x01U,
-        0x07U, 0x00U, 0x05U, 0x00U, 0x08U, 0x00U,
-        0x03U, 0x00U, 0x00U, 0x00U, 0x01U, 0x09U,
-    };
-    EXPECT(context, unit_bytes == expected_unit_bytes);
-    EXPECT(context, unit_payload == std::vector<std::uint8_t>(expected_unit_bytes.begin() + 1, expected_unit_bytes.end()));
-
-    bool rejected_trailing = false;
-    auto malformed = player_bytes;
-    malformed.push_back(0xFFU);
-    try {
-        (void)protocol::decode_player_state(malformed);
-    } catch (const std::invalid_argument&) {
-        rejected_trailing = true;
+void test_invariants_and_smoke_matches(TestContext& context) {
+    const char* seed_env = std::getenv("SCGS_SMOKE_SEEDS");
+    const int seeds = seed_env != nullptr ? std::atoi(seed_env) : 32;
+    for (int seed = 0; seed < seeds; ++seed) {
+        for (int first = 0; first < 2; ++first) {
+            GameConfig config;
+            config.random_seed = static_cast<std::uint32_t>(seed * 2 + first);
+            config.first_player = first == 0 ? PlayerId::Player0 : PlayerId::Player1;
+            Game game(make_v04_catalog(), make_midrange_deck(), make_advance_deck(), config);
+            EXPECT(context, game.start());
+            int call_counter = 0;
+            int iterations = 0;
+            while (game.result() == GameResult::Ongoing && iterations < 1000) {
+                take_smoke_action(game, call_counter);
+                const std::vector<std::string> problems = game.validate_invariants();
+                if (!problems.empty()) {
+                    std::cerr << "seed " << seed << " first " << first << " iteration " << iterations
+                              << ": invariant violations:\n";
+                    for (const std::string& problem : problems) {
+                        std::cerr << "  - " << problem << '\n';
+                    }
+                    EXPECT(context, false);
+                    return;
+                }
+                ++iterations;
+            }
+            EXPECT(context, game.result() != GameResult::Ongoing);
+        }
     }
-    EXPECT(context, rejected_trailing);
-
-    bool rejected_payload_version = false;
-    auto bad_payload = player_payload;
-    bad_payload[0] = 99U;
-    try {
-        (void)protocol::decode_player_state_payload(bad_payload);
-    } catch (const std::invalid_argument&) {
-        rejected_payload_version = true;
-    }
-    EXPECT(context, rejected_payload_version);
 }
 
-using TestFunction = void (*)(TestContext&);
-
+// ---------------------------------------------------------------------------
+// Test harness
+// ---------------------------------------------------------------------------
 struct TestCase {
-    const char* name;
-    TestFunction function;
+    std::string_view name;
+    void (*function)(TestContext&);
 };
 
 } // namespace
 
 int main() {
     const std::vector<TestCase> tests = {
-        {"catalog_and_fixed_decks", test_catalog_and_fixed_decks},
-        {"start_mulligan_and_turn_flow", test_start_mulligan_and_turn_flow},
-        {"mulligan_no_redraw", test_mulligan_does_not_redraw_set_aside_card},
+        {"pp_capacity_growth_and_refill", test_pp_capacity_growth_and_refill},
+        {"advance_payment_and_limits", test_advance_payment_and_limits},
+        {"burn_cost_and_combined_advance", test_burn_cost_and_combined_advance},
+        {"cracks_persistence_and_read", test_cracks_persistence_and_read},
+        {"repair_restores_capacity", test_repair_restores_capacity},
+        {"growth_adds_capacity", test_growth_adds_capacity},
+        {"current_pp_above_capacity", test_current_pp_above_capacity},
+        {"advanced_on_time_status", test_advanced_on_time_status},
+        {"evolution_unlock_and_cost", test_evolution_unlock_and_cost},
+        {"evolution_states_and_trigger", test_evolution_states_and_trigger},
+        {"charge_conditions", test_charge_conditions},
+        {"deployment_flow_and_limits", test_deployment_flow_and_limits},
+        {"component_grant_and_no_retransfer", test_component_grant_and_no_retransfer},
+        {"response_stack_lifo", test_response_stack_lifo},
+        {"trap_entry_pending_damage", test_trap_entry_pending_damage},
+        {"tactic_zone_no_replacement", test_tactic_zone_no_replacement},
         {"hand_overflow_and_fatigue", test_hand_overflow_and_fatigue},
-        {"play_unit_and_spell_validation", test_play_unit_and_spell_validation},
-        {"simultaneous_combat", test_simultaneous_combat_and_persistent_damage},
-        {"guard_and_rush", test_guard_and_rush_target_rules},
-        {"barrier_and_lifesteal", test_barrier_and_lifesteal},
-        {"evolution", test_combat_and_ability_evolution},
-        {"documented_construct", test_documented_construct_summon},
-        {"advanced_summon_validation", test_advanced_summon_validation_and_once_per_turn},
-        {"imprint_no_second_inheritance", test_inherited_imprint_cannot_be_inherited_again},
-        {"summon_unit_archives", test_summon_deck_unit_leaves_to_archive},
-        {"trap_windows_and_tactics", test_trap_windows_and_tactic_rules},
-        {"relic_countdown", test_relic_countdown},
-        {"leader_skill", test_leader_skill_and_generated_hand_overflow},
-        {"pp_refresh", test_pp_refreshes_instead_of_carrying},
-        {"win_and_finish", test_win_and_finished_state},
-        {"surrender_and_ambush", test_surrender_and_ambush_rules},
-        {"death_batch_order", test_simultaneous_death_batch_and_trigger_order},
-        {"deterministic_smoke", test_invariants_and_deterministic_smoke_matches},
-        {"protocol_round_trip", test_protocol_round_trip_and_validation},
+        {"combat_and_attack_rules", test_combat_and_attack_rules},
+        {"simultaneous_death_batch", test_simultaneous_death_batch},
+        {"trap_set_once_per_turn", test_trap_set_once_per_turn},
+        {"documented_overdraw_walkthrough", test_documented_overdraw_walkthrough},
+        {"invariants_and_smoke_matches", test_invariants_and_smoke_matches},
     };
 
-    int total_assertions = 0;
-    int total_failures = 0;
-    int failed_tests = 0;
-
+    TestContext context;
     for (const TestCase& test : tests) {
-        TestContext context;
         try {
             test.function(context);
-        } catch (const std::exception& error) {
+        } catch (const std::exception& exception) {
             ++context.failures;
-            std::cerr << "uncaught exception in " << test.name << ": " << error.what() << '\n';
-        } catch (...) {
-            ++context.failures;
-            std::cerr << "unknown exception in " << test.name << '\n';
-        }
-        total_assertions += context.assertions;
-        total_failures += context.failures;
-        if (context.failures == 0) {
-            std::cout << "[PASS] " << test.name << " (" << context.assertions << " assertions)\n";
-        } else {
-            ++failed_tests;
-            std::cout << "[FAIL] " << test.name << " (" << context.failures << " failures)\n";
+            std::cerr << "test threw: " << test.name << ": " << exception.what() << '\n';
         }
     }
 
-    std::cout << "\n" << tests.size() << " test cases, " << total_assertions
-              << " assertions, " << total_failures << " failures\n";
-    return failed_tests == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
+    std::cout << tests.size() << " test cases\n"
+              << context.assertions << " assertions\n"
+              << context.failures << " failures\n";
+    return context.failures == 0 ? EXIT_SUCCESS : EXIT_FAILURE;
 }

@@ -22,7 +22,9 @@ target_include_directories(scgs_engine
 target_compile_features(scgs_engine PUBLIC cxx_std_20)
 
 if(MSVC)
-    target_compile_options(scgs_engine PRIVATE /W4 /permissive-)
+    # /utf-8: sources (card names, comments) are UTF-8; without it MSVC misreads
+    # them under the system codepage and C4819 becomes an error under /WX.
+    target_compile_options(scgs_engine PRIVATE /W4 /permissive- /utf-8)
     if(SCGS_WARNINGS_AS_ERRORS)
         target_compile_options(scgs_engine PRIVATE /WX)
     endif()
@@ -44,9 +46,9 @@ add_executable(scgs_wire_tests engine/tests/test_wire.cpp)
 target_link_libraries(scgs_wire_tests PRIVATE scgs::engine)
 
 if(MSVC)
-    target_compile_options(scgs_demo PRIVATE /W4 /permissive-)
-    target_compile_options(scgs_tests PRIVATE /W4 /permissive-)
-    target_compile_options(scgs_wire_tests PRIVATE /W4 /permissive-)
+    target_compile_options(scgs_demo PRIVATE /W4 /permissive- /utf-8)
+    target_compile_options(scgs_tests PRIVATE /W4 /permissive- /utf-8)
+    target_compile_options(scgs_wire_tests PRIVATE /W4 /permissive- /utf-8)
     if(SCGS_WARNINGS_AS_ERRORS)
         target_compile_options(scgs_demo PRIVATE /WX)
         target_compile_options(scgs_tests PRIVATE /WX)

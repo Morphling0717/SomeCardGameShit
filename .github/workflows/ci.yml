@@ -43,6 +43,12 @@ jobs:
       - name: Configure
         run: cmake -S . -B build/ci-msvc -A x64 -DSCGS_WARNINGS_AS_ERRORS=ON
       - name: Build
-        run: cmake --build build/ci-msvc --config Release --parallel 2
+        shell: pwsh
+        run: |
+          $log = cmake --build build/ci-msvc --config Release --parallel 2 2>&1
+          $log | ForEach-Object { Write-Output $_ }
+          $exit = $LASTEXITCODE
+          $log | Select-String -Pattern "error|warning" | ForEach-Object { "::error::$($_.Line)" }
+          exit $exit
       - name: Test
         run: ctest --test-dir build/ci-msvc -C Release --output-on-failure

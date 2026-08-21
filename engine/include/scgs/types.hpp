@@ -16,7 +16,8 @@ using KeywordMask = std::uint32_t;
 
 constexpr std::size_t kPlayerCount = 2;
 constexpr std::size_t kUnitZoneSize = 5;
-constexpr std::size_t kTacticZoneSize = 2;
+// v0.4: 策略区 3 格 per player (facilities and traps share it).
+constexpr std::size_t kTacticZoneSize = 3;
 
 // PlayerId deliberately stays byte-sized because YGOPro messages use compact player ids.
 enum class PlayerId : std::uint8_t {

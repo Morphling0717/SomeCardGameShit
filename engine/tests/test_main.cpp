@@ -685,7 +685,11 @@ void test_trap_entry_pending_damage(TestContext& context) {
 // ---------------------------------------------------------------------------
 void test_tactic_zone_no_replacement(TestContext& context) {
     Scenario scenario = base_scenario();
-    scenario.players[0].hand = {cards::advance::kGrowthFacility, cards::midrange::kCommandOrder};
+    scenario.players[0].hand = {
+        cards::advance::kGrowthFacility,
+        cards::midrange::kCommandOrder,
+        cards::midrange::kInterceptTrap,
+    };
     scenario.players[0].tactics = {cards::midrange::kCommandOrder}; // slot 0 occupied
     Game game = scenario_game(scenario);
 
@@ -694,10 +698,14 @@ void test_tactic_zone_no_replacement(TestContext& context) {
     EXPECT_CODE(context, game.play_tactic(PlayerId::Player0, facility, 0), ErrorCode::TacticZoneFull);
     // Slot 1 is free → accepted.
     EXPECT(context, game.play_tactic(PlayerId::Player0, facility, 1));
-    // Now both slots full: the second tactic cannot be placed at all.
+    // Slot 2 is free → accepted (v0.4: 3 tactic slots per player).
+    const InstanceId trap = *game.find_in_hand(PlayerId::Player0, cards::midrange::kInterceptTrap);
+    EXPECT(context, game.play_tactic(PlayerId::Player0, trap, 2));
+    // All three slots now full: nothing can be placed anywhere.
     const InstanceId order = *game.find_in_hand(PlayerId::Player0, cards::midrange::kCommandOrder);
     EXPECT_CODE(context, game.play_tactic(PlayerId::Player0, order, 0), ErrorCode::TacticZoneFull);
     EXPECT_CODE(context, game.play_tactic(PlayerId::Player0, order, 1), ErrorCode::TacticZoneFull);
+    EXPECT_CODE(context, game.play_tactic(PlayerId::Player0, order, 2), ErrorCode::TacticZoneFull);
     expect_valid_state(context, game);
 }
 

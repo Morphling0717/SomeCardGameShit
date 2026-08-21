@@ -916,7 +916,7 @@ Status Game::load_scenario(const Scenario& scenario) {
                 }
             }
             if (!slot.has_value()) {
-                return Status::error(ErrorCode::TacticZoneFull, "scenario has more than two tactics");
+                return Status::error(ErrorCode::TacticZoneFull, "scenario has more than three tactics");
             }
             const InstanceId instance_id = create_instance(id, player_id, Zone::None);
             put_in_tactic_slot(player_id, instance_id, *slot);

@@ -48,7 +48,8 @@ jobs:
           $log = cmake --build build/ci-msvc --config Release --parallel 2 2>&1
           $log | ForEach-Object { Write-Output $_ }
           $exit = $LASTEXITCODE
-          $log | Select-String -Pattern "error|warning" | ForEach-Object { "::error::$($_.Line)" }
+          $log | Select-String -Pattern "error" | ForEach-Object { "::error::$($_.Line)" }
+          $log | Select-String -Pattern "warning" | ForEach-Object { "::warning::$($_.Line)" }
           exit $exit
       - name: Test
         run: ctest --test-dir build/ci-msvc -C Release --output-on-failure

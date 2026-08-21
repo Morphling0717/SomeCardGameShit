@@ -24,7 +24,10 @@ target_compile_features(scgs_engine PUBLIC cxx_std_20)
 if(MSVC)
     # /utf-8: sources (card names, comments) are UTF-8; without it MSVC misreads
     # them under the system codepage and C4819 becomes an error under /WX.
+    # _CRT_SECURE_NO_WARNINGS: std::getenv triggers C4996 under MSVC, which /WX
+    # escalates to an error (historically broke the windows-msvc CI job).
     target_compile_options(scgs_engine PRIVATE /W4 /permissive- /utf-8)
+    target_compile_definitions(scgs_engine PRIVATE _CRT_SECURE_NO_WARNINGS)
     if(SCGS_WARNINGS_AS_ERRORS)
         target_compile_options(scgs_engine PRIVATE /WX)
     endif()
@@ -49,6 +52,9 @@ if(MSVC)
     target_compile_options(scgs_demo PRIVATE /W4 /permissive- /utf-8)
     target_compile_options(scgs_tests PRIVATE /W4 /permissive- /utf-8)
     target_compile_options(scgs_wire_tests PRIVATE /W4 /permissive- /utf-8)
+    target_compile_definitions(scgs_demo PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_compile_definitions(scgs_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
+    target_compile_definitions(scgs_wire_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
     if(SCGS_WARNINGS_AS_ERRORS)
         target_compile_options(scgs_demo PRIVATE /WX)
         target_compile_options(scgs_tests PRIVATE /WX)

@@ -17,3 +17,4 @@ client/YGOPro2Overlay/Build/
 __pycache__/
 *.py[cod]
 .pytest_cache/
+.ouroboros/

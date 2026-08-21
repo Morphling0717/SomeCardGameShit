@@ -12,13 +12,22 @@ namespace scgs {
 
 namespace {
 
-bool ability_requires_enemy_unit(const Ability ability) noexcept {
-    return ability == Ability::DealTwoToEnemyUnit ||
-           ability == Ability::DealThreeToEnemyUnit;
+bool effects_require_enemy_unit(const std::vector<EffectRecord>& effects, const EffectTrigger trigger) {
+    for (const auto& rec : effects) {
+        if (rec.trigger == trigger && rec.target_spec == TargetSpec::EnemyUnit) {
+            return true;
+        }
+    }
+    return false;
 }
 
-bool ability_requires_friendly_unit(const Ability ability) noexcept {
-    return ability == Ability::GiveFriendlyUnitOneOne;
+bool effects_require_friendly_unit(const std::vector<EffectRecord>& effects, const EffectTrigger trigger) {
+    for (const auto& rec : effects) {
+        if (rec.trigger == trigger && rec.target_spec == TargetSpec::FriendlyUnit) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -115,11 +124,62 @@ Status Game::surrender(const PlayerId player_id) {
     return Status::ok();
 }
 
+// Pay the total cost of a card (base cost + burn), applying advance if requested.
+// v0.4 §9/§10/§12: advance reduces pp_capacity by the deficit; burn always reduces capacity.
+// Returns whether advance was actually used in out_advanced.
+Status Game::pay_card_cost(
+    const PlayerId player_id,
+    const CardDefinition& def,
+    const bool use_advance,
+    bool& out_advanced) {
+    PlayerState& state = players_[to_index(player_id)];
+    const int base_cost = def.cost;
+    const int burn = def.additional_cost.burn_pp_capacity;
+
+    // Determine how much advance (预支) is required.
+    const int advance_needed = std::max(0, base_cost - state.current_pp);
+    const bool will_advance = use_advance && advance_needed > 0;
+
+    if (advance_needed > 0 && !use_advance) {
+        return Status::error(ErrorCode::InsufficientPP, "not enough PP; use advance to pay the rest");
+    }
+    if (will_advance && state.advance_used_this_turn) {
+        return Status::error(ErrorCode::AdvanceAlreadyUsed, "advance (动用未来) already used this turn");
+    }
+    if (burn > 0 && !will_advance && state.advance_used_this_turn) {
+        return Status::error(ErrorCode::AdvanceAlreadyUsed, "burn counts as advance; already used this turn");
+    }
+
+    // Capacity must not drop below 0.
+    const int total_capacity_loss = advance_needed + burn;
+    if (state.pp_capacity - total_capacity_loss < 0) {
+        return Status::error(ErrorCode::AdvanceWouldExceedCap, "PP capacity would fall below zero");
+    }
+
+    // All validations passed; commit the payment.
+    state.current_pp -= base_cost - advance_needed; // pay what we have (current_pp)
+    if (state.current_pp < 0) {
+        state.current_pp = 0;
+    }
+
+    if (total_capacity_loss > 0) {
+        state.pp_capacity -= total_capacity_loss;
+        state.cracks += total_capacity_loss;
+        state.advance_used_this_turn = true;
+        emit(EventType::CracksChanged, player_id, 0, state.cracks, state.pp_capacity);
+    }
+
+    out_advanced = will_advance;
+    emit(EventType::PPChanged, player_id, 0, state.current_pp, state.pp_capacity);
+    return Status::ok();
+}
+
 Status Game::play_unit(
     const PlayerId player_id,
     const InstanceId card_id,
     const std::optional<std::size_t> preferred_slot,
-    const std::optional<Target> ability_target) {
+    const std::optional<Target> ability_target,
+    const bool use_advance) {
     const Status allowed = ensure_action_player(player_id);
     if (!allowed) {
         return allowed;
@@ -129,13 +189,14 @@ Status Game::play_unit(
         return Status::error(ErrorCode::InvalidCard, "unknown card instance");
     }
     const CardInstance& card = iterator->second;
-    const CardDefinition& definition_value = catalog_.at(card.definition_id);
-    if (card.controller != player_id || card.zone != Zone::Hand || definition_value.kind != CardKind::Unit) {
+    const CardDefinition& def = catalog_.at(card.definition_id);
+    if (card.controller != player_id || card.zone != Zone::Hand || def.kind != CardKind::Unit) {
         return Status::error(ErrorCode::InvalidZone, "only a unit in the active player's hand can be played");
     }
 
     PlayerState& state = players_[to_index(player_id)];
-    if (state.current_pp < definition_value.cost) {
+    const int advance_needed = std::max(0, def.cost - state.current_pp);
+    if (advance_needed > 0 && !use_advance) {
         return Status::error(ErrorCode::InsufficientPP, "not enough PP");
     }
 
@@ -151,19 +212,46 @@ Status Game::play_unit(
         return Status::error(ErrorCode::UnitZoneFull, "unit zone is full");
     }
 
-    if (ability_requires_enemy_unit(definition_value.entry_ability) &&
+    // Validate entry effect targets before committing payment.
+    if (effects_require_enemy_unit(def.effects, EffectTrigger::OnEntry) &&
         (!ability_target.has_value() || !is_valid_target_for_ability(player_id, *ability_target, true))) {
         return Status::error(ErrorCode::InvalidTarget, "entry ability requires a legal enemy unit target");
     }
 
-    state.current_pp -= definition_value.cost;
-    emit(EventType::PPChanged, player_id, 0, state.current_pp, state.maximum_pp);
-    put_in_unit_slot(player_id, card_id, *slot, false);
+    bool advanced = false;
+    const Status payment = pay_card_cost(player_id, def, use_advance, advanced);
+    if (!payment) {
+        return payment;
+    }
+
+    put_in_unit_slot(player_id, card_id, *slot);
     emit(EventType::UnitEntered, player_id, card_id, static_cast<int>(*slot));
 
-    const Status ability_status = resolve_ability(definition_value.entry_ability, player_id, card_id, ability_target);
-    if (!ability_status) {
-        return ability_status;
+    // Apply advance rush effect if the card has it.
+    if (advanced) {
+        const Status play_status = resolve_effects(def.effects, EffectTrigger::OnPlayIfAdvanced,
+            player_id, card_id, ability_target, true);
+        if (!play_status) {
+            return play_status;
+        }
+    } else {
+        const Status play_status = resolve_effects(def.effects, EffectTrigger::OnPlayIfNotAdvanced,
+            player_id, card_id, ability_target, false);
+        if (!play_status) {
+            return play_status;
+        }
+    }
+    // Always-fire OnPlay effects (for cards that have them even as units).
+    const Status always_play = resolve_effects(def.effects, EffectTrigger::OnPlay,
+        player_id, card_id, ability_target, advanced);
+    if (!always_play) {
+        return always_play;
+    }
+
+    const Status entry_status = resolve_effects(def.effects, EffectTrigger::OnEntry,
+        player_id, card_id, ability_target, advanced);
+    if (!entry_status) {
+        return entry_status;
     }
     resolve_deaths();
     evaluate_result();
@@ -176,7 +264,8 @@ Status Game::play_unit(
 Status Game::cast_spell(
     const PlayerId player_id,
     const InstanceId card_id,
-    const std::optional<Target> ability_target) {
+    const std::optional<Target> ability_target,
+    const bool use_advance) {
     const Status allowed = ensure_action_player(player_id);
     if (!allowed) {
         return allowed;
@@ -186,25 +275,44 @@ Status Game::cast_spell(
         return Status::error(ErrorCode::InvalidCard, "unknown card instance");
     }
     const CardInstance& card = iterator->second;
-    const CardDefinition& definition_value = catalog_.at(card.definition_id);
-    if (card.controller != player_id || card.zone != Zone::Hand || definition_value.kind != CardKind::Spell) {
+    const CardDefinition& def = catalog_.at(card.definition_id);
+    if (card.controller != player_id || card.zone != Zone::Hand || def.kind != CardKind::Spell) {
         return Status::error(ErrorCode::InvalidZone, "only a spell in the active player's hand can be cast");
     }
+
     PlayerState& state = players_[to_index(player_id)];
-    if (state.current_pp < definition_value.cost) {
+    const int advance_needed = std::max(0, def.cost - state.current_pp);
+    if (advance_needed > 0 && !use_advance) {
         return Status::error(ErrorCode::InsufficientPP, "not enough PP");
     }
-    if (ability_requires_enemy_unit(definition_value.play_ability) &&
+
+    // Validate target for OnPlay effects before payment.
+    if (effects_require_enemy_unit(def.effects, EffectTrigger::OnPlay) &&
         (!ability_target.has_value() || !is_valid_target_for_ability(player_id, *ability_target, true))) {
         return Status::error(ErrorCode::InvalidTarget, "spell requires a legal enemy unit target");
     }
 
-    state.current_pp -= definition_value.cost;
-    emit(EventType::PPChanged, player_id, 0, state.current_pp, state.maximum_pp);
+    bool advanced = false;
+    const Status payment = pay_card_cost(player_id, def, use_advance, advanced);
+    if (!payment) {
+        return payment;
+    }
+
     put_in_graveyard(player_id, card_id);
-    const Status ability_status = resolve_ability(definition_value.play_ability, player_id, card_id, ability_target);
-    if (!ability_status) {
-        return ability_status;
+
+    if (advanced) {
+        const Status s = resolve_effects(def.effects, EffectTrigger::OnPlayIfAdvanced,
+            player_id, card_id, ability_target, true);
+        if (!s) { return s; }
+    } else {
+        const Status s = resolve_effects(def.effects, EffectTrigger::OnPlayIfNotAdvanced,
+            player_id, card_id, ability_target, false);
+        if (!s) { return s; }
+    }
+    const Status play_status = resolve_effects(def.effects, EffectTrigger::OnPlay,
+        player_id, card_id, ability_target, advanced);
+    if (!play_status) {
+        return play_status;
     }
     resolve_deaths();
     evaluate_result();
@@ -214,7 +322,11 @@ Status Game::cast_spell(
     return Status::ok();
 }
 
-Status Game::play_tactic(const PlayerId player_id, const InstanceId card_id, const std::size_t slot) {
+Status Game::play_tactic(
+    const PlayerId player_id,
+    const InstanceId card_id,
+    const std::size_t slot,
+    const bool use_advance) {
     const Status allowed = ensure_action_player(player_id);
     if (!allowed) {
         return allowed;
@@ -227,27 +339,33 @@ Status Game::play_tactic(const PlayerId player_id, const InstanceId card_id, con
         return Status::error(ErrorCode::InvalidCard, "unknown card instance");
     }
     const CardInstance& card = iterator->second;
-    const CardDefinition& definition_value = catalog_.at(card.definition_id);
+    const CardDefinition& def = catalog_.at(card.definition_id);
     if (card.controller != player_id || card.zone != Zone::Hand ||
-        (definition_value.kind != CardKind::Relic && definition_value.kind != CardKind::Trap)) {
+        (def.kind != CardKind::Relic && def.kind != CardKind::Trap)) {
         return Status::error(ErrorCode::InvalidZone, "only a relic or trap in hand can enter the tactic zone");
     }
 
     PlayerState& state = players_[to_index(player_id)];
-    if (definition_value.kind == CardKind::Trap && state.trap_set_this_turn) {
+    if (def.kind == CardKind::Trap && state.trap_set_this_turn) {
         return Status::error(ErrorCode::TrapAlreadySetThisTurn, "only one trap may be set per turn");
     }
-    if (state.current_pp < definition_value.cost) {
+
+    const int advance_needed = std::max(0, def.cost - state.current_pp);
+    if (advance_needed > 0 && !use_advance) {
         return Status::error(ErrorCode::InsufficientPP, "not enough PP");
+    }
+
+    bool advanced = false;
+    const Status payment = pay_card_cost(player_id, def, use_advance, advanced);
+    if (!payment) {
+        return payment;
     }
 
     if (state.tactics[slot].has_value()) {
         put_in_graveyard(player_id, *state.tactics[slot]);
     }
-    state.current_pp -= definition_value.cost;
-    emit(EventType::PPChanged, player_id, 0, state.current_pp, state.maximum_pp);
     put_in_tactic_slot(player_id, card_id, slot);
-    if (definition_value.kind == CardKind::Trap) {
+    if (def.kind == CardKind::Trap) {
         state.trap_set_this_turn = true;
     }
     return Status::ok();
@@ -298,24 +416,36 @@ Status Game::evolve(
     if (!ignore_turn_limit && state.evolution_used_this_turn) {
         return Status::error(ErrorCode::EvolutionAlreadyUsed, "an evolution was already used this turn");
     }
-    if (!free_evolution && state.evolution_points <= 0) {
-        return Status::error(ErrorCode::NoEvolutionPoints, "no evolution points remain");
+    if (!free_evolution && state.evolution_points < 2) {
+        return Status::error(ErrorCode::NoEvolutionPoints, "need at least 2 evolution points");
     }
 
     CardInstance& unit = instances_.at(unit_id);
-    const CardDefinition& definition_value = catalog_.at(unit.definition_id);
+    const CardDefinition& def = catalog_.at(unit.definition_id);
     if (unit.evolved) {
         return Status::error(ErrorCode::AlreadyEvolved, "unit has already evolved");
     }
-    if (mode == EvolutionMode::Ability && definition_value.evolution_ability == Ability::None) {
-        return Status::error(ErrorCode::AbilityEvolutionUnavailable, "unit has no ability-evolution text");
+
+    // v0.4: active evolution costs 2 evolution points; +2/+2 stats; grants
+    // temporary ability to attack units; triggers OnEvolution effects.
+    const bool has_evo_effect = [&] {
+        for (const auto& r : def.effects) {
+            if (r.trigger == EffectTrigger::OnEvolution) return true;
+        }
+        return false;
+    }();
+
+    if (mode == EvolutionMode::Ability && !has_evo_effect) {
+        return Status::error(ErrorCode::AbilityEvolutionUnavailable, "unit has no ability-evolution effect");
     }
-    if (ability_requires_enemy_unit(definition_value.evolution_ability) &&
-        (!ability_target.has_value() || !is_valid_target_for_ability(player_id, *ability_target, true))) {
-        return Status::error(ErrorCode::InvalidTarget, "ability evolution requires a legal enemy unit target");
+    if (has_evo_effect && mode == EvolutionMode::Ability) {
+        if (effects_require_enemy_unit(def.effects, EffectTrigger::OnEvolution) &&
+            (!ability_target.has_value() || !is_valid_target_for_ability(player_id, *ability_target, true))) {
+            return Status::error(ErrorCode::InvalidTarget, "ability evolution requires a legal enemy unit target");
+        }
     }
 
-    const int bonus = mode == EvolutionMode::Combat ? 2 : 1;
+    const int bonus = (mode == EvolutionMode::Combat) ? 2 : 1;
     unit.current_attack += bonus;
     unit.current_health += bonus;
     unit.maximum_health += bonus;
@@ -324,7 +454,8 @@ Status Game::evolve(
         unit.temporary_rush = true;
     }
     if (!free_evolution) {
-        --state.evolution_points;
+        state.evolution_points -= 2;
+        if (state.evolution_points < 0) { state.evolution_points = 0; }
     }
     if (!ignore_turn_limit) {
         state.evolution_used_this_turn = true;
@@ -336,139 +467,18 @@ Status Game::evolve(
         static_cast<int>(mode),
         state.evolution_points);
 
-    if (mode == EvolutionMode::Ability) {
-        const Status ability_status = resolve_ability(
-            definition_value.evolution_ability,
+    if (mode == EvolutionMode::Ability || has_evo_effect) {
+        const Status evo_status = resolve_effects(
+            def.effects,
+            EffectTrigger::OnEvolution,
             player_id,
             unit_id,
             ability_target);
-        if (!ability_status) {
-            return ability_status;
+        if (!evo_status) {
+            return evo_status;
         }
         resolve_deaths();
         evaluate_result();
-    }
-    return Status::ok();
-}
-
-Status Game::advanced_summon(const AdvancedSummonRequest& request) {
-    const Status allowed = ensure_action_player(request.player);
-    if (!allowed) {
-        return allowed;
-    }
-    PlayerState& state = players_[to_index(request.player)];
-    if (state.advanced_summon_used_this_turn) {
-        return Status::error(ErrorCode::AdvancedSummonAlreadyUsed, "an advanced summon was already used this turn");
-    }
-
-    const auto target_iterator = instances_.find(request.card);
-    if (target_iterator == instances_.end()) {
-        return Status::error(ErrorCode::InvalidCard, "unknown advanced-summon card");
-    }
-    const CardInstance& target_card = target_iterator->second;
-    const CardDefinition& target_definition = catalog_.at(target_card.definition_id);
-    if (target_definition.advanced_kind == AdvancedSummonKind::None) {
-        return Status::error(ErrorCode::InvalidCard, "selected card has no advanced summon procedure");
-    }
-    if (target_card.controller != request.player) {
-        return Status::error(ErrorCode::InvalidCard, "selected card belongs to the other player");
-    }
-    if (target_definition.advanced_kind == AdvancedSummonKind::Tribute && target_card.zone != Zone::Hand) {
-        return Status::error(ErrorCode::InvalidZone, "tribute target must be in hand");
-    }
-    if (target_definition.advanced_kind == AdvancedSummonKind::Construct && target_card.zone != Zone::SummonDeck) {
-        return Status::error(ErrorCode::InvalidZone, "construct target must be in the summon deck");
-    }
-    if (state.current_pp < target_definition.advanced_cost) {
-        return Status::error(ErrorCode::InsufficientPP, "not enough PP for the advanced summon");
-    }
-
-    if (request.materials.size() < static_cast<std::size_t>(target_definition.min_materials) ||
-        request.materials.size() > static_cast<std::size_t>(target_definition.max_materials) ||
-        request.materials.size() > 3U) {
-        return Status::error(ErrorCode::InvalidMaterials, "wrong number of materials");
-    }
-
-    std::set<InstanceId> unique_materials;
-    int original_cost_sum = 0;
-    for (const InstanceId material_id : request.materials) {
-        if (!unique_materials.insert(material_id).second) {
-            return Status::error(ErrorCode::DuplicateSelection, "the same material was selected twice");
-        }
-        if (!is_controlled_unit(request.player, material_id)) {
-            return Status::error(ErrorCode::InvalidMaterials, "all materials must be controlled units");
-        }
-        const CardDefinition& material_definition = definition(material_id);
-        if (!has_all_traits(material_definition.traits, target_definition.required_material_traits)) {
-            return Status::error(ErrorCode::InvalidMaterials, "a material does not satisfy the required traits");
-        }
-        original_cost_sum += material_definition.cost;
-    }
-    if (original_cost_sum < target_definition.min_material_original_cost_sum) {
-        return Status::error(ErrorCode::InvalidMaterials, "material original-cost total is too low");
-    }
-    if (!can_inherit_imprint(request.materials, request.inherited_imprint)) {
-        return Status::error(ErrorCode::InvalidImprint, "chosen imprint is not printed on any selected material");
-    }
-    if (ability_requires_enemy_unit(target_definition.entry_ability) &&
-        (!request.ability_target.has_value() ||
-         !is_valid_target_for_ability(request.player, *request.ability_target, true))) {
-        return Status::error(ErrorCode::InvalidTarget, "advanced summon entry ability requires a legal enemy unit");
-    }
-
-    std::size_t occupied = 0;
-    for (const auto& slot : state.units) {
-        occupied += slot.has_value() ? 1U : 0U;
-    }
-    if (occupied - request.materials.size() >= kUnitZoneSize) {
-        return Status::error(ErrorCode::UnitZoneFull, "materials do not free a unit slot");
-    }
-
-    state.current_pp -= target_definition.advanced_cost;
-    state.advanced_summon_used_this_turn = true;
-    emit(EventType::PPChanged, request.player, 0, state.current_pp, state.maximum_pp);
-
-    for (const InstanceId material_id : request.materials) {
-        put_in_archive(request.player, material_id);
-    }
-
-    const std::optional<std::size_t> slot = first_free_unit_slot(request.player);
-    if (!slot.has_value()) {
-        throw std::logic_error("validated advanced summon failed to free a slot");
-    }
-    put_in_unit_slot(request.player, request.card, *slot, true);
-    CardInstance& summoned = instances_.at(request.card);
-    apply_imprint(summoned, request.inherited_imprint);
-    if (request.inherited_imprint != Imprint::None) {
-        emit(
-            EventType::ImprintInherited,
-            request.player,
-            request.card,
-            static_cast<int>(request.inherited_imprint));
-    }
-    emit(
-        EventType::AdvancedSummoned,
-        request.player,
-        request.card,
-        static_cast<int>(target_definition.advanced_kind),
-        static_cast<int>(request.materials.size()));
-    emit(EventType::UnitEntered, request.player, request.card, static_cast<int>(*slot));
-
-    const Status ability_status = resolve_ability(
-        target_definition.entry_ability,
-        request.player,
-        request.card,
-        request.ability_target);
-    if (!ability_status) {
-        return ability_status;
-    }
-    resolve_deaths();
-    evaluate_result();
-    if (result_ == GameResult::Ongoing && summoned.zone == Zone::Unit) {
-        open_reaction_window(
-            ReactionWindow::AfterEnemyUnitSummoned,
-            opponent(request.player),
-            request.card);
     }
     return Status::ok();
 }
@@ -488,16 +498,16 @@ Status Game::use_leader_skill(const PlayerId player_id, const std::optional<Targ
     if (state.current_pp < state.leader_skill.cost) {
         return Status::error(ErrorCode::InsufficientPP, "not enough PP for the leader skill");
     }
-    if (ability_requires_friendly_unit(state.leader_skill.ability) &&
+    if (effects_require_friendly_unit(state.leader_skill.effects, EffectTrigger::OnPlay) &&
         (!target.has_value() || target->kind != Target::Kind::Unit || !is_controlled_unit(player_id, target->unit))) {
         return Status::error(ErrorCode::InvalidTarget, "leader skill requires a friendly unit target");
     }
 
     state.current_pp -= state.leader_skill.cost;
     state.leader_skill_used = true;
-    emit(EventType::PPChanged, player_id, 0, state.current_pp, state.maximum_pp);
+    emit(EventType::PPChanged, player_id, 0, state.current_pp, state.pp_capacity);
     emit(EventType::LeaderSkillUsed, player_id, 0, state.leader_skill.cost, 0, state.leader_skill.name);
-    return resolve_ability(state.leader_skill.ability, player_id, 0, target);
+    return resolve_effects(state.leader_skill.effects, EffectTrigger::OnPlay, player_id, 0, target);
 }
 
 Status Game::activate_trap(
@@ -519,30 +529,40 @@ Status Game::activate_trap(
         return Status::error(ErrorCode::InvalidZone, "trap is no longer in the tactic zone");
     }
 
-    const Ability trap_ability = definition(trap_id).trap_ability;
+    const CardDefinition& trap_def = definition(trap_id);
     put_in_graveyard(player_id, trap_id);
     emit(EventType::TrapActivated, player_id, trap_id, static_cast<int>(reaction.window));
 
-    if (trap_ability == Ability::TrapCancelAttack) {
-        if (!reaction.attack.has_value()) {
-            return Status::error(ErrorCode::TrapNotEligible, "attack trap was used outside an attack window");
+    // Which trigger to fire depends on which window we are in.
+    const EffectTrigger trigger = (reaction.window == ReactionWindow::BeforeAttackDamage)
+        ? EffectTrigger::OnTrapBeforeAttack
+        : EffectTrigger::OnTrapAfterEnemyUnit;
+
+    for (const auto& rec : trap_def.effects) {
+        if (rec.trigger != trigger) {
+            continue;
         }
-        emit(EventType::AttackCancelled, reaction.attack->player, reaction.attack->attacker);
-        close_reaction_window();
-        return Status::ok();
-    }
-    if (trap_ability == Ability::TrapDamageSummonedUnitTwo) {
-        if (reaction.subject != 0 && instances_.contains(reaction.subject) &&
-            instances_.at(reaction.subject).zone == Zone::Unit) {
-            damage_unit(reaction.subject, 2);
-            resolve_deaths();
-            evaluate_result();
+        if (rec.kind == EffectKind::CancelAttack) {
+            if (!reaction.attack.has_value()) {
+                return Status::error(ErrorCode::TrapNotEligible, "attack trap used outside an attack window");
+            }
+            emit(EventType::AttackCancelled, reaction.attack->player, reaction.attack->attacker);
+            close_reaction_window();
+            return Status::ok();
         }
-        close_reaction_window();
-        return Status::ok();
+        if (rec.kind == EffectKind::DamageEnteredUnit) {
+            if (reaction.subject != 0 && instances_.contains(reaction.subject) &&
+                instances_.at(reaction.subject).zone == Zone::Unit) {
+                damage_unit(reaction.subject, rec.amount);
+                resolve_deaths();
+                evaluate_result();
+            }
+            close_reaction_window();
+            return Status::ok();
+        }
     }
 
-    return Status::error(ErrorCode::TrapNotEligible, "trap ability is not implemented for this window");
+    return Status::error(ErrorCode::TrapNotEligible, "trap effect not implemented for this window");
 }
 
 Status Game::pass_reaction(const PlayerId player_id) {
@@ -578,7 +598,8 @@ Status Game::load_scenario(const Scenario& scenario) {
         destination.leader_health = source.leader_health;
         destination.maximum_leader_health = source.maximum_leader_health;
         destination.current_pp = source.current_pp;
-        destination.maximum_pp = source.maximum_pp;
+        destination.pp_capacity = source.pp_capacity;
+        destination.cracks = source.cracks;
         destination.evolution_points = source.evolution_points;
         destination.own_turn_number = source.own_turn_number;
         destination.mulligan_done = true;
@@ -597,7 +618,7 @@ Status Game::load_scenario(const Scenario& scenario) {
                 return Status::error(ErrorCode::UnitZoneFull, "scenario has more than five units");
             }
             const InstanceId instance_id = create_instance(id, player_id, Zone::None);
-            put_in_unit_slot(player_id, instance_id, *slot, false);
+            put_in_unit_slot(player_id, instance_id, *slot);
             instances_.at(instance_id).entered_this_turn = false;
         }
         for (const CardId id : source.tactics) {
@@ -622,8 +643,8 @@ Status Game::load_scenario(const Scenario& scenario) {
             const InstanceId instance_id = create_instance(id, player_id, Zone::None);
             put_in_archive(player_id, instance_id);
         }
-        for (const CardId id : source.summon_deck) {
-            create_instance(id, player_id, Zone::SummonDeck);
+        for (const CardId id : source.standby) {
+            create_instance(id, player_id, Zone::Standby);
         }
     }
 
@@ -728,9 +749,9 @@ std::vector<std::string> Game::validate_invariants() const {
         if (state.leader_health < 0 || state.leader_health > state.maximum_leader_health) {
             problems.push_back("player " + std::to_string(player_index) + " has leader health outside its limits");
         }
-        if (state.maximum_pp < 0 || state.maximum_pp > config_.maximum_pp ||
-            state.current_pp < 0 || state.current_pp > state.maximum_pp) {
-            problems.push_back("player " + std::to_string(player_index) + " has an invalid PP state");
+        // v0.4: pp_capacity has no upper bound; current_pp may exceed capacity (§17).
+        if (state.pp_capacity < 0 || state.current_pp < 0 || state.cracks < 0) {
+            problems.push_back("player " + std::to_string(player_index) + " has a negative PP value or cracks");
         }
         if (state.evolution_points < 0 || state.own_turn_number < 0 || state.fatigue_count < 0) {
             problems.push_back("player " + std::to_string(player_index) + " has a negative counter");
@@ -748,7 +769,7 @@ std::vector<std::string> Game::validate_invariants() const {
         record_vector(state.hand, Zone::Hand);
         record_vector(state.graveyard, Zone::Graveyard);
         record_vector(state.archive, Zone::Archive);
-        record_vector(state.summon_deck, Zone::SummonDeck);
+        record_vector(state.standby, Zone::Standby);
 
         for (std::size_t sequence = 0; sequence < state.units.size(); ++sequence) {
             if (!state.units[sequence].has_value()) {
@@ -762,7 +783,7 @@ std::vector<std::string> Game::validate_invariants() const {
             }
             const CardInstance& unit = iterator->second;
             const CardDefinition& card_definition = catalog_.at(unit.definition_id);
-            if (card_definition.kind != CardKind::Unit && card_definition.kind != CardKind::SummonUnit) {
+            if (card_definition.kind != CardKind::Unit) {
                 problems.push_back("non-unit instance " + std::to_string(id) + " occupies a unit slot");
             }
             if (unit.maximum_health <= 0 || unit.current_health <= 0 ||
@@ -809,9 +830,6 @@ std::vector<std::string> Game::validate_invariants() const {
             if (count != 0) {
                 problems.push_back("zone-less instance " + std::to_string(id) + " appears in a zone container");
             }
-            // A stable public state must not leave cards detached. During a
-            // mulligan operation the set-aside cards are private and are put
-            // back before control returns to the caller.
             problems.push_back("instance " + std::to_string(id) + " is detached from every zone");
         } else if (count != 1) {
             problems.push_back("instance " + std::to_string(id) + " occurs in " +
@@ -821,24 +839,13 @@ std::vector<std::string> Game::validate_invariants() const {
             problems.push_back("instance " + std::to_string(id) + " references an unknown card definition");
             continue;
         }
-        const CardDefinition& card_definition = catalog_.at(card.definition_id);
-        if (card.zone == Zone::SummonDeck && card_definition.kind != CardKind::SummonUnit) {
-            problems.push_back("non-summon unit instance " + std::to_string(id) + " is in the summon deck");
-        }
-        if (card.zone == Zone::Deck && card_definition.kind == CardKind::SummonUnit) {
-            problems.push_back("summon unit instance " + std::to_string(id) + " is in a main deck");
-        }
         if (card.zone != Zone::Unit && card.inherited_imprint != Imprint::None) {
             problems.push_back("off-field instance " + std::to_string(id) + " retains an inherited imprint");
         }
     }
     for (const auto& [id, count] : occurrences) {
-        if (!instances_.contains(id) && count > 0) {
-            // Already reported by record(), retained here to make accidental
-            // duplicate unknown references visible as a separate corruption.
-            if (count > 1) {
-                problems.push_back("unknown instance " + std::to_string(id) + " is referenced multiple times");
-            }
+        if (!instances_.contains(id) && count > 1) {
+            problems.push_back("unknown instance " + std::to_string(id) + " is referenced multiple times");
         }
     }
     if (!instances_.empty() && next_instance_id_ <= maximum_id) {
@@ -898,15 +905,6 @@ std::optional<InstanceId> Game::find_on_field(const PlayerId player_id, const Ca
     return std::nullopt;
 }
 
-std::optional<InstanceId> Game::find_in_summon_deck(const PlayerId player_id, const CardId card_id) const {
-    for (const InstanceId id : players_[to_index(player_id)].summon_deck) {
-        if (instance(id).definition_id == card_id) {
-            return id;
-        }
-    }
-    return std::nullopt;
-}
-
 Status Game::ensure_action_player(const PlayerId player_id) const {
     const Status alive = ensure_not_finished();
     if (!alive) {
@@ -952,14 +950,14 @@ InstanceId Game::create_instance(const CardId card_id, const PlayerId owner, con
             stored.sequence = state.deck.size();
             state.deck.push_back(id);
             break;
-        case Zone::SummonDeck:
-            stored.sequence = state.summon_deck.size();
-            state.summon_deck.push_back(id);
+        case Zone::Standby:
+            stored.sequence = state.standby.size();
+            state.standby.push_back(id);
             break;
         case Zone::None:
             break;
         default:
-            throw std::logic_error("create_instance only supports deck, summon deck, or no zone");
+            throw std::logic_error("create_instance only supports deck, standby, or no zone");
     }
     return id;
 }
@@ -983,17 +981,13 @@ void Game::initialize_decks() {
 
         for (const CardId card_id : deck_lists_[player_index].main) {
             const CardDefinition& card_definition = catalog_.at(card_id);
-            if (card_definition.kind == CardKind::SummonUnit) {
-                throw std::invalid_argument("summon-deck card found in main deck");
+            if (card_definition.kind == CardKind::Relic || card_definition.kind == CardKind::Trap) {
+                // Relics and traps are valid in main decks.
             }
             create_instance(card_id, player_id, Zone::Deck);
         }
-        for (const CardId card_id : deck_lists_[player_index].summon) {
-            const CardDefinition& card_definition = catalog_.at(card_id);
-            if (card_definition.kind != CardKind::SummonUnit) {
-                throw std::invalid_argument("main-deck card found in summon deck");
-            }
-            create_instance(card_id, player_id, Zone::SummonDeck);
+        for (const CardId card_id : deck_lists_[player_index].standby) {
+            create_instance(card_id, player_id, Zone::Standby);
         }
         if (config_.shuffle_decks) {
             std::shuffle(state.deck.begin(), state.deck.end(), rng_);
@@ -1008,12 +1002,22 @@ void Game::begin_turn(const PlayerId player_id) {
     PlayerState& state = players_[to_index(player_id)];
     ++state.own_turn_number;
     state.evolution_used_this_turn = false;
-    state.advanced_summon_used_this_turn = false;
+    state.advance_used_this_turn = false;
     state.trap_set_this_turn = false;
     ready_units(player_id);
-    state.maximum_pp = std::min(config_.maximum_pp, state.maximum_pp + 1);
-    state.current_pp = state.maximum_pp;
-    emit(EventType::PPChanged, player_id, 0, state.current_pp, state.maximum_pp);
+
+    // v0.4 §7.1: PP capacity grows by 1 each turn with no cap.
+    state.pp_capacity += 1;
+    // v0.4 §7.2: current PP is refilled to pp_capacity (not capped by cracks).
+    state.current_pp = state.pp_capacity;
+    emit(EventType::PPChanged, player_id, 0, state.current_pp, state.pp_capacity);
+
+    // v0.4 §22 evolution unlock: first player on turn 5, second on turn 4.
+    const bool is_first = player_id == config_.first_player;
+    const int unlock_turn = is_first ? 5 : 4;
+    if (state.own_turn_number == unlock_turn) {
+        state.evolution_points = is_first ? 2 : 3;
+    }
 
     const bool skip_draw = player_id == config_.first_player && state.own_turn_number == 1;
     if (!skip_draw) {
@@ -1032,7 +1036,6 @@ void Game::ready_units(const PlayerId player_id) {
         CardInstance& unit = instances_.at(*slot);
         unit.attacked_this_turn = false;
         unit.entered_this_turn = false;
-        unit.advanced_summoned_this_turn = false;
         unit.temporary_rush = false;
     }
 }
@@ -1051,11 +1054,16 @@ void Game::process_relic_countdowns(const PlayerId player_id) {
         }
         --relic.countdown;
         if (relic.countdown == 0) {
-            const Ability ability = definition(id).countdown_expire_ability;
+            const CardDefinition& relic_def = definition(id);
             put_in_graveyard(player_id, id);
-            const Status status = resolve_ability(ability, player_id, id, std::nullopt);
+            const Status status = resolve_effects(
+                relic_def.effects,
+                EffectTrigger::OnCountdownExpire,
+                player_id,
+                id,
+                std::nullopt);
             if (!status) {
-                throw std::logic_error("countdown ability failed after prior validation: " + status.message);
+                throw std::logic_error("countdown effect failed: " + status.message);
             }
         }
     }
@@ -1110,6 +1118,30 @@ void Game::heal_leader(const PlayerId player_id, const int amount) {
     emit(EventType::LeaderHealed, player_id, 0, state.leader_health - before, state.leader_health);
 }
 
+void Game::repair_cracks(const PlayerId player_id, const int amount) {
+    if (amount <= 0) {
+        return;
+    }
+    PlayerState& state = players_[to_index(player_id)];
+    const int actual = std::min(amount, state.cracks);
+    if (actual <= 0) {
+        return;
+    }
+    state.cracks -= actual;
+    state.pp_capacity += actual;
+    emit(EventType::CracksChanged, player_id, 0, state.cracks, state.pp_capacity);
+    emit(EventType::PPChanged, player_id, 0, state.current_pp, state.pp_capacity);
+}
+
+void Game::gain_pp_capacity(const PlayerId player_id, const int amount) {
+    if (amount <= 0) {
+        return;
+    }
+    PlayerState& state = players_[to_index(player_id)];
+    state.pp_capacity += amount;
+    emit(EventType::PPChanged, player_id, 0, state.current_pp, state.pp_capacity);
+}
+
 int Game::damage_unit(const InstanceId unit_id, const int amount) {
     if (amount <= 0 || !instances_.contains(unit_id)) {
         return 0;
@@ -1133,8 +1165,7 @@ void Game::resolve_deaths() {
     struct DeathTrigger {
         PlayerId controller = PlayerId::Player0;
         InstanceId unit = 0;
-        Ability last_words = Ability::None;
-        bool imprint_draw = false;
+        std::vector<EffectRecord> last_words_effects;
     };
 
     while (true) {
@@ -1165,121 +1196,112 @@ void Game::resolve_deaths() {
                 continue;
             }
             const PlayerId controller = unit.controller;
-            const PlayerId owner = unit.owner;
-            const CardDefinition& unit_definition = catalog_.at(unit.definition_id);
-            triggers.push_back(DeathTrigger{
-                controller,
-                unit_id,
-                unit_definition.last_words_ability,
-                unit.inherited_imprint == Imprint::LastWordsDrawOne,
-            });
-            const bool summon_unit = unit_definition.kind == CardKind::SummonUnit;
-            if (summon_unit) {
-                put_in_archive(owner, unit_id);
-            } else {
-                put_in_graveyard(owner, unit_id);
-            }
-            emit(EventType::UnitDestroyed, controller, unit_id, summon_unit ? 1 : 0);
+            const CardDefinition& unit_def = catalog_.at(unit.definition_id);
+            triggers.push_back(DeathTrigger{controller, unit_id, unit_def.effects});
+            put_in_graveyard(controller, unit_id);
+            emit(EventType::UnitDestroyed, controller, unit_id);
         }
 
-        // Every unit in the batch has left the field before any last-words effect
-        // resolves. Triggers are already ordered active player first, then the
-        // non-active player, matching the source rules.
+        // All units have left the field before any last-words effect resolves.
         for (const DeathTrigger& trigger : triggers) {
-            if (trigger.last_words != Ability::None) {
-                const Status status = resolve_ability(
-                    trigger.last_words,
-                    trigger.controller,
-                    trigger.unit,
-                    std::nullopt);
-                if (!status) {
-                    throw std::logic_error("last words failed after trigger: " + status.message);
-                }
-            }
-            if (trigger.imprint_draw) {
-                draw_one(trigger.controller);
+            const Status status = resolve_effects(
+                trigger.last_words_effects,
+                EffectTrigger::OnLastWords,
+                trigger.controller,
+                trigger.unit,
+                std::nullopt);
+            if (!status) {
+                throw std::logic_error("last words effect failed: " + status.message);
             }
         }
     }
 }
 
-Status Game::resolve_ability(
-    const Ability ability,
+Status Game::resolve_effects(
+    const std::vector<EffectRecord>& effects,
+    const EffectTrigger trigger,
     const PlayerId actor,
     const InstanceId source,
-    const std::optional<Target> target) {
+    const std::optional<Target> target,
+    const bool advanced) {
     (void)source;
-    switch (ability) {
-        case Ability::None:
-            return Status::ok();
-        case Ability::DrawOne:
-            draw_one(actor);
-            return Status::ok();
-        case Ability::DealTwoToEnemyUnit:
-        case Ability::DealThreeToEnemyUnit: {
-            if (!target.has_value() || !is_valid_target_for_ability(actor, *target, true)) {
-                return Status::error(ErrorCode::InvalidTarget, "damage ability requires an enemy unit");
-            }
-            const int amount = ability == Ability::DealTwoToEnemyUnit ? 2 : 3;
-            damage_unit(target->unit, amount);
-            return Status::ok();
+    for (const EffectRecord& rec : effects) {
+        if (rec.trigger != trigger) {
+            continue;
         }
-        case Ability::HealLeaderThree:
-            heal_leader(actor, 3);
-            return Status::ok();
-        case Ability::GiveFriendlyUnitOneOne: {
-            if (!target.has_value() || target->kind != Target::Kind::Unit ||
-                !is_controlled_unit(actor, target->unit)) {
-                return Status::error(ErrorCode::InvalidTarget, "buff ability requires a friendly unit");
-            }
-            CardInstance& unit = instances_.at(target->unit);
-            ++unit.current_attack;
-            ++unit.current_health;
-            ++unit.maximum_health;
-            return Status::ok();
+        // Conditional on-play triggers.
+        if (rec.trigger == EffectTrigger::OnPlayIfAdvanced && !advanced) {
+            continue;
         }
-        case Ability::CreateRushPartInHand: {
-            const InstanceId generated = create_instance(cards::kMachineRushPart, actor, Zone::None);
-            put_in_hand(actor, generated);
-            return Status::ok();
+        if (rec.trigger == EffectTrigger::OnPlayIfNotAdvanced && advanced) {
+            continue;
         }
-        case Ability::TrapCancelAttack:
-        case Ability::TrapDamageSummonedUnitTwo:
-            return Status::error(ErrorCode::TrapNotEligible, "trap abilities resolve through a reaction window");
-    }
-    return Status::error(ErrorCode::InvalidCard, "unknown ability");
-}
 
-void Game::apply_imprint(CardInstance& unit, const Imprint imprint) {
-    unit.inherited_imprint = imprint;
-    switch (imprint) {
-        case Imprint::None:
-        case Imprint::LastWordsDrawOne:
-            break;
-        case Imprint::Guard:
-            unit.keywords |= mask(Keyword::Guard);
-            break;
-        case Imprint::Rush:
-            unit.keywords |= mask(Keyword::Rush);
-            break;
-        case Imprint::Barrier:
-            unit.keywords |= mask(Keyword::Barrier);
-            break;
-        case Imprint::Lifesteal:
-            unit.keywords |= mask(Keyword::Lifesteal);
-            break;
-    }
-}
+        switch (rec.kind) {
+            case EffectKind::DrawCards:
+                draw_cards(actor, rec.amount);
+                break;
 
-bool Game::can_inherit_imprint(
-    const std::vector<InstanceId>& materials,
-    const Imprint imprint) const {
-    if (imprint == Imprint::None) {
-        return true;
+            case EffectKind::DealDamageToEnemyUnit: {
+                if (!target.has_value() || !is_valid_target_for_ability(actor, *target, true)) {
+                    return Status::error(ErrorCode::InvalidTarget, "damage effect requires an enemy unit");
+                }
+                int dmg = rec.amount;
+                if (dmg < 0) {
+                    // Negative amount encodes "use cracks (capped at -amount)".
+                    dmg = std::min(-dmg, players_[to_index(actor)].cracks);
+                }
+                if (dmg > 0) {
+                    damage_unit(target->unit, dmg);
+                }
+                break;
+            }
+
+            case EffectKind::DealDamageToLeader:
+                damage_leader(opponent(actor), rec.amount);
+                break;
+
+            case EffectKind::HealLeader:
+                heal_leader(actor, rec.amount);
+                break;
+
+            case EffectKind::RepairCracks:
+                repair_cracks(actor, rec.amount);
+                break;
+
+            case EffectKind::GainPPCapacity:
+                gain_pp_capacity(actor, rec.amount);
+                break;
+
+            case EffectKind::BuffFriendlyUnit: {
+                // amount == 0 means "grant temporary Rush to the source unit".
+                if (rec.amount == 0) {
+                    // Grant temporary_rush to the source instance (which was
+                    // just played).  The source has already entered the field.
+                    if (instances_.contains(source) && instances_.at(source).zone == Zone::Unit) {
+                        instances_.at(source).temporary_rush = true;
+                    }
+                } else {
+                    // Buff a targeted friendly unit.
+                    if (!target.has_value() || target->kind != Target::Kind::Unit ||
+                        !is_controlled_unit(actor, target->unit)) {
+                        return Status::error(ErrorCode::InvalidTarget, "buff requires a friendly unit");
+                    }
+                    CardInstance& unit = instances_.at(target->unit);
+                    unit.current_attack += rec.amount;
+                    unit.current_health += rec.amount;
+                    unit.maximum_health += rec.amount;
+                }
+                break;
+            }
+
+            case EffectKind::CancelAttack:
+            case EffectKind::DamageEnteredUnit:
+                // These are handled directly in activate_trap().
+                break;
+        }
     }
-    return std::any_of(materials.begin(), materials.end(), [&](const InstanceId id) {
-        return definition(id).printed_imprint == imprint;
-    });
+    return Status::ok();
 }
 
 std::optional<std::size_t> Game::first_free_unit_slot(const PlayerId player_id) const {
@@ -1316,19 +1338,12 @@ bool Game::can_attack_now(const CardInstance& attacker, const Target& target) co
     if (!attacker.entered_this_turn) {
         return true;
     }
-    const bool has_rush = has_keyword(attacker.keywords, Keyword::Rush) || attacker.temporary_rush;
+    const bool has_rush  = has_keyword(attacker.keywords, Keyword::Rush) || attacker.temporary_rush;
     const bool has_storm = has_keyword(attacker.keywords, Keyword::Storm);
     if (target.kind == Target::Kind::Unit) {
         return has_rush || has_storm;
     }
-    if (!has_storm) {
-        return false;
-    }
-    if (attacker.advanced_summoned_this_turn &&
-        !catalog_.at(attacker.definition_id).can_attack_leader_on_advanced_turn) {
-        return false;
-    }
-    return true;
+    return has_storm;
 }
 
 Status Game::validate_attack(
@@ -1473,11 +1488,13 @@ std::vector<InstanceId> Game::matching_traps(
 bool Game::trap_matches_window(
     const CardDefinition& trap,
     const ReactionWindow window) const {
-    if (trap.trap_ability == Ability::TrapCancelAttack) {
-        return window == ReactionWindow::BeforeAttackDamage;
-    }
-    if (trap.trap_ability == Ability::TrapDamageSummonedUnitTwo) {
-        return window == ReactionWindow::AfterEnemyUnitSummoned;
+    for (const auto& rec : trap.effects) {
+        if (window == ReactionWindow::BeforeAttackDamage && rec.trigger == EffectTrigger::OnTrapBeforeAttack) {
+            return true;
+        }
+        if (window == ReactionWindow::AfterEnemyUnitSummoned && rec.trigger == EffectTrigger::OnTrapAfterEnemyUnit) {
+            return true;
+        }
     }
     return false;
 }
@@ -1530,9 +1547,9 @@ void Game::move_from_current_zone(const InstanceId card_id) {
             erase_from(state.archive);
             normalize_sequences(card.controller, Zone::Archive);
             break;
-        case Zone::SummonDeck:
-            erase_from(state.summon_deck);
-            normalize_sequences(card.controller, Zone::SummonDeck);
+        case Zone::Standby:
+            erase_from(state.standby);
+            normalize_sequences(card.controller, Zone::Standby);
             break;
         case Zone::None:
             break;
@@ -1558,27 +1575,38 @@ void Game::put_in_hand(const PlayerId player_id, const InstanceId card_id) {
     state.hand.push_back(card_id);
 }
 
+// Map CardDefinition boolean flags to KeywordMask at unit creation time so the
+// wire layer can serialise them without knowing the card-definition fields.
+static KeywordMask flags_to_keywords(const CardDefinition& def) {
+    KeywordMask kw = mask(Keyword::None);
+    if (def.printed_guard)    { kw |= mask(Keyword::Guard);    }
+    if (def.printed_rush)     { kw |= mask(Keyword::Rush);     }
+    if (def.printed_storm)    { kw |= mask(Keyword::Storm);    }
+    if (def.printed_barrier)  { kw |= mask(Keyword::Barrier);  }
+    if (def.printed_lifesteal){ kw |= mask(Keyword::Lifesteal);}
+    if (def.printed_bane)     { kw |= mask(Keyword::Bane);     }
+    return kw;
+}
+
 void Game::put_in_unit_slot(
     const PlayerId player_id,
     const InstanceId card_id,
-    const std::size_t slot,
-    const bool advanced_summoned) {
+    const std::size_t slot) {
     move_from_current_zone(card_id);
     PlayerState& state = players_[to_index(player_id)];
     CardInstance& card = instances_.at(card_id);
-    const CardDefinition& card_definition = catalog_.at(card.definition_id);
+    const CardDefinition& def = catalog_.at(card.definition_id);
     card.controller = player_id;
     card.zone = Zone::Unit;
     card.sequence = slot;
-    card.current_attack = card_definition.attack;
-    card.current_health = card_definition.health;
-    card.maximum_health = card_definition.health;
-    card.keywords = card_definition.keywords;
+    card.current_attack = def.attack;
+    card.current_health = def.health;
+    card.maximum_health = def.health;
+    card.keywords = flags_to_keywords(def);
     card.inherited_imprint = Imprint::None;
     card.evolved = false;
     card.attacked_this_turn = false;
     card.entered_this_turn = true;
-    card.advanced_summoned_this_turn = advanced_summoned;
     card.temporary_rush = false;
     card.face_down = false;
     card.countdown = 0;
@@ -1590,12 +1618,12 @@ void Game::put_in_tactic_slot(const PlayerId player_id, const InstanceId card_id
     move_from_current_zone(card_id);
     PlayerState& state = players_[to_index(player_id)];
     CardInstance& card = instances_.at(card_id);
-    const CardDefinition& card_definition = catalog_.at(card.definition_id);
+    const CardDefinition& def = catalog_.at(card.definition_id);
     card.controller = player_id;
     card.zone = Zone::Tactic;
     card.sequence = slot;
-    card.face_down = card_definition.kind == CardKind::Trap;
-    card.countdown = card_definition.countdown;
+    card.face_down = def.kind == CardKind::Trap;
+    card.countdown = def.countdown;
     state.tactics[slot] = card_id;
     emit(EventType::CardMoved, player_id, card_id, static_cast<int>(Zone::Tactic), static_cast<int>(slot));
 }
@@ -1642,16 +1670,14 @@ void Game::normalize_sequences(const PlayerId player_id, const Zone zone) {
         case Zone::Archive:
             values = &state.archive;
             break;
-        case Zone::SummonDeck:
-            values = &state.summon_deck;
+        case Zone::Standby:
+            values = &state.standby;
             break;
         default:
             return;
     }
     for (std::size_t index = 0; index < values->size(); ++index) {
-        CardInstance& card = instances_.at((*values)[index]);
-        card.sequence = index;
-        card.zone = zone;
+        instances_.at((*values)[index]).sequence = index;
     }
 }
 
@@ -1663,60 +1689,63 @@ bool Game::is_controlled_unit(const PlayerId player_id, const InstanceId id) con
     if (!instances_.contains(id)) {
         return false;
     }
-    const CardInstance& unit = instances_.at(id);
-    return unit.controller == player_id && unit.zone == Zone::Unit;
+    const CardInstance& card = instances_.at(id);
+    return card.controller == player_id && card.zone == Zone::Unit;
 }
 
 bool Game::is_enemy_unit(const PlayerId player_id, const InstanceId id) const {
-    return is_controlled_unit(opponent(player_id), id);
+    if (!instances_.contains(id)) {
+        return false;
+    }
+    const CardInstance& card = instances_.at(id);
+    return card.controller == opponent(player_id) && card.zone == Zone::Unit;
 }
 
 bool Game::is_valid_target_for_ability(
     const PlayerId actor,
     const Target& target,
     const bool require_enemy_unit) const {
-    if (target.kind != Target::Kind::Unit || !instances_.contains(target.unit)) {
-        return false;
-    }
-    const CardInstance& unit = instances_.at(target.unit);
-    if (unit.zone != Zone::Unit) {
-        return false;
-    }
     if (require_enemy_unit) {
-        return unit.controller == opponent(actor) && !has_keyword(unit.keywords, Keyword::Ambush);
+        if (target.kind != Target::Kind::Unit) {
+            return false;
+        }
+        if (!is_enemy_unit(actor, target.unit)) {
+            return false;
+        }
+        if (has_keyword(instances_.at(target.unit).keywords, Keyword::Ambush)) {
+            return false;
+        }
+        return true;
     }
-    return unit.controller == actor;
+    return true;
 }
 
 void Game::evaluate_result() {
-    if (result_ != GameResult::Ongoing) {
-        return;
-    }
-    const bool player0_dead = players_[0].leader_health <= 0;
-    const bool player1_dead = players_[1].leader_health <= 0;
-    if (!player0_dead && !player1_dead) {
-        return;
-    }
-    if (player0_dead && player1_dead) {
+    const bool p0_dead = players_[0].leader_health <= 0;
+    const bool p1_dead = players_[1].leader_health <= 0;
+    if (p0_dead && p1_dead) {
         result_ = GameResult::Draw;
-    } else if (player0_dead) {
+        phase_ = Phase::Finished;
+        emit(EventType::MatchEnded, active_player_, 0, static_cast<int>(result_));
+    } else if (p0_dead) {
         result_ = GameResult::Player1Won;
-    } else {
+        phase_ = Phase::Finished;
+        emit(EventType::MatchEnded, active_player_, 0, static_cast<int>(result_));
+    } else if (p1_dead) {
         result_ = GameResult::Player0Won;
+        phase_ = Phase::Finished;
+        emit(EventType::MatchEnded, active_player_, 0, static_cast<int>(result_));
     }
-    phase_ = Phase::Finished;
-    pending_reaction_.reset();
-    emit(EventType::MatchEnded, active_player_, 0, static_cast<int>(result_));
 }
 
 void Game::emit(
     const EventType type,
-    const PlayerId player_id,
+    const PlayerId player,
     const InstanceId card,
     const int value,
     const int secondary_value,
     std::string text) {
-    events_.push_back(GameEvent{type, player_id, card, value, secondary_value, std::move(text)});
+    events_.push_back(GameEvent{type, player, card, value, secondary_value, std::move(text)});
 }
 
 } // namespace scgs

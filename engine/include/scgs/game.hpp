@@ -22,6 +22,7 @@ enum class EventType : std::uint8_t {
     FatigueDamage,
     HandOverflowArchived,
     PPChanged,
+    CracksChanged,      // v0.4: cracks count changed
     CardMoved,
     UnitEntered,
     UnitDamaged,
@@ -31,8 +32,6 @@ enum class EventType : std::uint8_t {
     AttackDeclared,
     AttackCancelled,
     UnitEvolved,
-    AdvancedSummoned,
-    ImprintInherited,
     TrapWindowOpened,
     TrapActivated,
     LeaderSkillUsed,
@@ -60,14 +59,16 @@ struct CardInstance {
     int current_attack = 0;
     int current_health = 0;
     int maximum_health = 0;
+    // keywords is set from CardDefinition printed_xxx flags at unit creation
+    // and kept for wire serialisation; game logic reads it directly.
     KeywordMask keywords = mask(Keyword::None);
+    // inherited_imprint is kept for wire compatibility; always None in v0.4.
     Imprint inherited_imprint = Imprint::None;
 
     bool evolved = false;
     bool attacked_this_turn = false;
     bool entered_this_turn = false;
-    bool advanced_summoned_this_turn = false;
-    bool temporary_rush = false;
+    bool temporary_rush = false; // granted by evolution or advance effect
     bool face_down = false;
     int countdown = 0;
 };
@@ -76,14 +77,15 @@ struct PlayerState {
     int leader_health = 25;
     int maximum_leader_health = 25;
     int current_pp = 0;
-    int maximum_pp = 0;
+    int pp_capacity = 0;  // v0.4: PP容量, no fixed cap
+    int cracks = 0;       // v0.4: 裂痕, from advance/burn costs
     int evolution_points = 0;
     int own_turn_number = 0;
     int fatigue_count = 0;
 
     bool mulligan_done = false;
     bool evolution_used_this_turn = false;
-    bool advanced_summon_used_this_turn = false;
+    bool advance_used_this_turn = false; // v0.4: 动用未来 (advance+burn both count)
     bool trap_set_this_turn = false;
     bool leader_skill_used = false;
 
@@ -93,7 +95,7 @@ struct PlayerState {
     std::array<std::optional<InstanceId>, kTacticZoneSize> tactics{};
     std::vector<InstanceId> graveyard;
     std::vector<InstanceId> archive;
-    std::vector<InstanceId> summon_deck;
+    std::vector<InstanceId> standby; // v0.4 战备区
 
     LeaderSkillDefinition leader_skill;
 };
@@ -105,22 +107,14 @@ struct GameConfig {
     int starting_hand_size = 4;
     int hand_limit = 9;
     int leader_health = 25;
-    int maximum_pp = 10;
-};
-
-struct AdvancedSummonRequest {
-    PlayerId player = PlayerId::Player0;
-    InstanceId card = 0;
-    std::vector<InstanceId> materials;
-    Imprint inherited_imprint = Imprint::None;
-    std::optional<Target> ability_target;
 };
 
 struct ScenarioPlayer {
     int leader_health = 25;
     int maximum_leader_health = 25;
     int current_pp = 0;
-    int maximum_pp = 0;
+    int pp_capacity = 0;  // v0.4
+    int cracks = 0;       // v0.4
     int evolution_points = 0;
     int own_turn_number = 0;
     std::vector<CardId> hand;
@@ -129,7 +123,7 @@ struct ScenarioPlayer {
     std::vector<CardId> deck;
     std::vector<CardId> graveyard;
     std::vector<CardId> archive;
-    std::vector<CardId> summon_deck;
+    std::vector<CardId> standby;
     LeaderSkillDefinition leader_skill;
 };
 
@@ -147,21 +141,27 @@ public:
     [[nodiscard]] Status end_turn(PlayerId player);
     [[nodiscard]] Status surrender(PlayerId player);
 
+    // Play a unit from hand.  ability_target is required for entry effects that
+    // target an enemy unit.  If use_advance is true the player is explicitly
+    // requesting the advance (预支) mechanic; the engine validates eligibility.
     [[nodiscard]] Status play_unit(
         PlayerId player,
         InstanceId card,
         std::optional<std::size_t> preferred_slot = std::nullopt,
-        std::optional<Target> ability_target = std::nullopt);
+        std::optional<Target> ability_target = std::nullopt,
+        bool use_advance = false);
 
     [[nodiscard]] Status cast_spell(
         PlayerId player,
         InstanceId card,
-        std::optional<Target> ability_target = std::nullopt);
+        std::optional<Target> ability_target = std::nullopt,
+        bool use_advance = false);
 
     [[nodiscard]] Status play_tactic(
         PlayerId player,
         InstanceId card,
-        std::size_t slot);
+        std::size_t slot,
+        bool use_advance = false);
 
     [[nodiscard]] Status attack(PlayerId player, InstanceId attacker, Target target);
     [[nodiscard]] Status evolve(
@@ -172,7 +172,6 @@ public:
         bool free_evolution = false,
         bool ignore_turn_limit = false);
 
-    [[nodiscard]] Status advanced_summon(const AdvancedSummonRequest& request);
     [[nodiscard]] Status use_leader_skill(
         PlayerId player,
         std::optional<Target> target = std::nullopt);
@@ -200,7 +199,6 @@ public:
 
     [[nodiscard]] std::optional<InstanceId> find_in_hand(PlayerId player, CardId card_id) const;
     [[nodiscard]] std::optional<InstanceId> find_on_field(PlayerId player, CardId card_id) const;
-    [[nodiscard]] std::optional<InstanceId> find_in_summon_deck(PlayerId player, CardId card_id) const;
 
 private:
     struct PendingAttack {
@@ -233,6 +231,13 @@ private:
     [[nodiscard]] Status ensure_action_player(PlayerId player) const;
     [[nodiscard]] Status ensure_not_finished() const;
 
+    // Pay card cost, handling advance and burn.  Returns whether advance was used.
+    [[nodiscard]] Status pay_card_cost(
+        PlayerId player,
+        const CardDefinition& def,
+        bool use_advance,
+        bool& out_advanced);
+
     InstanceId create_instance(CardId card_id, PlayerId owner, Zone zone);
     void initialize_decks();
     void begin_turn(PlayerId player);
@@ -244,17 +249,20 @@ private:
     void draw_one(PlayerId player);
     void damage_leader(PlayerId player, int amount);
     void heal_leader(PlayerId player, int amount);
+    void repair_cracks(PlayerId player, int amount);
+    void gain_pp_capacity(PlayerId player, int amount);
     int damage_unit(InstanceId unit, int amount);
     void resolve_deaths();
 
-    [[nodiscard]] Status resolve_ability(
-        Ability ability,
+    // Resolve all effects in `effects` whose trigger matches `trigger`.
+    // advanced=true when the card that owns these effects was played with advance.
+    [[nodiscard]] Status resolve_effects(
+        const std::vector<EffectRecord>& effects,
+        EffectTrigger trigger,
         PlayerId actor,
         InstanceId source,
-        std::optional<Target> target);
-
-    void apply_imprint(CardInstance& unit, Imprint imprint);
-    [[nodiscard]] bool can_inherit_imprint(const std::vector<InstanceId>& materials, Imprint imprint) const;
+        std::optional<Target> target,
+        bool advanced = false);
 
     [[nodiscard]] std::optional<std::size_t> first_free_unit_slot(PlayerId player) const;
     [[nodiscard]] bool contains_guard(PlayerId player) const;
@@ -276,7 +284,7 @@ private:
 
     void move_from_current_zone(InstanceId card);
     void put_in_hand(PlayerId player, InstanceId card);
-    void put_in_unit_slot(PlayerId player, InstanceId card, std::size_t slot, bool advanced_summoned);
+    void put_in_unit_slot(PlayerId player, InstanceId card, std::size_t slot);
     void put_in_tactic_slot(PlayerId player, InstanceId card, std::size_t slot);
     void put_in_graveyard(PlayerId player, InstanceId card);
     void put_in_archive(PlayerId player, InstanceId card);

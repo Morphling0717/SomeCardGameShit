@@ -11,7 +11,7 @@ namespace scgs {
 
 using CardId = std::uint32_t;
 using InstanceId = std::uint64_t;
-using TraitMask = std::uint32_t;
+// KeywordMask is kept as a wire-stable type (protocol.hpp encodes it verbatim).
 using KeywordMask = std::uint32_t;
 
 constexpr std::size_t kPlayerCount = 2;
@@ -37,7 +37,6 @@ enum class CardKind : std::uint8_t {
     Spell,
     Relic,
     Trap,
-    SummonUnit,
 };
 
 enum class Zone : std::uint8_t {
@@ -48,39 +47,22 @@ enum class Zone : std::uint8_t {
     Tactic,
     Graveyard,
     Archive,
-    SummonDeck,
+    Standby,    // v0.4 战备区 (public standby zone)
 };
 
-enum class Trait : TraitMask {
-    None = 0,
-    Soldier = 1U << 0U,
-    Knight = 1U << 1U,
-    Machine = 1U << 2U,
-    Part = 1U << 3U,
-    Construct = 1U << 4U,
-};
-
-[[nodiscard]] constexpr TraitMask mask(const Trait value) noexcept {
-    return static_cast<TraitMask>(value);
-}
-
-[[nodiscard]] constexpr TraitMask operator|(const Trait lhs, const Trait rhs) noexcept {
-    return mask(lhs) | mask(rhs);
-}
-
-[[nodiscard]] constexpr bool has_all_traits(const TraitMask value, const TraitMask required) noexcept {
-    return (value & required) == required;
-}
-
+// Keyword bits are wire-stable (protocol.hpp serialises KeywordMask verbatim).
+// v0.4 formal keyword names are not yet finalised; in card definitions these
+// semantics are expressed as boolean flags (printed_guard, printed_rush …) and
+// mapped to this mask when a unit enters the field so the wire remains valid.
 enum class Keyword : KeywordMask {
-    None = 0,
-    Guard = 1U << 0U,
-    Rush = 1U << 1U,
-    Storm = 1U << 2U,
-    Barrier = 1U << 3U,
-    Bane = 1U << 4U,
-    Lifesteal = 1U << 5U,
-    Ambush = 1U << 6U,
+    None     = 0,
+    Guard    = 1U << 0U,   // must be attacked first
+    Rush     = 1U << 1U,   // can attack enemy units on entry turn
+    Storm    = 1U << 2U,   // can attack leader on entry turn
+    Barrier  = 1U << 3U,   // absorbs one hit
+    Bane     = 1U << 4U,   // any damage destroys target
+    Lifesteal = 1U << 5U,  // damage dealt heals leader
+    Ambush   = 1U << 6U,   // cannot be targeted while face-down
 };
 
 [[nodiscard]] constexpr KeywordMask mask(const Keyword value) noexcept {
@@ -95,6 +77,8 @@ enum class Keyword : KeywordMask {
     return (value & mask(keyword)) != 0U;
 }
 
+// Imprint is kept as a wire-stable type.  In v0.4 the imprint inheritance
+// system is not used; the field is always None on non-protocol paths.
 enum class Imprint : std::uint8_t {
     None,
     Guard,
@@ -104,27 +88,58 @@ enum class Imprint : std::uint8_t {
     LastWordsDrawOne,
 };
 
-enum class Ability : std::uint8_t {
-    None,
-    DrawOne,
-    DealTwoToEnemyUnit,
-    DealThreeToEnemyUnit,
-    HealLeaderThree,
-    GiveFriendlyUnitOneOne,
-    CreateRushPartInHand,
-    TrapCancelAttack,
-    TrapDamageSummonedUnitTwo,
+// v0.4 data-driven effect system -----------------------------------------------
+
+// When an effect fires.
+enum class EffectTrigger : std::uint8_t {
+    OnPlay,               // spell/unit played from hand (always)
+    OnPlayIfAdvanced,     // played from hand using advance (超前)
+    OnPlayIfNotAdvanced,  // played from hand without advance (按期)
+    OnEntry,              // unit enters the field (after paying cost)
+    OnEvolution,          // unit is evolved (ability trigger)
+    OnLastWords,          // unit is destroyed
+    OnCountdownExpire,    // relic countdown reaches zero
+    OnTrapBeforeAttack,   // trap window: before attack damage resolves
+    OnTrapAfterEnemyUnit, // trap window: after enemy unit enters field
 };
 
-enum class AdvancedSummonKind : std::uint8_t {
-    None,
-    Tribute,
-    Construct,
+// What the effect does.
+enum class EffectKind : std::uint8_t {
+    DrawCards,
+    DealDamageToEnemyUnit,
+    DealDamageToLeader,
+    HealLeader,
+    RepairCracks,              // 修复X: remove ≤X cracks, restore capacity
+    GainPPCapacity,            // 增长X: directly add to PP capacity
+    BuffFriendlyUnit,          // give friendly unit +amount/+amount
+    CancelAttack,              // trap: cancel the pending attack
+    DamageEnteredUnit,         // trap: damage the unit that just entered
 };
+
+enum class TargetSpec : std::uint8_t {
+    None,
+    EnemyUnit,
+    FriendlyUnit,
+};
+
+struct EffectRecord {
+    EffectTrigger trigger = EffectTrigger::OnEntry;
+    EffectKind kind = EffectKind::DrawCards;
+    int amount = 0;
+    TargetSpec target_spec = TargetSpec::None;
+};
+
+// AdditionalCost models costs that permanently reduce PP capacity.
+// 燃耗X: reduce PP capacity by X as part of the play cost.
+struct AdditionalCost {
+    int burn_pp_capacity = 0;
+};
+
+// ------------------------------------------------------------------------------
 
 enum class EvolutionMode : std::uint8_t {
-    Combat,
-    Ability,
+    Combat,   // +2/+2, temporary rush to units
+    Ability,  // +1/+1, trigger on-evolution effect
 };
 
 enum class Phase : std::uint8_t {
@@ -171,9 +186,8 @@ enum class ErrorCode : std::uint8_t {
     EvolutionAlreadyUsed,
     AlreadyEvolved,
     AbilityEvolutionUnavailable,
-    AdvancedSummonAlreadyUsed,
-    InvalidMaterials,
-    InvalidImprint,
+    AdvanceAlreadyUsed,      // v0.4: 动用未来 already used this turn
+    AdvanceWouldExceedCap,   // v0.4: advance would bring pp_capacity below 0
     TrapAlreadySetThisTurn,
     NoPendingReaction,
     TrapNotEligible,

@@ -2,6 +2,7 @@
 #pragma once
 
 #include "scgs/card.hpp"
+#include "scgs/client_api.hpp"
 #include "scgs/types.hpp"
 
 #include <array>
@@ -39,6 +40,7 @@ enum class EventType : std::uint8_t {
     LeaderSkillUsed,
     PlayerSurrendered,
     MatchEnded,
+    MulliganCompleted,
 };
 
 struct GameEvent {
@@ -48,6 +50,11 @@ struct GameEvent {
     int value = 0;
     int secondary_value = 0;
     std::string text;
+    // Populated on MatchStarted so clients can reproduce the actual setup.
+    std::uint32_t random_seed = 0;
+    // Global, monotonically increasing cursor used by the non-destructive
+    // client event API. Legacy drain_events() retains its old semantics.
+    std::uint64_t sequence = 0;
 };
 
 struct CardInstance {
@@ -116,8 +123,9 @@ struct PlayerState {
 };
 
 struct GameConfig {
-    std::uint32_t random_seed = 0x5C6A2026U;
-    PlayerId first_player = PlayerId::Player0;
+    // No seed means product-default entropy. Tests/replays provide a seed.
+    std::optional<std::uint32_t> random_seed = std::nullopt;
+    FirstPlayerMode first_player_mode = FirstPlayerMode::Random;
     bool shuffle_decks = true;
     int starting_hand_size = 4;
     int hand_limit = 9;
@@ -151,6 +159,9 @@ class Game {
 public:
     Game(CardCatalog catalog, DeckList player0_deck, DeckList player1_deck, GameConfig config = {});
 
+    // Strongly typed commands remain for engine tests and internal
+    // compatibility. Client integrations use the revision-checked API below;
+    // both paths execute these same validators and state transitions.
     [[nodiscard]] Status start();
     [[nodiscard]] Status mulligan(PlayerId player, const std::vector<InstanceId>& selected_cards);
     [[nodiscard]] Status end_turn(PlayerId player);
@@ -219,6 +230,8 @@ public:
     [[nodiscard]] const CardCatalog& catalog() const noexcept;
 
     [[nodiscard]] PlayerId active_player() const noexcept;
+    [[nodiscard]] PlayerId first_player() const noexcept;
+    [[nodiscard]] std::uint32_t random_seed() const noexcept;
     [[nodiscard]] Phase phase() const noexcept;
     [[nodiscard]] GameResult result() const noexcept;
     [[nodiscard]] ReactionWindow reaction_window() const noexcept;
@@ -226,6 +239,21 @@ public:
     [[nodiscard]] std::size_t response_depth() const noexcept; // v0.4: layers on the stack
     [[nodiscard]] std::vector<GameEvent> drain_events();
     [[nodiscard]] std::vector<std::string> validate_invariants() const;
+
+    // Gate 1 client-safe API. Views are viewer-scoped; event reads are
+    // non-destructive; commands are revision-checked and committed atomically.
+    [[nodiscard]] std::uint64_t revision() const noexcept;
+    [[nodiscard]] MatchView make_view(PlayerId viewer) const;
+    [[nodiscard]] std::vector<LegalAction> list_legal_actions(const ActionQuery& query) const;
+    [[nodiscard]] std::vector<Target> list_valid_targets(const ActionQuery& query) const;
+    [[nodiscard]] std::vector<std::size_t> list_valid_slots(const ActionQuery& query) const;
+    [[nodiscard]] std::vector<InstanceId> list_valid_donors(const ActionQuery& query) const;
+    [[nodiscard]] PaymentPreview preview_payment(const GameCommand& command) const;
+    [[nodiscard]] ReactionContext get_reaction_context(PlayerId viewer) const;
+    [[nodiscard]] Status submit_command(const GameCommand& command);
+    [[nodiscard]] std::vector<GameEventView> read_events(
+        PlayerId viewer,
+        std::uint64_t after_sequence) const;
 
     [[nodiscard]] std::optional<InstanceId> find_in_hand(PlayerId player, CardId card_id) const;
     [[nodiscard]] std::optional<InstanceId> find_on_field(PlayerId player, CardId card_id) const;
@@ -261,6 +289,7 @@ private:
         InstanceId subject = 0;
         std::vector<InstanceId> eligible_traps;
         std::optional<InstanceId> activated_trap; // declared but unresolved (LIFO)
+        std::optional<Target> activated_target;
         SuspendedAction suspended;                // non-None only on the base layer
     };
 
@@ -270,15 +299,26 @@ private:
     std::array<PlayerState, kPlayerCount> players_{};
     std::unordered_map<InstanceId, CardInstance> instances_;
     InstanceId next_instance_id_ = 1;
+    std::uint32_t actual_seed_ = 0;
     std::mt19937 rng_;
+    PlayerId first_player_ = PlayerId::Player0;
     PlayerId active_player_ = PlayerId::Player0;
     Phase phase_ = Phase::NotStarted;
     GameResult result_ = GameResult::Ongoing;
     std::vector<ResponseLayer> response_stack_;
     std::vector<GameEvent> events_;
+    std::uint64_t revision_ = 0;
+    std::uint64_t next_event_sequence_ = 1;
+    std::vector<GameEvent> event_history_;
 
     [[nodiscard]] Status ensure_action_player(PlayerId player) const;
     [[nodiscard]] Status ensure_not_finished() const;
+    [[nodiscard]] bool evolution_is_unlocked(PlayerId player) const;
+    [[nodiscard]] Status validate_effect_targets(
+        const std::vector<EffectRecord>& effects,
+        const std::vector<EffectTrigger>& triggers,
+        PlayerId actor,
+        std::optional<Target> target) const;
 
     // Pay card cost, handling advance and burn.  Returns whether advance was used.
     [[nodiscard]] Status pay_card_cost(
@@ -294,8 +334,8 @@ private:
     void process_relic_countdowns(PlayerId player);
     void clear_end_of_turn_state(PlayerId player);
 
-    void draw_cards(PlayerId player, int count);
-    void draw_one(PlayerId player);
+    void draw_cards(PlayerId player, int count, bool emit_draw_event = true);
+    void draw_one(PlayerId player, bool emit_draw_event = true);
     void damage_leader(PlayerId player, int amount);
     void heal_leader(PlayerId player, int amount);
     void repair_cracks(PlayerId player, int amount);

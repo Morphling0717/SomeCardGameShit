@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, "prototype/**", "feature/**"]
+    branches: [main, "prototype/**", "feature/**", "codex/**"]
   pull_request:
 
 permissions:
@@ -13,12 +13,15 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.8"
       - name: Configure
-        run: cmake -S . -B build/ci-gcc -G Ninja -DCMAKE_BUILD_TYPE=Release -DSCGS_WARNINGS_AS_ERRORS=ON
+        run: cmake -S . -B build/ci-gcc -G Ninja -DCMAKE_BUILD_TYPE=Release -DSCGS_WARNINGS_AS_ERRORS=ON -DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON
       - name: Build
         run: cmake --build build/ci-gcc --parallel 2
       - name: Test
-        run: ctest --test-dir build/ci-gcc --output-on-failure
+        run: SCGS_SMOKE_SEEDS=2048 ctest --test-dir build/ci-gcc --output-on-failure
 
   linux-clang-sanitizers:
     runs-on: ubuntu-latest
@@ -29,19 +32,25 @@ jobs:
       UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.8"
       - name: Configure
-        run: cmake -S . -B build/ci-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DSCGS_WARNINGS_AS_ERRORS=ON -DSCGS_ENABLE_SANITIZERS=ON
+        run: cmake -S . -B build/ci-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DSCGS_WARNINGS_AS_ERRORS=ON -DSCGS_ENABLE_SANITIZERS=ON -DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON
       - name: Build
         run: cmake --build build/ci-asan --parallel 2
       - name: Test
-        run: ctest --test-dir build/ci-asan --output-on-failure
+        run: SCGS_SMOKE_SEEDS=256 ctest --test-dir build/ci-asan --output-on-failure
 
   windows-msvc:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.8"
       - name: Configure
-        run: cmake -S . -B build/ci-msvc -A x64 -DSCGS_WARNINGS_AS_ERRORS=ON
+        run: cmake -S . -B build/ci-msvc -A x64 -DSCGS_WARNINGS_AS_ERRORS=ON -DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON
       - name: Build
         shell: pwsh
         run: |

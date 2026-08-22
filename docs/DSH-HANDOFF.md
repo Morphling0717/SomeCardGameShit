@@ -1,4 +1,10 @@
-# SomeCardGameShit — DSH 工程交接文档
+# ⚠️ 历史归档：SomeCardGameShit 旧 DSH / YGOPro2 工程交接
+
+> **已废弃，不是当前开发指令。** 本文记录 v0.1/M1 的 YGOPro2/Unity 探索，包含过时 commit、分支、规则版本、2 格战术区和一次性 importer 操作。不得照本文恢复 M1、修改远端、推送分支或判断现行能力。当前真值请读 [`DSH-HANDOFF-v0.4-ui.md`](DSH-HANDOFF-v0.4-ui.md)、[`GODOT-HOTSEAT-DEVELOPMENT-PLAN.md`](GODOT-HOTSEAT-DEVELOPMENT-PLAN.md) 与 [`rules-v0.4.md`](rules-v0.4.md)。
+
+---
+
+# SomeCardGameShit — DSH 工程交接文档（原文）
 
 > 用途：把本文件直接交给 DSH / 后续 coding agent。接手者应以 **GitHub 当前内容 + `docs/rules-v0.1.md` + 自动测试** 为真值，不要根据历史聊天自行脑补规则或项目状态。
 

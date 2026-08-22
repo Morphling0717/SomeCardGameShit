@@ -1,66 +1,66 @@
-# 测试策略
+# 测试说明
 
-## 测试层级
+## 测试层次
 
-### 1. 单条规则测试
+### C++ 规则与状态机
 
-覆盖调度、手牌溢出、疲劳、费用、错误目标、战斗、关键词、进化、高级召唤、素材印记、战术区、伏策、主战技、投降和协议。
+覆盖固定牌组规则、失败无副作用、每步不变量、结束回合、响应栈、目标失效、终局幂等、进化充能和先后手种子。测试名称和准确断言数以本次运行输出及 [`TEST_REPORT.md`](../TEST_REPORT.md) 为准。
 
-### 2. 文档金标场景
+### 客户端查询契约
 
-`scgs_demo --verify` 固定执行规则文档中的完整示例：
+客户端 API 必须验证：
 
-- 5PP；
-- 2 费突进印记机械；
-- 3 费守护印记机械；
-- 支付 2PP 构成召唤 5/6 单位；
-- 继承守护；
-- 入场造成 2 点伤害；
-- 剩余 3PP；
-- 战斗进化为 7/8 并获得突进；
-- 可以攻击单位，但当回合不能攻击主战者。
+- 每项枚举出的合法行动在同 revision 的游戏副本上可以成功提交；
+- 支付预览与实际资源变化一致；
+- 非法玩家、过期 revision、非法目标和错误阶段无状态/事件/revision 副作用；
+- 敌方手牌、背面伏策和抽牌/调度/设置事件不泄露；
+- 两个事件游标互不干扰；
+- 无界面代理只经快照、查询、命令和事件完成整局，不读取 `PlayerState`。
 
-### 3. 状态不变量
+### legacy 兼容性
 
-每次操作后检查卡牌区域唯一性、序列、控制权、PP、生命、关键词状态、反应窗口和胜负状态。
+`scgs_wire_frozen_golden` 固定验证 v1 消息长度、字节序、消息 ID 和金标字节。Python overlay/协议契约测试由 `SCGS_ENABLE_LEGACY_YGO2_TESTS` 控制，默认开启；开启时 CMake 必须找到 Python 3.10+，不能静默只注册部分 CTest。
 
-### 4. 确定性烟雾对局
+legacy 测试通过只证明历史兼容层仍可解析，不代表 YGOPro2/Unity 是现行客户端或已经实机可用。
 
-默认测试使用 32 个随机种子，双方轮流先手，由一个只使用公开 API 的简单代理完成对局。代理不是平衡 AI；作用是反复穿过不同状态组合，寻找卡死、悬空反应和区域损坏。
+### 压力与 sanitizer
 
-压力测试可以扩大种子数量：
+默认压力矩阵为 Release 2,048 seeds 和 Clang ASan/UBSan 256 seeds：
 
 ```bash
 ./scripts/stress.sh
 ```
 
-默认运行 Release 2,048 个种子，以及 ASan/UBSan 256 个种子。可通过 `SCGS_RELEASE_STRESS_SEEDS` 与 `SCGS_ASAN_STRESS_SEEDS` 修改。
+可用 `SCGS_RELEASE_STRESS_SEEDS`、`SCGS_ASAN_STRESS_SEEDS` 调整。常规烟雾 seed 数可用 `SCGS_SMOKE_SEEDS` 调整。
 
-### 5. Sanitizer
+## 标准命令
 
-Clang 构建启用：
+```bash
+cmake --preset dev
+cmake --build --preset dev
+ctest --preset dev
 
-```text
--fsanitize=address,undefined
--fno-omit-frame-pointer
+cmake --preset release
+cmake --build --preset release
+ctest --preset release
+
+cmake --preset asan
+cmake --build --preset asan
+ctest --preset asan
+
+git diff --check
 ```
 
-用于捕获越界、释放后使用、整数未定义行为等问题。
+Windows MSVC 使用 `scripts/test.ps1` 或等价的 Release 配置。CI 在 GCC Release、Clang ASan/UBSan 和 MSVC Release 三个 job 中固定 Python 版本，并显式设置 `SCGS_ENABLE_LEGACY_YGO2_TESTS=ON`。
 
-## “通过测试”不等于什么
+## 报告规则
 
-当前通过代表无界面核心在已覆盖范围内没有已知失败，不代表：
+[`TEST_REPORT.md`](../TEST_REPORT.md) 只记录实际执行过的分支、commit、环境、命令、测试/断言数和结果。不得把以下内容写成已通过：
 
-- 卡牌平衡已经完成；
-- 玩家体验达到 8–12 分钟；
-- 先手胜率已达到 48%–52%；
-- Unity 客户端已经编译；
-- 网络、录像和服务器已完成；
-- 未实现规则不存在问题。
+- 未推送分支的 GitHub CI；
+- 当前机器无法运行的编译器或 sanitizer；
+- 尚未创建的 C ABI/Godot 工程；
+- Godot 编辑器、桌面导出或真人完整对局；
+- Web、网络、平衡或正式美术。
 
-真正的第一版还需要真人对局数据与 YGOPro2 端到端测试。
-
-
-## 当前基线报告
-
-当前环境的精确命令、断言数量和未验证项记录在 [`TEST_REPORT.md`](../TEST_REPORT.md)。报告只描述实际执行过的测试，不把 Unity、Windows 或真人平衡测试算作已完成。
+测试绿代表已覆盖范围内没有已知失败，不等于 Alpha 全产品验收完成。

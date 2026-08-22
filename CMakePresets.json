@@ -2,7 +2,7 @@
   "version": 6,
   "cmakeMinimumRequired": {
     "major": 3,
-    "minor": 20,
+    "minor": 25,
     "patch": 0
   },
   "configurePresets": [
@@ -14,7 +14,8 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
-        "SCGS_WARNINGS_AS_ERRORS": "ON"
+        "SCGS_WARNINGS_AS_ERRORS": "ON",
+        "SCGS_ENABLE_LEGACY_YGO2_TESTS": "ON"
       }
     },
     {
@@ -24,7 +25,8 @@
       "binaryDir": "${sourceDir}/build/release",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
-        "SCGS_WARNINGS_AS_ERRORS": "ON"
+        "SCGS_WARNINGS_AS_ERRORS": "ON",
+        "SCGS_ENABLE_LEGACY_YGO2_TESTS": "ON"
       }
     },
     {
@@ -36,7 +38,8 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_CXX_COMPILER": "clang++",
         "SCGS_WARNINGS_AS_ERRORS": "ON",
-        "SCGS_ENABLE_SANITIZERS": "ON"
+        "SCGS_ENABLE_SANITIZERS": "ON",
+        "SCGS_ENABLE_LEGACY_YGO2_TESTS": "ON"
       }
     }
   ],

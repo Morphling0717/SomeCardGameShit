@@ -1,5 +1,7 @@
 # Upstream dependencies
 
+> **Historical reference only.** The YGOPro2/Unity route is no longer an active client target. These pins remain solely for legacy v1 compatibility tests and repository archaeology; the commands below reproduce the archived integration.
+
 Run `scripts/bootstrap-upstream.sh` from the repository root to clone the pinned client and core into `vendor/`.
 
 The script refuses to overwrite a dirty checkout. Updating a revision requires editing `upstream.lock.json`, documenting why, and rerunning all core and Unity integration tests.

@@ -1,57 +1,53 @@
 # SomeCardGameShit
 
-> **现行开发路线（v0.4）：** C++20 规则引擎作为唯一规则真值，下一阶段使用 **Godot 4 .NET** 制作单机热座客户端。YGOPro2 / Unity 路线已经停止继续投入。
->
-> - 详细开发计划：[`docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md`](docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md)
-> - 最新交接手册：[`docs/DSH-HANDOFF-v0.4-ui.md`](docs/DSH-HANDOFF-v0.4-ui.md)
-> - 唯一规则真值：[`docs/rules-v0.4.md`](docs/rules-v0.4.md)
+原创 1v1 数字卡牌游戏实验项目。C++20 规则引擎是唯一规则真值；正式客户端路线锁定为 **Godot 4.7.2 .NET** 的桌面单机热座版本。
 
-一个原创 1v1 数字卡牌游戏项目。当前仓库已经完成 v0.4 无界面规则引擎，尚未完成可供人类操作的 Godot 图形客户端。
+当前分支完成的是客户端开发前的 **Gate 0+1 加固**：整理构建和文档基线，修复关键状态机边界，并提供观看者安全快照、合法行动查询、统一命令提交和脱敏事件读取。它不包含 C ABI、Godot 场景、正式 UI 或美术。
 
-> 下面的 M0 / YGOPro2 内容保留为历史背景，后续 Gate 0 会按新路线整体重写。
+- 规则真值：[`docs/rules-v0.4.md`](docs/rules-v0.4.md)
+- Godot 热座开发计划：[`docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md`](docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md)
+- 当前交接：[`docs/DSH-HANDOFF-v0.4-ui.md`](docs/DSH-HANDOFF-v0.4-ui.md)
+- 架构：[`docs/architecture.md`](docs/architecture.md)
+- 实测记录：[`TEST_REPORT.md`](TEST_REPORT.md)
 
-## 当前已经能运行什么
+## 当前范围
 
-当前 C++20 无界面核心已经实现并测试：
+引擎包含两副 30 张固定测试牌组，支持：
 
-- 25 点主战者生命、先后手、4 张起手与一次调度；
-- v0.4 无上限 PP 容量、当前 PP、预支、燃耗、裂痕、修复与增长；
-- 9 张手牌上限、溢出封存、递增疲劳伤害；
-- 5 个单位位与 3 个策略位；
-- 持续保留的单位伤害、单位互相同时造成战斗伤害；
-- 守护、突进、疾驰、屏障、必杀、吸血等底层规则；
-- 单一进化形式与职业进化充能；
-- 公开战备区、部署和组件能力；
-- 设施、伏策与三层响应结构；
-- 投降、胜负与平局状态；
-- 当前回合方优先的同时死亡批次；
-- 数据驱动卡牌效果；
-- legacy v1 wire 冻结回归测试。
-
-内置测试卡池包括两副 30 张固定牌组：标准中速牌组与预支测试牌组，均含战备牌和职业充能条件。
-
-## 测试结果
-
-当前测试套件包含：
-
-- 22 个 C++ 功能与场景测试；
-- 391 次基础断言；
-- 32 个不同洗牌种子、双方轮流先手的完整对局烟雾测试；
-- 每一步操作后的全局状态不变量检查；
-- GCC Debug / Release；
-- Clang AddressSanitizer + UndefinedBehaviorSanitizer；
-- 预支 → 补满 → 燃耗 → 当前 PP 高于容量 → 修复的 v0.4 金标场景；
+- 25 点主战者生命、起手与调度、手牌上限、封存和疲劳；
+- 无上限 PP 容量、当前 PP、预支、燃耗、裂痕、修复和增长；
+- 5 个单位位、3 个策略位和最多 6 张公开战备牌；
+- 单位战斗、持续伤害、同时死亡批次和基础关键词；
+- 单一进化形式、解锁后的职业充能、战备部署和组件能力；
+- 设施、伏策与最多三层的响应栈；
+- 投降、胜负、平局和幂等终局；
+- 数据驱动效果；
 - legacy v1 wire 金标字节回归。
 
-精确结果会由 `scripts/test.sh` 重新生成，不要只相信 README 中的数字。
+面向客户端的 C++ API 只暴露观看者可见信息，并遵循以下循环：
 
-## 本地构建
+```text
+快照 → 合法行动/目标/位置/支付查询 → 带 revision 的命令 → 脱敏事件
+```
 
-需要：
+成功命令使状态 revision 恰好增加一次；失败或过期命令不得改变状态、事件和 revision。对方手牌、背面伏策以及相关事件不会泄露卡名或稳定实例 ID。
 
-- CMake 3.20+
-- 支持 C++20 的 GCC、Clang 或 MSVC
-- Ninja（使用预设时）
+Alpha 只承诺现有两副固定牌组的闭环。主战技 UI、普通主动能力、人工同时触发排序和固定牌组未使用关键词延后；同一玩家的同时触发暂按确定性场地顺序处理。
+
+## 工具链
+
+本地构建需要：
+
+- CMake 3.25 或更高；
+- 支持 C++20 的 GCC、Clang 或 MSVC；
+- Ninja（使用仓库预设时）；
+- Python 3.10 或更高（默认开启的 legacy YGOPro2 Python 回归测试需要）。
+
+后续客户端精确锁定 Godot **4.7.2 .NET** 和 .NET SDK **10.0.400**；详见 [`docs/toolchain.md`](docs/toolchain.md) 与根目录 `global.json`。正式目标是 Windows x86-64 和 macOS Apple Silicon，**不支持 Web**。
+
+## 构建与测试
+
+使用预设：
 
 ```bash
 cmake --preset dev
@@ -60,51 +56,44 @@ ctest --preset dev
 ./build/dev/scgs_demo --verify
 ```
 
-运行 Clang ASan + UBSan：
+Release 与 Clang sanitizer：
 
 ```bash
+cmake --preset release
+cmake --build --preset release
+ctest --preset release
+
 cmake --preset asan
 cmake --build --preset asan
 ctest --preset asan
 ```
 
-或直接运行完整构建矩阵：
+`SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认 `ON`。开启时配置阶段必须找到 Python 3.10+，不能静默少注册测试；只有明确不验证历史兼容层时才可设为 `OFF`。
+
+辅助脚本：
 
 ```bash
 ./scripts/test.sh
-```
-
-运行确定性压力测试：
-
-```bash
 ./scripts/stress.sh
 ```
 
-实际执行记录见 [`TEST_REPORT.md`](TEST_REPORT.md)。
+Windows 可运行 `scripts/test.ps1`。准确命令、测试数量、断言数量和未验证项以 [`TEST_REPORT.md`](TEST_REPORT.md) 的本次实测为准。
 
 ## 目录
 
 ```text
-engine/          可独立运行和测试的 v0.4 规则核心
-client/          客户端代码；现有 YGOPro2 内容为已放弃路线遗留
-docs/            规则、架构、交接、协议与开发计划
-scripts/         构建和测试脚本
-.github/         CI 配置
+engine/          C++20 权威规则引擎、客户端安全 API 与测试
+client/          客户端目录；现有 YGOPro2 内容仅为历史参考
+docs/            规则、架构、路线图、协议和交接文档
+scripts/         构建与压力测试脚本
+tools/           legacy overlay/协议契约工具
+upstream/        已停止投入的上游锁定资料，仅供历史参考
+.github/         CI 构建矩阵
 ```
 
-## 为什么先做无界面核心
+## Legacy 路线
 
-直接在图形场景和动画中调规则，会让“规则错误”和“显示错误”混在一起。当前核心先把每一个动作变成可重复的状态转移和事件流：
-
-```text
-玩家命令 → 合法性检查 → 支付成本 → 完整结算 → 响应栈 → 死亡检查 → 事件输出
-```
-
-Godot 客户端只负责展示引擎提供的合法选项、提交命令，再把事件表现出来。这样修改 PP、进化、部署、组件或响应规则时，不必靠人工点击几十局确认有没有破坏旧规则。
-
-## 旧路线遗留
-
-仓库中的 `client/YGOPro2Overlay/`、`upstream/` 和 `tools/apply_ygo2_overlay.py` 属于已经停止投入的 YGOPro2 / Unity 路线遗留。本阶段暂不批量删除，以免误删参考代码；它们不再作为正式客户端方向。
+`client/YGOPro2Overlay/`、`upstream/`、`tools/apply_ygo2_overlay.py` 以及远端 M1 分支属于已停止投入的 YGOPro2/Unity 路线。它们暂时保留用于协议回归和工程考古，不是正式客户端、不会进入 Godot 设计，也不得据此推导当前产品能力。legacy v1 wire 的字节布局仍冻结不变。
 
 ## 许可证
 

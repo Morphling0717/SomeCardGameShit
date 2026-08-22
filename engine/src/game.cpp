@@ -12,22 +12,14 @@ namespace scgs {
 
 namespace {
 
-bool effects_require_enemy_unit(const std::vector<EffectRecord>& effects, const EffectTrigger trigger) {
-    for (const auto& rec : effects) {
-        if (rec.trigger == trigger && rec.target_spec == TargetSpec::EnemyUnit) {
-            return true;
-        }
+std::uint32_t resolve_random_seed(const std::optional<std::uint32_t> configured_seed) {
+    if (configured_seed.has_value()) {
+        return *configured_seed;
     }
-    return false;
-}
-
-bool effects_require_friendly_unit(const std::vector<EffectRecord>& effects, const EffectTrigger trigger) {
-    for (const auto& rec : effects) {
-        if (rec.trigger == trigger && rec.target_spec == TargetSpec::FriendlyUnit) {
-            return true;
-        }
-    }
-    return false;
+    std::random_device entropy;
+    const std::uint32_t first = static_cast<std::uint32_t>(entropy());
+    const std::uint32_t second = static_cast<std::uint32_t>(entropy());
+    return first ^ (second << 1U) ^ 0x5C6A2026U;
 }
 
 // Map CardDefinition boolean flags to KeywordMask at unit creation time so the
@@ -49,23 +41,50 @@ Game::Game(CardCatalog catalog, DeckList player0_deck, DeckList player1_deck, Ga
     : catalog_(std::move(catalog)),
       deck_lists_{std::move(player0_deck), std::move(player1_deck)},
       config_(config),
-      rng_(config.random_seed),
-      active_player_(config.first_player) {}
+      actual_seed_(resolve_random_seed(config.random_seed)),
+      rng_(actual_seed_) {
+    switch (config_.first_player_mode) {
+        case FirstPlayerMode::Player0:
+            first_player_ = PlayerId::Player0;
+            break;
+        case FirstPlayerMode::Player1:
+            first_player_ = PlayerId::Player1;
+            break;
+        case FirstPlayerMode::Random:
+            first_player_ = std::uniform_int_distribution<int>(0, 1)(rng_) == 0
+                ? PlayerId::Player0
+                : PlayerId::Player1;
+            break;
+    }
+    active_player_ = first_player_;
+}
 
 Status Game::start() {
     if (phase_ != Phase::NotStarted) {
         return Status::error(ErrorCode::MatchAlreadyStarted, "match has already started");
     }
     initialize_decks();
+    phase_ = Phase::Mulligan;
+    emit(EventType::MatchStarted, first_player_, 0, config_.leader_health, config_.starting_hand_size);
+    events_.back().random_seed = actual_seed_;
+    event_history_.back().random_seed = actual_seed_;
     for (std::size_t index = 0; index < kPlayerCount; ++index) {
+        if (result_ != GameResult::Ongoing) {
+            break;
+        }
         draw_cards(static_cast<PlayerId>(index), config_.starting_hand_size);
     }
-    phase_ = Phase::Mulligan;
-    emit(EventType::MatchStarted, config_.first_player, 0, config_.leader_health, config_.starting_hand_size);
     return Status::ok();
 }
 
 Status Game::mulligan(const PlayerId player_id, const std::vector<InstanceId>& selected_cards) {
+    if (!is_valid_player(player_id)) {
+        return Status::error(ErrorCode::InvalidPlayer, "player id is outside the supported range");
+    }
+    const Status unfinished = ensure_not_finished();
+    if (!unfinished) {
+        return unfinished;
+    }
     if (phase_ != Phase::Mulligan) {
         return Status::error(ErrorCode::InvalidPhase, "mulligan is only available before the first turn");
     }
@@ -83,6 +102,9 @@ Status Game::mulligan(const PlayerId player_id, const std::vector<InstanceId>& s
             return Status::error(ErrorCode::InvalidCard, "mulligan selection is not in the player's hand");
         }
     }
+    if (state.deck.size() < selected_cards.size()) {
+        return Status::error(ErrorCode::InvalidCard, "not enough cards remain to replace the mulligan selection");
+    }
 
     std::vector<InstanceId> set_aside;
     set_aside.reserve(selected_cards.size());
@@ -92,7 +114,10 @@ Status Game::mulligan(const PlayerId player_id, const std::vector<InstanceId>& s
         set_aside.push_back(id);
     }
 
-    draw_cards(player_id, static_cast<int>(set_aside.size()));
+    // The post-command snapshot supplies the replacement identities. Avoid
+    // per-card events here so an opponent cannot infer the selected count from
+    // either event cardinality or gaps in the global sequence.
+    draw_cards(player_id, static_cast<int>(set_aside.size()), false);
 
     for (const InstanceId id : set_aside) {
         CardInstance& card = instances_.at(id);
@@ -107,8 +132,10 @@ Status Game::mulligan(const PlayerId player_id, const std::vector<InstanceId>& s
     }
 
     state.mulligan_done = true;
+    emit(EventType::MulliganCompleted, player_id, 0, static_cast<int>(selected_cards.size()), 0,
+         "mulligan completed");
     if (players_[0].mulligan_done && players_[1].mulligan_done) {
-        begin_turn(config_.first_player);
+        begin_turn(first_player_);
     }
     return Status::ok();
 }
@@ -123,7 +150,8 @@ Status Game::end_turn(const PlayerId player_id) {
     // v0.4 §23: class charge condition evaluated at the end of the player's own
     // turn (SpellsNoUnitsThisTurn archetype), at most once per turn cycle.
     const DeckList& deck_list = deck_lists_[to_index(player_id)];
-    if (!state.charge_granted_this_cycle &&
+    if (evolution_is_unlocked(player_id) &&
+        !state.charge_granted_this_cycle &&
         deck_list.charge_condition == ChargeCondition::SpellsNoUnitsThisTurn &&
         state.spells_used_this_turn >= deck_list.charge_amount &&
         state.units_played_this_turn == 0) {
@@ -131,13 +159,22 @@ Status Game::end_turn(const PlayerId player_id) {
         state.charge_granted_this_cycle = true;
     }
 
-    emit(EventType::TurnEnded, player_id, 0, state.own_turn_number);
+    // End-of-turn cleanup is observable and happens before TurnEnded.
     clear_end_of_turn_state(player_id);
+    state.current_pp = 0;
+    emit(EventType::PPChanged, player_id, 0, state.current_pp, state.pp_capacity);
+    emit(EventType::TurnEnded, player_id, 0, state.own_turn_number);
+    if (result_ != GameResult::Ongoing) {
+        return Status::ok();
+    }
     begin_turn(opponent(player_id));
     return Status::ok();
 }
 
 Status Game::surrender(const PlayerId player_id) {
+    if (!is_valid_player(player_id)) {
+        return Status::error(ErrorCode::InvalidPlayer, "player id is outside the supported range");
+    }
     const Status allowed = ensure_not_finished();
     if (!allowed) {
         return allowed;
@@ -237,10 +274,16 @@ Status Game::play_unit(
         return Status::error(ErrorCode::UnitZoneFull, "unit zone is full");
     }
 
-    // Validate entry effect targets before committing payment.
-    if (effects_require_enemy_unit(def.effects, EffectTrigger::OnEntry) &&
-        (!ability_target.has_value() || !is_valid_target_for_ability(player_id, *ability_target, true))) {
-        return Status::error(ErrorCode::InvalidTarget, "entry ability requires a legal enemy unit target");
+    // Validate every trigger that will resolve before committing payment.
+    const bool will_advance = use_advance && advance_needed > 0;
+    const Status target_status = validate_effect_targets(
+        def.effects,
+        {EffectTrigger::OnEntry, EffectTrigger::OnPlay,
+         will_advance ? EffectTrigger::OnPlayIfAdvanced : EffectTrigger::OnPlayIfNotAdvanced},
+        player_id,
+        ability_target);
+    if (!target_status) {
+        return target_status;
     }
 
     bool advanced = false;
@@ -317,10 +360,15 @@ Status Game::cast_spell(
         return Status::error(ErrorCode::InsufficientPP, "not enough PP");
     }
 
-    // Validate target for OnPlay effects before payment.
-    if (effects_require_enemy_unit(def.effects, EffectTrigger::OnPlay) &&
-        (!ability_target.has_value() || !is_valid_target_for_ability(player_id, *ability_target, true))) {
-        return Status::error(ErrorCode::InvalidTarget, "spell requires a legal enemy unit target");
+    const bool will_advance = use_advance && advance_needed > 0;
+    const Status target_status = validate_effect_targets(
+        def.effects,
+        {EffectTrigger::OnPlay,
+         will_advance ? EffectTrigger::OnPlayIfAdvanced : EffectTrigger::OnPlayIfNotAdvanced},
+        player_id,
+        ability_target);
+    if (!target_status) {
+        return target_status;
     }
 
     bool advanced = false;
@@ -434,7 +482,12 @@ Status Game::deploy(
 
     std::optional<std::size_t> slot = preferred_slot;
     if (slot.has_value()) {
-        if (*slot >= kUnitZoneSize || state.units[*slot].has_value()) {
+        if (*slot >= kUnitZoneSize) {
+            return Status::error(ErrorCode::InvalidSlot, "requested unit slot is out of range");
+        }
+        const bool occupied_by_donor = spec.archive_one_friendly_unit && component_donor.has_value() &&
+            state.units[*slot].has_value() && *state.units[*slot] == *component_donor;
+        if (state.units[*slot].has_value() && !occupied_by_donor) {
             return Status::error(ErrorCode::InvalidSlot, "requested unit slot is unavailable");
         }
     } else {
@@ -465,9 +518,10 @@ Status Game::deploy(
     } else if (component_donor.has_value()) {
         return Status::error(ErrorCode::InvalidDeployment, "this deployment does not archive a unit");
     }
-    if (effects_require_enemy_unit(def.effects, EffectTrigger::OnEntry) &&
-        (!ability_target.has_value() || !is_valid_target_for_ability(player_id, *ability_target, true))) {
-        return Status::error(ErrorCode::InvalidTarget, "deployment entry ability requires a legal enemy unit target");
+    const Status target_status = validate_effect_targets(
+        def.effects, {EffectTrigger::OnEntry}, player_id, ability_target);
+    if (!target_status) {
+        return target_status;
     }
 
     // Commit: pay PP, archive the donor (its printed component is granted).
@@ -556,7 +610,7 @@ Status Game::evolve(
     }
 
     PlayerState& state = players_[to_index(player_id)];
-    const bool is_first_player = player_id == config_.first_player;
+    const bool is_first_player = player_id == first_player_;
     const int unlock_turn = is_first_player ? 5 : 4;
     if (state.own_turn_number < unlock_turn) {
         return Status::error(ErrorCode::EvolutionLocked, "evolution is not unlocked yet");
@@ -574,9 +628,10 @@ Status Game::evolve(
     if (state.evolution_points < 2) {
         return Status::error(ErrorCode::NoEvolutionPoints, "need at least 2 evolution points");
     }
-    if (effects_require_enemy_unit(def.effects, EffectTrigger::OnEvolution) &&
-        (!ability_target.has_value() || !is_valid_target_for_ability(player_id, *ability_target, true))) {
-        return Status::error(ErrorCode::InvalidTarget, "evolution ability requires a legal enemy unit target");
+    const Status target_status = validate_effect_targets(
+        def.effects, {EffectTrigger::OnEvolution}, player_id, ability_target);
+    if (!target_status) {
+        return target_status;
     }
 
     // v0.4 §22: change to the evolution state. Cards without printed evolved
@@ -620,9 +675,10 @@ Status Game::use_leader_skill(const PlayerId player_id, const std::optional<Targ
     if (state.current_pp < state.leader_skill.cost) {
         return Status::error(ErrorCode::InsufficientPP, "not enough PP for the leader skill");
     }
-    if (effects_require_friendly_unit(state.leader_skill.effects, EffectTrigger::OnPlay) &&
-        (!target.has_value() || target->kind != Target::Kind::Unit || !is_controlled_unit(player_id, target->unit))) {
-        return Status::error(ErrorCode::InvalidTarget, "leader skill requires a friendly unit target");
+    const Status target_status = validate_effect_targets(
+        state.leader_skill.effects, {EffectTrigger::OnPlay}, player_id, target);
+    if (!target_status) {
+        return target_status;
     }
 
     state.current_pp -= state.leader_skill.cost;
@@ -662,11 +718,13 @@ Status Game::activate_trap(
     const PlayerId player_id,
     const InstanceId trap_id,
     const std::optional<Target> target) {
-    (void)target;
+    if (!is_valid_player(player_id)) {
+        return Status::error(ErrorCode::InvalidPlayer, "player id is outside the supported range");
+    }
     if (phase_ != Phase::Reaction || response_stack_.empty()) {
         return Status::error(ErrorCode::NoPendingReaction, "there is no trap window");
     }
-    ResponseLayer& top = response_stack_.back();
+    const ResponseLayer& top = response_stack_.back();
     if (top.responder != player_id) {
         return Status::error(ErrorCode::InvalidPlayer, "the other player owns this response layer");
     }
@@ -677,23 +735,48 @@ Status Game::activate_trap(
         return Status::error(ErrorCode::InvalidZone, "trap is no longer set in the tactic zone");
     }
 
-    top.activated_trap = trap_id;
+    EffectTrigger trap_trigger = EffectTrigger::OnAttackDeclared;
+    switch (top.window) {
+        case ReactionWindow::SpellDeclared:
+            trap_trigger = EffectTrigger::OnSpellDeclared;
+            break;
+        case ReactionWindow::EntryEffectPending:
+            trap_trigger = EffectTrigger::OnEntryEffectPending;
+            break;
+        case ReactionWindow::AttackDeclared:
+            trap_trigger = EffectTrigger::OnAttackDeclared;
+            break;
+        case ReactionWindow::None:
+            return Status::error(ErrorCode::TrapNotEligible, "trap window has no matching trigger");
+    }
+    const Status target_status = validate_effect_targets(
+        definition(trap_id).effects, {trap_trigger}, player_id, target);
+    if (!target_status) {
+        return target_status;
+    }
 
-    if (response_stack_.size() == 1U) {
+    // Copy all base-layer data before push_back can reallocate the vector.
+    const std::size_t depth = response_stack_.size();
+    const ReactionWindow window = top.window;
+    const InstanceId subject = top.subject;
+    const PlayerId original_actor = response_stack_.front().suspended.player;
+    response_stack_.back().activated_trap = trap_id;
+    response_stack_.back().activated_target = target;
+
+    if (depth == 1U) {
         // v0.4 §26: the original actor gets one counter-response.
-        const SuspendedAction& base = top.suspended;
-        const std::vector<InstanceId> counter_eligible = matching_traps(base.player, top.window);
+        const std::vector<InstanceId> counter_eligible = matching_traps(original_actor, window);
         if (counter_eligible.empty()) {
             resolve_response_chain();
             return Status::ok();
         }
         ResponseLayer counter;
-        counter.window = top.window;
-        counter.responder = base.player;
-        counter.subject = top.subject;
+        counter.window = window;
+        counter.responder = original_actor;
+        counter.subject = subject;
         counter.eligible_traps = counter_eligible;
         response_stack_.push_back(std::move(counter));
-        emit(EventType::TrapWindowOpened, base.player, top.subject, static_cast<int>(top.window),
+        emit(EventType::TrapWindowOpened, original_actor, subject, static_cast<int>(window),
              static_cast<int>(counter_eligible.size()));
         return Status::ok();
     }
@@ -704,21 +787,26 @@ Status Game::activate_trap(
 }
 
 Status Game::pass_reaction(const PlayerId player_id) {
+    if (!is_valid_player(player_id)) {
+        return Status::error(ErrorCode::InvalidPlayer, "player id is outside the supported range");
+    }
     if (phase_ != Phase::Reaction || response_stack_.empty()) {
         return Status::error(ErrorCode::NoPendingReaction, "there is no reaction to pass");
     }
-    ResponseLayer& top = response_stack_.back();
+    const ResponseLayer& top = response_stack_.back();
     if (top.responder != player_id) {
         return Status::error(ErrorCode::InvalidPlayer, "the other player owns this response layer");
     }
-    if (top.activated_trap.has_value()) {
-        // A trap was already declared on this layer; passing closes the chain.
+    if (response_stack_.size() > 1U) {
+        // Passing the counter layer leaves the declared base response intact.
+        response_stack_.pop_back();
         resolve_response_chain();
         return Status::ok();
     }
     // Base layer passed without a trap: the original action resolves.
-    resolve_suspended_action(top.suspended);
+    const SuspendedAction suspended = top.suspended;
     response_stack_.clear();
+    resolve_suspended_action(suspended);
     if (result_ == GameResult::Ongoing) {
         phase_ = Phase::Action;
     }
@@ -726,6 +814,10 @@ Status Game::pass_reaction(const PlayerId player_id) {
 }
 
 void Game::resolve_response_chain() {
+    if (response_stack_.empty()) {
+        return;
+    }
+    const SuspendedAction original = response_stack_.front().suspended;
     bool attack_cancelled = false;
     while (!response_stack_.empty() && result_ == GameResult::Ongoing) {
         ResponseLayer layer = response_stack_.back();
@@ -738,38 +830,56 @@ void Game::resolve_response_chain() {
             put_in_graveyard(layer.responder, trap_id);
             emit(EventType::TrapActivated, layer.responder, trap_id, static_cast<int>(layer.window));
             for (const auto& rec : trap_def.effects) {
+                if (result_ != GameResult::Ongoing) {
+                    break;
+                }
                 const bool window_match =
+                    (rec.trigger == EffectTrigger::OnSpellDeclared && layer.window == ReactionWindow::SpellDeclared) ||
                     (rec.trigger == EffectTrigger::OnAttackDeclared && layer.window == ReactionWindow::AttackDeclared) ||
                     (rec.trigger == EffectTrigger::OnEntryEffectPending && layer.window == ReactionWindow::EntryEffectPending);
                 if (!window_match) {
                     continue;
                 }
                 if (rec.kind == EffectKind::CancelAttack) {
-                    attack_cancelled = true;
-                    emit(EventType::AttackCancelled, layer.suspended.player, layer.suspended.card);
+                    if (original.kind == SuspendedAction::Kind::Attack && !attack_cancelled) {
+                        attack_cancelled = true;
+                        emit(EventType::AttackCancelled, original.player, original.card);
+                    }
                     continue;
                 }
                 if (rec.kind == EffectKind::DamageEnteredUnit) {
-                    if (layer.subject != 0 && instances_.contains(layer.subject) &&
-                        instances_.at(layer.subject).zone == Zone::Unit) {
-                        damage_unit(layer.subject, rec.amount);
+                    InstanceId affected = 0;
+                    if (original.kind == SuspendedAction::Kind::EntryEffect) {
+                        affected = original.card;
+                    } else if (original.kind == SuspendedAction::Kind::Spell && original.target.has_value() &&
+                               original.target->kind == Target::Kind::Unit) {
+                        affected = original.target->unit;
+                    }
+                    if (affected != 0 && instances_.contains(affected) &&
+                        instances_.at(affected).zone == Zone::Unit) {
+                        damage_unit(affected, rec.amount);
                         resolve_deaths();
                         evaluate_result();
                     }
                     continue;
                 }
+                const Status status = resolve_effects(
+                    {rec}, rec.trigger, layer.responder, trap_id, layer.activated_target);
+                if (!status) {
+                    // Targets were validated at declaration. If one became stale
+                    // while the chain resolved, only that dependent effect skips.
+                    continue;
+                }
+                resolve_deaths();
+                evaluate_result();
             }
-        }
-
-        if (layer.suspended.kind != SuspendedAction::Kind::None) {
-            if (layer.suspended.kind == SuspendedAction::Kind::Attack && attack_cancelled) {
-                // v0.4 §21: the attacker is still considered to have attacked.
-                continue;
-            }
-            resolve_suspended_action(layer.suspended);
         }
     }
     response_stack_.clear();
+    if (result_ == GameResult::Ongoing &&
+        !(original.kind == SuspendedAction::Kind::Attack && attack_cancelled)) {
+        resolve_suspended_action(original);
+    }
     if (result_ == GameResult::Ongoing) {
         phase_ = Phase::Action;
     }
@@ -781,29 +891,20 @@ void Game::resolve_suspended_action(const SuspendedAction& suspended) {
             return;
         case SuspendedAction::Kind::Spell: {
             const CardDefinition& def = definition(suspended.card);
-            const Status conditional = resolve_effects(
+            (void)resolve_effects(
                 def.effects,
                 suspended.advanced ? EffectTrigger::OnPlayIfAdvanced : EffectTrigger::OnPlayIfNotAdvanced,
                 suspended.player, suspended.card, suspended.target, suspended.advanced);
-            if (!conditional) {
-                throw std::logic_error("spell conditional effect failed: " + conditional.message);
-            }
-            const Status always = resolve_effects(
+            (void)resolve_effects(
                 def.effects, EffectTrigger::OnPlay, suspended.player, suspended.card, suspended.target, suspended.advanced);
-            if (!always) {
-                throw std::logic_error("spell effect failed: " + always.message);
-            }
             resolve_deaths();
             evaluate_result();
             return;
         }
         case SuspendedAction::Kind::EntryEffect: {
             const CardDefinition& def = definition(suspended.card);
-            const Status entry = resolve_effects(
+            (void)resolve_effects(
                 def.effects, EffectTrigger::OnEntry, suspended.player, suspended.card, suspended.target, suspended.advanced);
-            if (!entry) {
-                throw std::logic_error("entry effect failed: " + entry.message);
-            }
             resolve_deaths();
             evaluate_result();
             return;
@@ -849,6 +950,9 @@ bool Game::trap_matches_window(
     const CardDefinition& trap,
     const ReactionWindow window) const {
     for (const auto& rec : trap.effects) {
+        if (window == ReactionWindow::SpellDeclared && rec.trigger == EffectTrigger::OnSpellDeclared) {
+            return true;
+        }
         if (window == ReactionWindow::AttackDeclared && rec.trigger == EffectTrigger::OnAttackDeclared) {
             return true;
         }
@@ -870,12 +974,18 @@ Status Game::load_scenario(const Scenario& scenario) {
     if (phase_ != Phase::NotStarted) {
         return Status::error(ErrorCode::MatchAlreadyStarted, "scenario must be loaded before starting a match");
     }
+    if (!is_valid_player(scenario.active_player)) {
+        return Status::error(ErrorCode::InvalidPlayer, "scenario active player is outside the supported range");
+    }
     players_ = {};
     instances_.clear();
     next_instance_id_ = 1;
     result_ = GameResult::Ongoing;
     response_stack_.clear();
     events_.clear();
+    revision_ = 0;
+    next_event_sequence_ = 1;
+    event_history_.clear();
 
     for (std::size_t player_index = 0; player_index < kPlayerCount; ++player_index) {
         const PlayerId player_id = static_cast<PlayerId>(player_index);
@@ -958,6 +1068,14 @@ const CardCatalog& Game::catalog() const noexcept {
 
 PlayerId Game::active_player() const noexcept {
     return active_player_;
+}
+
+PlayerId Game::first_player() const noexcept {
+    return first_player_;
+}
+
+std::uint32_t Game::random_seed() const noexcept {
+    return actual_seed_;
 }
 
 Phase Game::phase() const noexcept {
@@ -1221,11 +1339,14 @@ std::optional<InstanceId> Game::find_in_standby(const PlayerId player_id, const 
 }
 
 Status Game::ensure_action_player(const PlayerId player_id) const {
+    if (!is_valid_player(player_id)) {
+        return Status::error(ErrorCode::InvalidPlayer, "player id is outside the supported range");
+    }
+    if (result_ != GameResult::Ongoing || phase_ == Phase::Finished) {
+        return Status::error(ErrorCode::GameOver, "the match has already finished");
+    }
     if (phase_ == Phase::NotStarted || phase_ == Phase::Mulligan) {
         return Status::error(ErrorCode::InvalidPhase, "the match has not reached the action phase");
-    }
-    if (phase_ == Phase::Finished) {
-        return Status::error(ErrorCode::GameOver, "the match has already finished");
     }
     if (phase_ == Phase::Reaction) {
         return Status::error(ErrorCode::InvalidPhase, "a response window is open");
@@ -1237,8 +1358,39 @@ Status Game::ensure_action_player(const PlayerId player_id) const {
 }
 
 Status Game::ensure_not_finished() const {
-    if (phase_ == Phase::Finished) {
+    if (result_ != GameResult::Ongoing || phase_ == Phase::Finished) {
         return Status::error(ErrorCode::GameOver, "the match has already finished");
+    }
+    return Status::ok();
+}
+
+bool Game::evolution_is_unlocked(const PlayerId player_id) const {
+    if (!is_valid_player(player_id)) {
+        return false;
+    }
+    const bool is_first = player_id == first_player_;
+    return players_[to_index(player_id)].own_turn_number >= (is_first ? 5 : 4);
+}
+
+Status Game::validate_effect_targets(
+    const std::vector<EffectRecord>& effects,
+    const std::vector<EffectTrigger>& triggers,
+    const PlayerId actor,
+    const std::optional<Target> target) const {
+    for (const EffectRecord& effect : effects) {
+        if (std::find(triggers.begin(), triggers.end(), effect.trigger) == triggers.end()) {
+            continue;
+        }
+        if (effect.target_spec == TargetSpec::EnemyUnit) {
+            if (!target.has_value() || !is_valid_target_for_ability(actor, *target, true)) {
+                return Status::error(ErrorCode::InvalidTarget, "effect requires a legal enemy unit target");
+            }
+        } else if (effect.target_spec == TargetSpec::FriendlyUnit) {
+            if (!target.has_value() || target->kind != Target::Kind::Unit || target->player != actor ||
+                !is_controlled_unit(actor, target->unit)) {
+                return Status::error(ErrorCode::InvalidTarget, "effect requires a legal friendly unit target");
+            }
+        }
     }
     return Status::ok();
 }
@@ -1277,7 +1429,10 @@ void Game::initialize_decks() {
     result_ = GameResult::Ongoing;
     response_stack_.clear();
     events_.clear();
-    active_player_ = config_.first_player;
+    revision_ = 0;
+    next_event_sequence_ = 1;
+    event_history_.clear();
+    active_player_ = first_player_;
 
     for (std::size_t player_index = 0; player_index < kPlayerCount; ++player_index) {
         const PlayerId player_id = static_cast<PlayerId>(player_index);
@@ -1301,6 +1456,9 @@ void Game::initialize_decks() {
 }
 
 void Game::begin_turn(const PlayerId player_id) {
+    if (result_ != GameResult::Ongoing) {
+        return;
+    }
     active_player_ = player_id;
     phase_ = Phase::Action;
     PlayerState& state = players_[to_index(player_id)];
@@ -1325,18 +1483,24 @@ void Game::begin_turn(const PlayerId player_id) {
     emit(EventType::PPChanged, player_id, 0, state.current_pp, state.pp_capacity);
 
     // v0.4 §22 evolution unlock: first player on turn 5, second on turn 4.
-    const bool is_first = player_id == config_.first_player;
+    const bool is_first = player_id == first_player_;
     const int unlock_turn = is_first ? 5 : 4;
     if (state.own_turn_number == unlock_turn) {
         state.evolution_points = is_first ? 2 : 3;
         emit(EventType::EvolutionEnergyChanged, player_id, 0, state.evolution_points);
     }
 
-    const bool skip_draw = player_id == config_.first_player && state.own_turn_number == 1;
+    const bool skip_draw = player_id == first_player_ && state.own_turn_number == 1;
     if (!skip_draw) {
         draw_one(player_id);
     }
+    if (result_ != GameResult::Ongoing) {
+        return;
+    }
     process_relic_countdowns(player_id);
+    if (result_ != GameResult::Ongoing) {
+        return;
+    }
     emit(EventType::TurnStarted, player_id, 0, state.own_turn_number);
     evaluate_result();
 }
@@ -1361,6 +1525,9 @@ void Game::process_relic_countdowns(const PlayerId player_id) {
         }
     }
     for (const InstanceId id : relics) {
+        if (result_ != GameResult::Ongoing) {
+            return;
+        }
         CardInstance& relic = instances_.at(id);
         if (relic.zone != Zone::Tactic || relic.countdown <= 0) {
             continue;
@@ -1390,13 +1557,16 @@ void Game::clear_end_of_turn_state(const PlayerId player_id) {
     }
 }
 
-void Game::draw_cards(const PlayerId player_id, const int count) {
+void Game::draw_cards(const PlayerId player_id, const int count, const bool emit_draw_event) {
     for (int i = 0; i < count && result_ == GameResult::Ongoing; ++i) {
-        draw_one(player_id);
+        draw_one(player_id, emit_draw_event);
     }
 }
 
-void Game::draw_one(const PlayerId player_id) {
+void Game::draw_one(const PlayerId player_id, const bool emit_draw_event) {
+    if (result_ != GameResult::Ongoing) {
+        return;
+    }
     PlayerState& state = players_[to_index(player_id)];
     if (state.deck.empty()) {
         ++state.fatigue_count;
@@ -1406,13 +1576,13 @@ void Game::draw_one(const PlayerId player_id) {
     }
     const InstanceId card = state.deck.front();
     put_in_hand(player_id, card);
-    if (instances_.at(card).zone == Zone::Hand) {
+    if (instances_.at(card).zone == Zone::Hand && emit_draw_event) {
         emit(EventType::CardDrawn, player_id, card, static_cast<int>(state.hand.size()));
     }
 }
 
 void Game::damage_leader(const PlayerId player_id, const int amount) {
-    if (amount <= 0) {
+    if (amount <= 0 || result_ != GameResult::Ongoing) {
         return;
     }
     PlayerState& state = players_[to_index(player_id)];
@@ -1422,7 +1592,7 @@ void Game::damage_leader(const PlayerId player_id, const int amount) {
 }
 
 void Game::heal_leader(const PlayerId player_id, const int amount) {
-    if (amount <= 0) {
+    if (amount <= 0 || result_ != GameResult::Ongoing) {
         return;
     }
     PlayerState& state = players_[to_index(player_id)];
@@ -1432,7 +1602,7 @@ void Game::heal_leader(const PlayerId player_id, const int amount) {
 }
 
 void Game::repair_cracks(const PlayerId player_id, const int amount) {
-    if (amount <= 0) {
+    if (amount <= 0 || result_ != GameResult::Ongoing) {
         return;
     }
     PlayerState& state = players_[to_index(player_id)];
@@ -1448,7 +1618,7 @@ void Game::repair_cracks(const PlayerId player_id, const int amount) {
 }
 
 void Game::gain_pp_capacity(const PlayerId player_id, const int amount) {
-    if (amount <= 0) {
+    if (amount <= 0 || result_ != GameResult::Ongoing) {
         return;
     }
     // v0.4 §16: growth raises capacity directly; no cracks involved.
@@ -1458,7 +1628,7 @@ void Game::gain_pp_capacity(const PlayerId player_id, const int amount) {
 }
 
 void Game::grant_evolution_energy(const PlayerId player_id, const int amount) {
-    if (amount <= 0) {
+    if (amount <= 0 || result_ != GameResult::Ongoing || !evolution_is_unlocked(player_id)) {
         return;
     }
     PlayerState& state = players_[to_index(player_id)];
@@ -1471,7 +1641,7 @@ void Game::grant_evolution_energy(const PlayerId player_id, const int amount) {
 }
 
 int Game::damage_unit(const InstanceId unit_id, const int amount) {
-    if (amount <= 0 || !instances_.contains(unit_id)) {
+    if (amount <= 0 || result_ != GameResult::Ongoing || !instances_.contains(unit_id)) {
         return 0;
     }
     CardInstance& unit = instances_.at(unit_id);
@@ -1490,6 +1660,9 @@ int Game::damage_unit(const InstanceId unit_id, const int amount) {
 }
 
 void Game::resolve_deaths() {
+    if (result_ != GameResult::Ongoing) {
+        return;
+    }
     struct DeathTrigger {
         PlayerId controller = PlayerId::Player0;
         InstanceId unit = 0;
@@ -1543,6 +1716,9 @@ void Game::resolve_deaths() {
 
         // All units have left the field before any last-words effect resolves.
         for (const DeathTrigger& trigger : triggers) {
+            if (result_ != GameResult::Ongoing) {
+                return;
+            }
             const Status status = resolve_effects(
                 trigger.last_words_effects,
                 EffectTrigger::OnLastWords,
@@ -1558,7 +1734,8 @@ void Game::resolve_deaths() {
         for (std::size_t index = 0; index < kPlayerCount; ++index) {
             PlayerState& state = players_[index];
             const DeckList& deck_list = deck_lists_[index];
-            if (!state.charge_granted_this_cycle &&
+            if (evolution_is_unlocked(static_cast<PlayerId>(index)) &&
+                !state.charge_granted_this_cycle &&
                 deck_list.charge_condition == ChargeCondition::FriendlyDeathsPerCycle &&
                 state.friendly_deaths_this_cycle >= deck_list.charge_amount) {
                 grant_evolution_energy(static_cast<PlayerId>(index), 1);
@@ -1576,6 +1753,9 @@ Status Game::resolve_effects(
     const std::optional<Target> target,
     const bool advanced) {
     for (const EffectRecord& rec : effects) {
+        if (result_ != GameResult::Ongoing) {
+            break;
+        }
         if (rec.trigger != trigger) {
             continue;
         }
@@ -1594,7 +1774,9 @@ Status Game::resolve_effects(
 
             case EffectKind::DealDamageToEnemyUnit: {
                 if (!target.has_value() || !is_valid_target_for_ability(actor, *target, true)) {
-                    return Status::error(ErrorCode::InvalidTarget, "damage effect requires an enemy unit");
+                    // A legal declaration target may leave while responses resolve.
+                    // Skip only the dependent effect; later independent effects continue.
+                    continue;
                 }
                 int dmg = rec.amount;
                 if (dmg < 0) {
@@ -1633,7 +1815,7 @@ Status Game::resolve_effects(
             case EffectKind::BuffFriendlyUnit: {
                 if (!target.has_value() || target->kind != Target::Kind::Unit ||
                     !is_controlled_unit(actor, target->unit)) {
-                    return Status::error(ErrorCode::InvalidTarget, "buff requires a friendly unit");
+                    continue;
                 }
                 CardInstance& unit = instances_.at(target->unit);
                 unit.current_attack += rec.amount;
@@ -1706,8 +1888,14 @@ Status Game::validate_attack(
     if (attacker.attacked_this_turn) {
         return Status::error(ErrorCode::AlreadyAttacked, "unit has already attacked this turn");
     }
+    if (target.kind != Target::Kind::Leader && target.kind != Target::Kind::Unit) {
+        return Status::error(ErrorCode::InvalidTarget, "attack target kind is outside the supported range");
+    }
     if (target.player != opponent(player_id)) {
         return Status::error(ErrorCode::InvalidTarget, "attack target must belong to the opponent");
+    }
+    if (target.kind == Target::Kind::Leader && target.unit != 0) {
+        return Status::error(ErrorCode::InvalidTarget, "leader targets cannot carry a unit instance");
     }
     if (target.kind == Target::Kind::Unit) {
         if (!is_enemy_unit(player_id, target.unit)) {
@@ -1945,7 +2133,8 @@ bool Game::is_valid_target_for_ability(
     const Target& target,
     const bool require_enemy_unit) const {
     if (require_enemy_unit) {
-        if (target.kind != Target::Kind::Unit) {
+        if (target.kind != Target::Kind::Unit || !is_valid_player(target.player) ||
+            target.player != opponent(actor)) {
             return false;
         }
         if (!is_enemy_unit(actor, target.unit)) {
@@ -1978,21 +2167,25 @@ bool Game::deployment_condition_met(const PlayerId player_id, const DeploymentSp
 }
 
 void Game::evaluate_result() {
+    if (result_ != GameResult::Ongoing) {
+        return;
+    }
     const bool p0_dead = players_[0].leader_health <= 0;
     const bool p1_dead = players_[1].leader_health <= 0;
     if (p0_dead && p1_dead) {
         result_ = GameResult::Draw;
         phase_ = Phase::Finished;
-        emit(EventType::MatchEnded, active_player_, 0, static_cast<int>(result_));
     } else if (p0_dead) {
         result_ = GameResult::Player1Won;
         phase_ = Phase::Finished;
-        emit(EventType::MatchEnded, active_player_, 0, static_cast<int>(result_));
     } else if (p1_dead) {
         result_ = GameResult::Player0Won;
         phase_ = Phase::Finished;
-        emit(EventType::MatchEnded, active_player_, 0, static_cast<int>(result_));
+    } else {
+        return;
     }
+    response_stack_.clear();
+    emit(EventType::MatchEnded, active_player_, 0, static_cast<int>(result_));
 }
 
 void Game::emit(
@@ -2002,7 +2195,16 @@ void Game::emit(
     const int value,
     const int secondary_value,
     std::string text) {
-    events_.push_back(GameEvent{type, player, card, value, secondary_value, std::move(text)});
+    GameEvent event;
+    event.type = type;
+    event.player = player;
+    event.card = card;
+    event.value = value;
+    event.secondary_value = secondary_value;
+    event.text = std::move(text);
+    event.sequence = next_event_sequence_++;
+    events_.push_back(event);
+    event_history_.push_back(std::move(event));
 }
 
 } // namespace scgs

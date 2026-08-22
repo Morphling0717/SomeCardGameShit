@@ -1,4 +1,6 @@
-# YGOPro / YGOPro2 接入方案
+# ⚠️ 历史归档：YGOPro / YGOPro2 接入方案
+
+> **已停止投入，不是现行客户端方案。** 本文仅保留旧 overlay、上游锁定和协议研究背景。正式客户端路线是 Godot 4.7.2 .NET；不要继续执行本文的 Unity 接入步骤。legacy v1 wire 仍因兼容回归而冻结，当前投影语义以 [`protocol.md`](protocol.md) 为准。
 
 ## 上游基线
 

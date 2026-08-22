@@ -1,5 +1,7 @@
 # YGOPro2 overlay
 
+> **历史归档 / Legacy only：** YGOPro2/Unity 路线已停止投入。本目录仅保留给 legacy v1 wire 回归与工程考古，不是现行 Godot 客户端的安装或开发入口；以下步骤是历史复现说明。
+
 这个目录保存准备复制到 YGOPro2 `Assets/SomeCardGame/` 的兼容层代码。
 
 当前包含：

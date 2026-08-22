@@ -1,15 +1,21 @@
 # SomeCardGameShit 下一阶段开发计划
 
 **计划代号：** M1-G / Godot Hotseat Alpha  
-**代码基线：** `main@e55a49918715e839d3929387fdea18c9bb280c3b`  
+**代码基线：** `main@cfdf695d70eeabcc6de9b094c94041364fb1335f`
+**Gate 0+1 实现分支：** `codex/godot-hotseat-gate1`
 **规则基线：** `docs/rules-v0.4.md`  
-**目标客户端：** Godot 4 .NET  
+**目标客户端：** Godot 4.7.2 .NET（本轮不创建工程）
+**.NET SDK：** 10.0.400
 **目标平台：** macOS Apple Silicon、Windows x86-64  
 **本阶段目标：** 从完整无界面引擎推进到人类可以完整打一局的单机热座版本
 
+> 当前交付仅实施 Gate 0+1，不实现 C ABI 或 Godot UI；不支持 Web，不修改 legacy v1 wire 字节，不推送、合并或打标签。后续 Gate 必须另行开始。
+
 ---
 
-## 一、项目当前状态
+## 一、开工基线与当前交付
+
+> 本节的“已经完成/尚未完成”首先记录 `main@cfdf695` 的开工审计，便于解释 Gate 1 的来源。`codex/godot-hotseat-gate1` 已关闭其中的规则边界、客户端安全视图、查询、统一命令与脱敏事件缺口；C ABI 与 Godot 客户端仍属于后续 Gate。
 
 ### 1. 已经完成的部分
 
@@ -51,19 +57,18 @@ C++20 v0.4 规则引擎
 - 数据驱动卡牌效果；
 - 两副固定测试牌组。
 
-现有自动化基线包括：
+现有自动化基线包括（准确用例与断言数量以本分支最终 `TEST_REPORT.md` 为准）：
 
-- 22 个 C++ 测试用例；
-- 391 次基础断言；
+- C++ 规则、客户端契约与 wire 测试；
 - 32 个种子、双方轮流先手的确定性烟雾对局；
 - 每一步行动后的状态不变量检查；
 - Debug、Release、ASan 和 UBSan；
 - legacy v1 wire 金标字节测试；
 - 预支、燃耗、当前 PP 超过容量和修复的金标场景。
 
-### 2. 尚未完成的部分
+### 2. `main@cfdf695` 尚未完成的部分
 
-当前没有：
+开工基线当时没有：
 
 - Godot 工程；
 - Godot 场景；
@@ -75,7 +80,7 @@ C++20 v0.4 规则引擎
 - macOS 或 Windows 可玩构建；
 - 真人完整对局验收。
 
-准确状态是：
+开工基线的准确状态是：
 
 ```text
 规则引擎：基本完成
@@ -85,15 +90,17 @@ Godot 客户端：不存在
 人类可玩版本：不存在
 ```
 
+Gate 0+1 交付后，客户端接入接口已完成，并由只使用“快照 → 查询 → 命令 → 事件”的无界面代理整局测试约束；Godot 工程、C ABI、可玩 UI 和桌面导出仍不存在。
+
 ---
 
-## 二、在做 UI 前必须先处理的问题
+## 二、UI 前置审计（Gate 1 已关闭的基线问题）
 
-正式开发 Godot 客户端之前，必须插入一个“引擎客户端化加固”阶段。否则 C# 会被迫复制规则逻辑，最后形成第二套规则引擎。
+以下条目是对 `main@cfdf695` 的问题记录。Gate 1 已完成这些前置加固并加入回归测试；保留原问题描述是为了让后续开发者理解接口约束，而不是表示缺陷仍然存在。
 
 ### P0-1：结束回合没有明确清空未使用的当前 PP
 
-规则文档要求结束阶段将未使用的当前 PP 清零。当前 `end_turn()` 调用的 `clear_end_of_turn_state()` 主要清除临时突进，没有明确将离开回合玩家的 `current_pp` 设为 0。
+规则文档要求结束阶段将未使用的当前 PP 清零。基线 `end_turn()` 调用的 `clear_end_of_turn_state()` 主要清除临时突进，当时没有明确将离开回合玩家的 `current_pp` 设为 0。
 
 这会让 UI 在对手回合仍显示上一名玩家残余 PP，造成错误信息。
 
@@ -111,7 +118,7 @@ Godot 客户端：不存在
 
 ### P0-2：反制层选择“不过”可能丢失底层响应
 
-当前响应过程为：
+基线响应过程为：
 
 ```text
 原行动
@@ -132,11 +139,11 @@ Godot 客户端：不存在
 2. 对方发动伏策，原行动者有反制牌但选择不过；
 3. 对方发动伏策，原行动者发动反制，严格按 LIFO 结算。
 
-客户端开发必须等这三条全部通过。
+这三条现已由 Gate 1 回归覆盖；后续客户端不得绕过该结算路径。
 
 ### P0-3：客户端没有足够的合法行动查询能力
 
-当前公开 API 能执行动作，但纯查询能力不足。客户端不能自行判断：
+基线公开 API 能执行动作，但纯查询能力不足，客户端当时无法安全判断：
 
 - 哪些手牌可以使用；
 - 哪张牌需要预支；
@@ -148,30 +155,29 @@ Godot 客户端：不存在
 - 当前由谁响应；
 - 哪些响应选项合法。
 
-引擎必须增加：
+Gate 1 因此增加并统一为：
 
 ```text
 list_legal_actions()
-list_playable_cards()
-list_valid_slots()
 list_valid_targets()
-list_evolvable_units()
-list_deployable_cards()
-list_valid_component_donors()
-get_payment_preview()
+list_valid_slots()
+list_valid_donors()
+preview_payment()
 get_reaction_context()
+submit_command()
+read_events()
 ```
 
 所有高亮、按钮和选择范围都必须来自引擎。
 
 ### P0-4：客户端需要按观看者过滤的状态快照
 
-桥接层不能直接把完整 `PlayerState` 暴露给客户端。热座模式也应从数据层避免误泄露。
+桥接层不能直接把完整 `PlayerState` 暴露给客户端。Gate 1 已从数据层落实观看者隔离，热座模式仍必须遵守这一边界。
 
-新增：
+现已新增：
 
 ```text
-get_match_snapshot(viewer)
+make_view(viewer)
 ```
 
 规则：
@@ -186,9 +192,9 @@ get_match_snapshot(viewer)
 
 ### P1-1：法术响应窗口缺少可配置触发
 
-当前存在 `SpellDeclared` 响应窗口，但卡牌触发枚举没有完整对应的 `OnSpellDeclared`。
+基线存在 `SpellDeclared` 响应窗口，但卡牌触发枚举没有完整对应的 `OnSpellDeclared`；Gate 1 已补齐。
 
-本阶段增加：
+Gate 1 已增加：
 
 ```cpp
 EffectTrigger::OnSpellDeclared
@@ -198,7 +204,7 @@ EffectTrigger::OnSpellDeclared
 
 ### P1-2：卡牌数据缺少表现字段
 
-规则数据不应承担 UI 文本和素材定位。新增独立表现数据：
+规则数据不应承担 UI 文本和素材定位。该表现层工作按本轮边界延后到后续 Godot Gate，届时新增独立表现数据：
 
 ```text
 CardPresentation
@@ -347,10 +353,10 @@ C++ Game
 
 ### 工作内容
 
-建立开发分支：
+本轮开发分支：
 
 ```text
-feature/godot-hotseat
+codex/godot-hotseat-gate1
 ```
 
 更新：
@@ -361,7 +367,7 @@ feature/godot-hotseat
 - `docs/testing.md`
 - `TEST_REPORT.md`
 
-新增：
+本轮不创建下列后续 C ABI/UI 专项文档；它们分别随 Gate 2/3 在接口和界面真实落地时编写，避免提前固化尚未实现的契约：
 
 ```text
 docs/godot-client-architecture.md
@@ -369,6 +375,8 @@ docs/native-api-v0.4.md
 docs/ui-state-map.md
 docs/hotseat-acceptance.md
 ```
+
+Gate 0+1 的已实现架构和验收边界暂统一记录在现有 `docs/architecture.md`、`docs/testing.md`、路线图与现行交接中。
 
 清理明确的一次性遗留：
 
@@ -385,7 +393,7 @@ docs/hotseat-acceptance.md
 
 ### 工具版本
 
-锁定一个确定的 Godot 4 .NET 稳定版和对应 .NET SDK；版本升级必须作为独立任务，不与功能开发混在一起。
+锁定 Godot 4.7.2 .NET 和 .NET SDK 10.0.400；版本升级必须作为独立任务，不与功能开发混在一起。CMake 最低版本统一为 3.25；legacy Python 测试开启时要求 Python 3.10+。
 
 正式目标仅为：
 
@@ -406,41 +414,25 @@ docs/hotseat-acceptance.md
 
 ## Gate 1：引擎客户端化加固
 
-### ENG-001：结束回合 PP 清零
+### ENG-001～003：规则与状态机
 
-增加回归测试并修复实现。
+- 结束回合按“结束效果 → 清临时状态 → 当前 PP 清零并发事件 → `TurnEnded` → 对方回合”执行。
+- 响应实现不持有跨 `vector::push_back` 的元素引用；反制层过牌继续结算底层响应和原行动；真正按反制 → 响应 → 原行动 LIFO 结算。
+- 增加 `OnSpellDeclared` 触发与测试伏策。
+- 命令支付前完整验证目标；响应中目标失效只跳过依赖目标的效果，其他效果继续，不抛异常、不回滚成本。
+- 终局幂等，每局一个 `MatchEnded`；终局后不抽牌、不处理设施倒计时或其他状态变化。
+- 部署允许目标位置正是将被封存的组件单位位置。
+- 所有公开命令先验证 `PlayerId`，非法枚举返回 `InvalidPlayer`。
+- 进化解锁前职业条件不充能；解锁时先手固定获得 2、后手固定获得 3；解锁后才能充能，封顶 4。
+- `FirstPlayerMode::{Random, Player0, Player1}`：产品默认随机，测试可强制并提供 seed；快照与开局事件记录实际 seed 和先手。本轮不承诺 `std::shuffle` 跨标准库完全一致。
 
-### ENG-002：响应反制过牌
+### ENG-004～008：客户端安全 API
 
-增加响应栈回归测试，修复反制层选择不过时丢失底层行动的问题。
-
-### ENG-003：法术响应触发
-
-加入 `OnSpellDeclared` 和一张测试伏策。
-
-### ENG-004：观看者快照
-
-增加：
-
-```cpp
-PublicCardView
-HiddenCardView
-PlayerView
-MatchView
-```
-
-接口：
-
-```cpp
-MatchView make_view(PlayerId viewer) const;
-```
-
-### ENG-005：合法行动枚举
-
-建议引入：
+动作全集：
 
 ```cpp
 enum class ActionKind {
+    Mulligan,
     PlayUnit,
     CastSpell,
     PlayTactic,
@@ -454,54 +446,39 @@ enum class ActionKind {
 };
 ```
 
-以及：
+新增 `GameCommand`（含玩家、动作、来源、目标、位置、组件来源、预支选择、调度列表和 `expected_revision`）、`LegalAction`、`ActionQuery`、`PaymentPreview`、`ReactionContext`。
+
+安全视图使用 `CardView`、`PlayerView`、`MatchView`：自己手牌完整，对方手牌只有数量，对方背面伏策不含 definition/instance ID，公开区域完整，并包含单调 revision、实际 seed 和先手。
+
+接口：
 
 ```cpp
-std::vector<LegalAction> list_legal_actions(PlayerId viewer) const;
-std::vector<Target> list_valid_targets(const ActionRequest&) const;
-std::vector<std::size_t> list_valid_slots(const ActionRequest&) const;
-std::vector<InstanceId> list_valid_donors(const ActionRequest&) const;
-PaymentPreview preview_payment(PlayerId, InstanceId, bool use_advance) const;
+make_view
+list_legal_actions
+list_valid_targets
+list_valid_slots
+list_valid_donors
+preview_payment
+get_reaction_context
+submit_command
+read_events
 ```
 
-### ENG-006：响应上下文
-
-客户端需要获得：
-
-```text
-当前响应玩家
-响应窗口类型
-当前层数
-可发动伏策
-原行动摘要
-是否允许过牌
-```
-
-### ENG-007：引擎随机先后手
-
-增加：
-
-```cpp
-FirstPlayerMode::Random
-FirstPlayerMode::Player0
-FirstPlayerMode::Player1
-```
-
-随机结果由引擎产生并写入事件。
+`read_events(viewer, after_sequence)` 非破坏读取并按观看者脱敏；两个游标互不干扰，隐藏事件文本不得含卡名或稳定实例 ID。查询和执行共享同一 `validate_*`；成功命令 revision 恰好 +1，失败命令不改变状态、事件或 revision。旧强类型命令保留为测试/内部兼容，但不能形成第二套验证。
 
 ### 测试要求
 
 增加：
 
-- `test_end_turn_clears_current_pp`
-- `test_counter_layer_pass_resolves_lower_layers`
-- `test_counter_trap_resolves_lifo`
-- `test_spell_declared_reaction`
-- `test_view_hides_enemy_hand`
-- `test_view_hides_facedown_trap_definition`
-- `test_legal_action_query_matches_commands`
-- `test_payment_preview_matches_real_payment`
-- `test_reaction_context_identifies_responder`
+- PP 清零与事件顺序；
+- 反制过牌、真正三层 LIFO、无悬空引用、法术响应；
+- 响应中目标失效与多效果继续结算；
+- 致命攻击、疲劳、投降的唯一 `MatchEnded` 及终局后冻结；
+- 解锁前不充能、解锁固定能量、解锁后充能封顶；
+- 查询结果可提交、支付预览一致、非法输入无副作用；
+- 手牌/伏策/事件隐私与独立事件游标；
+- 只使用安全 API 的无界面固定牌组完整对局；
+- MSVC/GCC Release、Clang ASan+UBSan、2,048/256 seeds 压力、legacy wire/Python tests 和 `git diff --check`。
 
 ### 退出标准
 
@@ -511,7 +488,7 @@ FirstPlayerMode::Player1
 查看快照
 → 查询合法行动
 → 提交行动
-→ 读取事件
+→ 按游标读取事件
 ```
 
 完成整局对战，不直接访问 `PlayerState` 内部结构。
@@ -1060,7 +1037,7 @@ Godot headless import
 
 ## 十一、提交策略
 
-每个 Gate 单独提交并推送：
+长期每个 Gate 应独立提交；**Gate 0+1 本轮按用户要求只创建本地提交，不推送、合并或打标签**。后续获得明确授权后再推送并检查 CI：
 
 ```text
 docs: align repository with v0.4 Godot route
@@ -1077,7 +1054,7 @@ feat(godot): implement tactic response flow
 ci: build and export Godot desktop clients
 ```
 
-每次推送后：
+获得推送授权后：
 
 1. 核对远端提交；
 2. 核对 CI；
@@ -1172,7 +1149,7 @@ ci: build and export Godot desktop clients
 
 ## 十四、正式开工顺序
 
-1. 创建 `feature/godot-hotseat`；
+1. 基于 `main@cfdf695` 创建 `codex/godot-hotseat-gate1`；
 2. 更新 README、architecture、roadmap 和 testing；
 3. 移除一次性 M1 导入标记和工作流；
 4. 为结束回合 PP 清零写回归测试；

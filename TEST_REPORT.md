@@ -1,79 +1,114 @@
-# Test report — v0.4 rules engine rewrite
+# Gate 0+1 测试报告
 
-**Date:** 2026-08-21
-**Branch:** `ooo/orch_aed84fd9cd53`（任务工作树）
-**Scope:** docs/rules-v0.4.md 全量规则落地（PP 容量/预支/燃耗/裂痕/修复/增长、超前/按期、进化重做与职业充能、战备部署、组件能力、三层响应栈、策略区），协议 wire legacy v1 冻结。
+**日期：** 2026-08-22
 
-**Executed environment:** macOS arm64 (Apple Silicon), AppleClang 17, CMake 4.4.2, Ninja 1.13.2, Python 3.14.
+**分支：** `codex/godot-hotseat-gate1`
 
-## Conclusion
+**基线：** `main@cfdf695d70eeabcc6de9b094c94041364fb1335f`
 
-本轮 v0.4 语义在本地三种配置（Debug / Release / Clang ASan+UBSan）下全部测试通过；协议 wire legacy v1 金标字节保持不变。GitHub 三平台 CI（GCC / Clang-sanitizer / MSVC）尚未在本机触发，需推送后核对。
+**范围：** Godot 客户端化前置 Gate 0+1；不包含 C ABI、Godot 场景/UI 或正式美术。
 
-## Test baseline
+## 结论
+
+本次工作树在本机 MSVC Release 与 Debug 下均完成构建，两个配置的 CTest 都是 **6/6**。Release 规则压力测试覆盖 **2,048 seeds**，legacy v1 wire 金标和两组 Python legacy 契约测试均通过。失败命令原子性、revision、观看者快照/事件隐私及无界面固定牌组整局代理均由新增客户端 API 契约测试覆盖。
+
+本分支按要求**未推送**，因此本次 commit 的 GitHub Actions **未运行，不能声称 CI 已绿**。本机未安装 GCC、Clang、Godot 4.7.2 .NET 或 .NET SDK 10.0.400；GCC Release 与 Clang ASan/UBSan 只完成了 CI 配置，尚待分支获准推送后验证。`global.json` 与文档中的 Godot/.NET 版本锁定不等于本机运行验证。
+
+## 执行环境
 
 ```text
-22 C++ test cases
-391 C++ assertions
-0 failures
-5/5 CTest targets passed in Debug
-5/5 CTest targets passed in Release
-5/5 CTest targets passed with Clang ASan + UBSan
+OS: Windows 11, 10.0.26200.0, AMD64
+Generator: Visual Studio 17 2022, x64
+MSVC: 19.44.35228.0
+CMake: 3.31.6-msvc6（项目最低要求 3.25）
+Python: 3.10.11
+Git: 2.54.0.windows.1
 ```
 
-CTest targets:
+## 实际命令
 
-1. `scgs_unit_tests` — v0.4 规则套件（22 用例，含 32 种子 × 双方先手烟雾对局 + 每步不变量检查）
-2. `scgs_documented_scenario` — 金标走查：§9 预支 → 回合补满 → §13 燃耗叠加 → §17 当前PP>容量 → §15 修复
-3. `scgs_wire_frozen_golden` — legacy v1 wire 冻结回归（金标字节、截断/版本/消息 ID 拒绝、桥接饱和映射）
-4. `scgs_ygo2_overlay_patcher` — overlay 注入器测试（5 项）
-5. `scgs_protocol_contract` — C++/C# 协议契约测试（5 项）
+以下 PowerShell 命令在仓库根目录执行；`$cmake` 与 `$ctest` 指向 Visual Studio Build Tools 自带的 CMake 3.31.6：
 
-## Golden scenario
+```powershell
+$cmake = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
+$ctest = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\ctest.exe"
 
-`scgs_demo --verify` 输出（摘要）：
+& $cmake -S . -B build/final-msvc -G "Visual Studio 17 2022" -A x64 `
+  -DSCGS_WARNINGS_AS_ERRORS=ON -DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON
+& $cmake --build build/final-msvc --config Release --parallel
+& $ctest --test-dir build/final-msvc -C Release --output-on-failure
 
-```json
-{
-  "scenario": "documented_overdraw_then_burn_then_repair",
-  "verified": true,
-  "step1_advance": { "current_pp": 0, "pp_capacity": 2, "cracks": 3 },
-  "step2_refill": { "current_pp": 3, "pp_capacity": 3 },
-  "step3_burn": { "current_pp": 2, "pp_capacity": 1, "cracks": 5, "pp_above_capacity": true },
-  "step4_repair": { "current_pp": 0, "pp_capacity": 3, "cracks": 3 },
-  "invariants_hold": true
-}
+& $cmake --build build/final-msvc --config Debug --parallel
+& $ctest --test-dir build/final-msvc -C Debug --output-on-failure
+
+& .\build\final-msvc\Release\scgs_tests.exe
+& .\build\final-msvc\Release\scgs_client_api_tests.exe
+& .\build\final-msvc\Release\scgs_wire_tests.exe
+& .\build\final-msvc\Release\scgs_demo.exe --verify
+
+$env:SCGS_SMOKE_SEEDS = "2048"
+& .\build\final-msvc\Release\scgs_tests.exe
+
+& "C:\Users\ASUS\AppData\Local\Programs\Python\Python310\python.exe" `
+  -m unittest -v tools.tests.test_apply_ygo2_overlay tools.tests.test_protocol_contract
+
+& $cmake -S . -B build/final-no-legacy -G "Visual Studio 17 2022" -A x64 `
+  -DSCGS_WARNINGS_AS_ERRORS=ON -DSCGS_ENABLE_LEGACY_YGO2_TESTS=OFF
+
+git diff --check
+git diff --cached --check
 ```
 
-## What is covered
+## 结果
 
-- PP 容量无上限增长与回合补满（§7）
-- 预支差额支付、每回合一次、容量不可低于 0、足额时不产生裂痕（§9/§10）
-- 燃耗代价、燃耗与预支共享动用未来（§12/§13）
-- 裂痕跨回合保留与卡牌读取（§14）
-- 修复移除裂痕并恢复容量、无裂痕无效、不加当前 PP（§15）
-- 增长直接提高容量（§16）
-- 当前 PP 合法高于容量（§17）
-- 超前/按期状态分支（§11）
-- 进化解锁（先 5 后 4）、2 点消耗、每回合 1 次、进化状态数值与默认 +2/+2、进化时触发、本回合可攻单位（§22）
-- 职业进化充能条件：死亡计数与法术计数原型、每周期至多 1 点（§23）
-- 战备区公开、部署条件/费用/代价、每回合 1 次、部署不能预支、战备牌离场进封存（§24/§25/§5）
-- 组件能力：支付部署代价授予、至多一个、离场清除（§31）
-- 三层响应栈 LIFO：攻击取消伏策、登场效果伏策、法术窗口、支付类不开窗（§26）
-- 策略区满格不替换（§5）
-- 手牌上限与溢出封存、递增疲劳（§5/§33）
-- 同时战斗伤害、伤害持续、守护阻挡、登场回合攻击限制（§21）
-- 同时死亡批次（§28）
-- 每步全局不变量 + 确定性烟雾对局（32 种子默认，`SCGS_SMOKE_SEEDS` 可调）
+| 验证项 | 结果 |
+|---|---|
+| MSVC Release `/W4 /WX` 构建 | 通过 |
+| MSVC Release CTest | 6/6 通过 |
+| MSVC Debug `/W4 /WX` 构建 | 通过 |
+| MSVC Debug CTest | 6/6 通过 |
+| 规则回归（默认 32 seeds） | 30 cases，543 assertions，0 failures |
+| 规则 Release 压力（2,048 seeds） | 30 cases，8,607 assertions，0 failures |
+| 客户端 API 契约 | 397 assertions，0 failures |
+| legacy v1 wire 金标 | 31 assertions，0 failures |
+| legacy Python | 10 tests，全部通过 |
+| 记录场景 `scgs_demo --verify` | `verified: true`，不变量成立 |
+| legacy Python 测试关闭配置 | 配置成功；证明开关可显式关闭 |
+| `git diff --check` / staged check | 通过 |
 
-## Wire freeze
+CTest 的 6 个目标为：
 
-- `kProtocolVersion = 1`、PlayerState 12 字节 / UnitState 24 字节布局、docs/protocol.md 金标向量逐字不变
-- 桥接投影（v0.4 → legacy wire）：`pp_capacity`/`current_pp` 饱和至 uint8 上限；flags bit1 = 本回合已部署、bit3 = 战备部署入场
-- 协议字段增量清单见 `docs/protocol-v1-v2-field-delta.md`（为协议 v2 重设计输入）
+1. `scgs_unit_tests`
+2. `scgs_client_api_contract`
+3. `scgs_documented_scenario`
+4. `scgs_wire_frozen_golden`
+5. `scgs_ygo2_overlay_patcher`
+6. `scgs_protocol_contract`
 
-## Explicitly not yet verified
+## 关键覆盖
 
-- GitHub 三平台 CI（GCC / Clang-sanitizer / MSVC）——需推送任务分支后核对
-- 行为覆盖清单的用户逐条过目（`docs/v0.4-behavior-coverage.md`，独立验收基线）
-- Unity 客户端与 YGOPro2 overlay 的编辑器编译（本轮范围外）
+- 结束回合清理/PP 清零事件顺序；法术响应、反制不过、真正的反制 → 响应 → 原行动 LIFO。
+- 声明前完整目标校验；响应中目标失效只跳过依赖效果，已支付成本不回滚，其余效果继续。
+- 致命攻击、疲劳、投降、致死多效果伏策与异常开局都只产生一个 `MatchEnded`，终局后冻结。
+- 组件 donor 原位置部署；非法 `PlayerId` 和非法目标枚举无副作用。
+- 进化解锁前不充能；先手解锁 2、后手解锁 3；解锁后充能封顶 4。
+- 强制/随机先手、实际 seed 与开局事件元数据；同一工具链同 seed 的先手与洗牌顺序一致。
+- 观看者快照隐藏敌方手牌身份和背面伏策身份；调度替换抽牌、抽牌和设伏事件按观看者脱敏；设伏牌翻开后晚读历史仍不泄露。
+- 两名观看者的事件游标互不消费；成功命令 revision 只加一，错误/过期命令不改变状态、事件或 revision。
+- 无界面代理只走“快照 → 查询 → 命令 → 事件”，完成现有固定牌组整局。
+
+## Legacy wire 冻结
+
+协议实现与金标测试文件未修改，金标字节仍通过。当前投影语义是：
+
+- PlayerState flags bit 1：`deploy_used_this_turn`；
+- UnitState flags bit 3：`deployed_from_standby && entered_this_turn`；
+- 每名玩家当前有 3 个策略位，但 legacy v1 字节布局、消息 ID、字段顺序、长度和字节序不变。
+
+## 尚未验证
+
+- GitHub Actions：分支未推送，所以没有本次远端运行。
+- GCC Release：本机无 GCC；CI 已配置 Release 与 2,048 seeds。
+- Clang ASan/UBSan：本机无 Clang；CI 已配置 sanitizer 与 256 seeds。
+- Godot/.NET 客户端：本轮不创建客户端工程，且本机没有锁定版本的工具链。
+- `std::shuffle` 跨不同标准库的逐字重现：本轮不承诺；仅验证同工具链、同 seed 可复现。

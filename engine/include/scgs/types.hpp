@@ -25,6 +25,16 @@ enum class PlayerId : std::uint8_t {
     Player1 = 1,
 };
 
+[[nodiscard]] constexpr bool is_valid_player(const PlayerId player) noexcept {
+    return player == PlayerId::Player0 || player == PlayerId::Player1;
+}
+
+enum class FirstPlayerMode : std::uint8_t {
+    Random,
+    Player0,
+    Player1,
+};
+
 [[nodiscard]] constexpr std::size_t to_index(const PlayerId player) noexcept {
     return static_cast<std::size_t>(player);
 }
@@ -100,6 +110,7 @@ enum class EffectTrigger : std::uint8_t {
     OnEvolution,          // unit is evolved ("进化时" trigger)
     OnLastWords,          // unit is destroyed
     OnCountdownExpire,    // relic countdown reaches zero
+    OnSpellDeclared,      // trap window: opponent declared a spell
     OnAttackDeclared,     // trap window: opponent declared an attack
     OnEntryEffectPending, // trap window: enemy unit entry effect is about to resolve
 };
@@ -242,6 +253,7 @@ enum class ErrorCode : std::uint8_t {
     MulliganAlreadyDone,
     DuplicateSelection,
     GameOver,
+    StaleRevision,
 };
 
 struct Status {

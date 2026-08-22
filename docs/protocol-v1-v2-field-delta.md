@@ -1,250 +1,107 @@
-# Protocol v1 → v2 Field Delta
+# Legacy v1 → 未来网络协议字段差异
 
-> **Scope:** This document catalogues every field in the frozen legacy v1 wire
-> (PlayerState 211, UnitState 212) against the v0.4 engine state model, and
-> enumerates what a future v2 wire would need to add, rename, or remove.
-> The v1 wire itself **must not be altered**; this document serves as the design
-> input for a future v2 protocol cut.
+> 本文只做差异盘点。legacy v1 完全冻结，未来协议尚未设计/实现；Gate 0+1 与后续 Godot 同进程客户端都不以 v1 wire 作为接口。
 
----
+## 1. v1 实际覆盖
 
-## 1. Frozen v1 Wire — Complete Field Inventory
+### PlayerState（211）
 
-### 1.1 PlayerState (Message 211)
+| Wire 字段 | v0.4 当前投影 | 限制 |
+|---|---|---|
+| `player` | `PlayerId` | 仅 0/1 合法 |
+| `leader_health` / `maximum_leader_health` | 主战者生命 | int16 |
+| `current_pp` | 当前 PP | uint8 饱和至 255 |
+| `maximum_pp` | `pp_capacity` | 历史名称；uint8 饱和至 255 |
+| `evolution_points` | 进化能量 | 当前规则封顶 4 |
+| `own_turn_number` | 自己回合数 | uint8 |
+| flags bit0 | 本回合已进化 | 直接投影 |
+| flags bit1 | **本回合已部署** | 旧名称是“已高级召唤”；不是“已预支” |
+| flags bit2 | 本回合已设置伏策 | 直接投影 |
+| flags bit3 | 本局已使用主战技 | 直接投影 |
 
-Wire layout (little-endian, 12 bytes total / 11-byte payload after message ID):
+### UnitState（212）
 
-| Offset | Type   | Wire Field Name              | v0.1 Semantic                         | v0.4 Internal Field      |
-|--------|--------|------------------------------|---------------------------------------|--------------------------|
-| 0      | uint8  | message_id = 0xD3 (211)      | message discriminator                 | —                        |
-| 1      | uint8  | protocol_version = 0x01      | wire version guard                    | —                        |
-| 2      | uint8  | player                       | PlayerId (0 or 1)                     | PlayerId                 |
-| 3–4    | int16  | leader_health                | 主战者当前生命                        | `leader_health`          |
-| 5–6    | int16  | maximum_leader_health        | 主战者生命上限                        | `maximum_leader_health`  |
-| 7      | uint8  | current_pp                   | 当前PP (0-10 in v0.1)                 | `current_pp`             |
-| 8      | uint8  | maximum_pp                   | 最大PP (capped at 10 in v0.1)         | `pp_capacity` (v0.4)     |
-| 9      | uint8  | evolution_points             | 进化点数 (0-4)                        | `evolution_points`       |
-| 10     | uint8  | own_turn_number              | 本玩家自身回合数                      | `own_turn_number`        |
-| 11     | uint8  | flags                        | bit-packed state flags (see §1.1.1)   | (see §1.1.1)             |
+| Wire 字段 | v0.4 当前投影 | 限制 |
+|---|---|---|
+| `controller` / `sequence` | 控制者与单位位置 | sequence uint8 |
+| `instance_id` | 内部稳定实例 ID | 不满足隐藏信息安全要求 |
+| `attack` / `health` / `maximum_health` | 当前战斗数值 | int16 |
+| `keywords` | 关键词掩码 | uint32 |
+| `inherited_imprint` | 兼容字段 | v0.4 当前恒为 `None` |
+| flags bit0 | 已进化 | 直接投影 |
+| flags bit1 | 本回合已攻击 | 直接投影 |
+| flags bit2 | 本回合入场 | 直接投影 |
+| flags bit3 | **战备部署入场且仍为入场回合** | 旧名称是“高级召唤入场”；不是“临时突进” |
+| flags bit4 | 背面 | 只含状态，不提供安全的隐藏卡视图 |
 
-#### 1.1.1 PlayerState flags byte
+当前策略区是**每名玩家 3 格**，设施与伏策共用；任何写成 2 格的旧文档都属于 v0.1/M1 历史。
 
-| Bit | v1 Wire Name                  | v0.1 Semantic            | v0.4 Internal Field / Semantic                              |
-|-----|-------------------------------|--------------------------|-------------------------------------------------------------|
-| 0   | `evolution_used_this_turn`    | 本回合已主动进化          | `evolution_used_this_turn` (semantics unchanged)            |
-| 1   | `advanced_summon_used_this_turn` | 本回合已高级召唤       | **SEMANTIC MISMATCH** — v0.4 uses `advance_used_this_turn` (动用未来), which fires on advance OR burn, not advanced summon |
-| 2   | `trap_set_this_turn`          | 本回合已设置伏策          | `trap_set_this_turn` (semantics unchanged)                  |
-| 3   | `leader_skill_used`           | 本局已使用主战技          | `leader_skill_used` (semantics unchanged)                   |
-| 4–7 | (reserved, always 0)          | —                         | Available for new flags in v2                               |
+## 2. v0.4 / Gate 1 中 v1 缺失的状态
 
-Golden test vector: `D3 01 01 11 00 19 00 03 07 02 06 03`
+### 玩家与区域
 
----
+- 裂痕；
+- `advance_used_this_turn`（预支与燃耗共用的“动用未来”限制）；
+- 进化是否已解锁、职业充能周期与进度；
+- 公开战备区完整内容（0–6）；
+- 3 个策略位的设施/伏策类型、倒计时和观看者脱敏内容；
+- 手牌、牌组数量、墓地和封存区完整安全视图；
+- 疲劳计数。
 
-### 1.2 UnitState (Message 212)
+`deploy_used_this_turn` 仅被借位投影到 PlayerState flags bit1，不能据此认为 v1 支持完整部署流程。
 
-Wire layout (little-endian, 24 bytes total / 23-byte payload after message ID):
+### 单位与效果
 
-| Offset | Type   | Wire Field Name     | v0.1 Semantic                            | v0.4 Internal Field         |
-|--------|--------|---------------------|------------------------------------------|-----------------------------|
-| 0      | uint8  | message_id = 0xD4 (212) | message discriminator                | —                           |
-| 1      | uint8  | protocol_version    | wire version guard                       | —                           |
-| 2      | uint8  | controller          | PlayerId (0 or 1)                        | `controller`                |
-| 3      | uint8  | sequence            | field position order index               | `sequence`                  |
-| 4–11   | uint64 | instance_id         | unique card instance ID                  | `id`                        |
-| 12–13  | int16  | attack              | 当前攻击力                               | `current_attack`            |
-| 14–15  | int16  | health              | 当前生命值                               | `current_health`            |
-| 16–17  | int16  | maximum_health      | 生命上限                                 | `maximum_health`            |
-| 18–21  | uint32 | keywords            | 关键词位掩码 (KeywordMask)               | `keywords` (from boolean flags) |
-| 22     | uint8  | inherited_imprint   | 印记 (from 高级召唤 in v0.1)             | `inherited_imprint` (always None in v0.4) |
-| 23     | uint8  | flags               | bit-packed unit state (see §1.2.1)       | (see §1.2.1)                |
+- `temporary_rush`；
+- `deployed_from_standby` 的持久来源状态（v1 bit3 只在 `entered_this_turn` 同时为真时置位）；
+- 运行时组件能力；
+- 卡牌定义、费用、完整效果和进化数值；
+- 响应期间原行动/目标摘要。
 
-#### 1.2.1 UnitState flags byte
+### 比赛控制
 
-| Bit | v1 Wire Name                    | v0.1 Semantic              | v0.4 Internal Field / Semantic                              |
-|-----|---------------------------------|----------------------------|-------------------------------------------------------------|
-| 0   | `evolved`                       | 已进化                      | `evolved` (semantics unchanged)                             |
-| 1   | `attacked_this_turn`            | 本回合已攻击                | `attacked_this_turn` (semantics unchanged)                  |
-| 2   | `entered_this_turn`             | 本回合入场                  | `entered_this_turn` (semantics unchanged)                   |
-| 3   | `advanced_summoned_this_turn`   | 本回合通过高级召唤入场       | **DEPRECATED in v0.4** — advanced summon concept removed; bit is always 0 in v0.4 output |
-| 4   | `face_down`                     | 背面表示                    | `face_down` (semantics unchanged)                           |
-| 5–7 | (reserved, always 0)            | —                           | Available for new flags in v2                               |
+- 单调 state revision 与过期命令保护；
+- 实际随机 seed、实际先手和 `FirstPlayerMode`；
+- phase、result 的完整权威状态；
+- 三层响应深度、当前 responder、合法伏策和是否可过；
+- 追加式事件 sequence、观看者独立游标和事件脱敏；
+- `GameCommand`、`LegalAction`、目标/位置/组件来源与支付预览。
 
-Golden test vector: `D4 01 00 03 08 07 06 05 04 03 02 01 07 00 05 00 08 00 03 00 00 00 01 09`
+## 3. v1 不适合作为 Godot 接口的原因
 
----
+v1 只是旧显示 overlay 的紧凑投影：
 
-### 1.3 Message ID Namespace (210–219)
+- 会把稳定实例 ID 直接放入消息，不具备隐藏区域隐私边界；
+- 没有 revision，无法原子地拒绝过期 UI 操作；
+- 没有查询契约，客户端会被迫复制合法性逻辑；
+- 无法描述当前 3 格策略区、完整部署或响应栈；
+- 字段被历史语义占用，继续借位会让协议不可审查。
 
-| Message ID | Enum Name              | Current Status in v1                                  |
-|------------|------------------------|-------------------------------------------------------|
-| 210        | GameMode               | Defined in `Message` enum; not yet fully implemented  |
-| 211        | PlayerState            | Active; frozen wire layout documented above           |
-| 212        | UnitState              | Active; frozen wire layout documented above           |
-| 213        | EvolutionState         | Defined; maps to v0.1 evolution system                |
-| 214        | AdvancedSummonState    | Defined; v0.1 高级召唤 specific — **deprecated concept in v0.4** |
-| 215        | RequestEvolutionMode   | Defined; maps to v0.1 EvolutionMode choice            |
-| 216        | RequestMaterials       | Defined; v0.1 高级召唤 materials — **deprecated in v0.4** |
-| 217        | RequestImprint         | Defined; v0.1 印记 system — **deprecated in v0.4**    |
-| 218        | TacticWindow           | Defined; reaction / trap window signalling            |
-| 219        | MatchStatistics        | Defined; end-of-match stats                           |
+因此 Godot 使用 `MatchView` / 查询 / `GameCommand` / `GameEventView`，后续通过版本化 C ABI 暴露；legacy v1 只继续跑金标回归。
 
----
+## 4. 未来网络协议最低需求
 
-## 2. v0.4 State NOT in v1 Wire
+如果 alpha 后启动异地联机，应另建新版本并至少覆盖：
 
-The following v0.4 game-state fields exist in the internal engine model but are
-**not transmitted** over the v1 wire. In the current implementation they are
-expressed only in the `GameEvent` stream (`EventType` entries).
+| 域 | 必需能力 |
+|---|---|
+| 身份与并发 | viewer/actor、state revision、命令 ID、明确错误码 |
+| 开局复现 | 协议版本、规则/卡池版本、seed、实际先手；若要求跨实现复现，需规定洗牌算法 |
+| 安全快照 | 自己完整手牌、对方手牌数量、背面伏策匿名、公开区域完整 |
+| 查询 | 合法行动、目标、位置、组件来源、支付预览、响应上下文 |
+| 命令 | `ActionKind` 全集与各动作结构化参数 |
+| 事件 | 全局 sequence、viewer 脱敏、重连后游标续读 |
+| 终局 | 幂等 result 与唯一 MatchEnded |
+| 扩展 | 长度/版本明确的字段，未知字段可跳过，不复用 v1 bit 含义 |
 
-### 2.1 PlayerState — Missing Wire Fields
+是否采用二进制、JSON 或其他编码留到联机设计阶段决定。不能提前将 C++ 类布局、STL 容器或文本日志当成网络协议。
 
-| v0.4 Internal Field       | Type / Range   | Engine Location         | v0.4 Semantic                                                   | v1 Wire Exposure           |
-|---------------------------|----------------|-------------------------|-----------------------------------------------------------------|----------------------------|
-| `cracks`                  | int, ≥ 0       | `PlayerState::cracks`   | 裂痕数: PP capacity lost via advance or burn; removed by 修复X | GameEvent `CracksChanged`  |
-| `advance_used_this_turn`  | bool           | `PlayerState::advance_used_this_turn` | 本回合动用未来标志 (covers both advance and burn); distinct from v0.1's `advanced_summon_used_this_turn` | Not in wire; v1 flags.bit1 carries the old v0.1 name |
-| `standby` zone count      | uint, 0–6      | `PlayerState::standby` (vector) | 战备区: public standby cards; count and card IDs        | Not transmitted            |
-| `deploy_used_this_turn`   | (to be added)  | —                       | 本回合战备部署次数 (default max 1)                              | Not in wire                |
+## 5. 保持不变的 v1 验收项
 
-> **Note:** `pp_capacity` **is** present in v1 under the name `maximum_pp`
-> (wire offset 8, uint8). The field's semantic has changed — v0.1 capped it at
-> 10; v0.4 removes that cap — but the wire field itself is reused. A uint8
-> wire type supports 0–255, which comfortably covers realistic game values
-> without a v2 type change.
-
-### 2.2 UnitState — Missing Wire Fields
-
-| v0.4 Internal Field  | Type  | Engine Location               | v0.4 Semantic                                               | v1 Wire Exposure    |
-|----------------------|-------|-------------------------------|-------------------------------------------------------------|---------------------|
-| `temporary_rush`     | bool  | `CardInstance::temporary_rush` | 本回合被授予的临时突进能力 (from evolution or advance effect) | Not in wire; v1 flags.bit5 is reserved |
-| Granted modifiers    | array | (to be added per v0.4 §31)    | 组件能力: runtime modifiers granted at deploy time; max 1 per deploy | Not in wire |
-
-### 2.3 New State Domains Entirely Absent from v1 Wire
-
-| Domain                    | v0.4 Rule Section | Current Engine Status                              | Notes for v2                                         |
-|---------------------------|-------------------|----------------------------------------------------|------------------------------------------------------|
-| Response stack depth      | §26               | `ReactionWindow` enum + `pending_reaction_` in `Game` | v1 sends `TacticWindow` (218) to signal window open; stack depth and layer counter not exposed |
-| Evolution charge condition | §23              | `charge_condition` placeholder in `DeckList` (to be added) | Per-class condition prototype + params; not in wire  |
-| Strategy slot type        | §5, §20           | `PlayerState::tactics` (shared array)             | v1 does not distinguish facility vs. trap in slot type; both occupy `UnitState`-style positions without type field |
-| Series mechanisms         | §30–32            | Not implemented; rule layer can express            | 成长值/环境值/蜕变/生死状态: not in v1 or current engine; v2 would need extensible per-unit state |
-
----
-
-## 3. Field-by-Field Delta: v1 → v2 Required Changes
-
-### 3.1 PlayerState (211) — Field Disposition Table
-
-| Wire Field           | v1 Status   | v2 Disposition | Change Description                                                  |
-|----------------------|-------------|----------------|---------------------------------------------------------------------|
-| `player`             | Active      | KEEP           | No change needed                                                    |
-| `leader_health`      | Active      | KEEP           | No change needed                                                    |
-| `maximum_leader_health` | Active   | KEEP           | No change needed                                                    |
-| `current_pp`         | Active      | KEEP           | No change needed; uint8 sufficient                                  |
-| `maximum_pp`         | Active      | RENAME         | Rename to `pp_capacity` in v2 docs and C# overlay to match v0.4 internal name; wire byte at offset 8 stays uint8 at same position |
-| `evolution_points`   | Active      | KEEP           | Semantics unchanged (0–4, cap 4)                                    |
-| `own_turn_number`    | Active      | KEEP           | No change needed                                                    |
-| `flags.bit0`         | Active      | KEEP           | `evolution_used_this_turn` — semantics match v0.4                  |
-| `flags.bit1`         | Mismatch    | RENAME         | Wire name `advanced_summon_used_this_turn` → `advance_used_this_turn`; same bit position, broader v0.4 semantic (covers advance AND burn) |
-| `flags.bit2`         | Active      | KEEP           | `trap_set_this_turn` — semantics match v0.4                        |
-| `flags.bit3`         | Active      | KEEP           | `leader_skill_used` — semantics match v0.4                         |
-| `flags.bits4–7`      | Reserved    | EXTEND         | **NEW bit4:** `deploy_used_this_turn` (战备部署已用标志)           |
-| **NEW** `cracks`     | Missing     | ADD            | uint8 new field: 裂痕计数 (0–255 sufficient for realistic play)    |
-| **NEW** `standby_count` | Missing  | ADD            | uint8 new field: 战备区卡牌数量 (0–6)                              |
-
-### 3.2 UnitState (212) — Field Disposition Table
-
-| Wire Field              | v1 Status    | v2 Disposition | Change Description                                                       |
-|-------------------------|--------------|----------------|--------------------------------------------------------------------------|
-| `controller`            | Active       | KEEP           | No change needed                                                         |
-| `sequence`              | Active       | KEEP           | No change needed                                                         |
-| `instance_id`           | Active       | KEEP           | No change needed                                                         |
-| `attack`                | Active       | KEEP           | No change needed                                                         |
-| `health`                | Active       | KEEP           | No change needed                                                         |
-| `maximum_health`        | Active       | KEEP           | No change needed                                                         |
-| `keywords`              | Active       | KEEP           | uint32 KeywordMask; v0.4 boolean flags (printed_guard etc.) map to these bits at unit creation; formally named keyword list TBD |
-| `inherited_imprint`     | Deprecated   | REPURPOSE      | Always None in v0.4; byte at offset 22 can be repurposed in v2 (e.g., granted_modifier_count or component_kind) |
-| `flags.bit0`            | Active       | KEEP           | `evolved` — semantics match v0.4                                        |
-| `flags.bit1`            | Active       | KEEP           | `attacked_this_turn` — semantics match v0.4                             |
-| `flags.bit2`            | Active       | KEEP           | `entered_this_turn` — semantics match v0.4                              |
-| `flags.bit3`            | Deprecated   | REPURPOSE      | Was `advanced_summoned_this_turn` (v0.1 高级召唤); always 0 in v0.4; **NEW in v2:** repurpose as `temporary_rush` (本回合被授予突进) |
-| `flags.bit4`            | Active       | KEEP           | `face_down` — semantics match v0.4                                      |
-| `flags.bits5–7`         | Reserved     | EXTEND         | Available for future v0.4 state bits (e.g., component modifier active)  |
-
----
-
-## 4. New Message IDs Required for v2
-
-The current v1 message range 210–219 has headroom for new message types. The
-following are candidates identified from v0.4 rule analysis.
-
-| Candidate Message     | Suggested ID | Purpose                                                            |
-|-----------------------|--------------|--------------------------------------------------------------------|
-| StandbyState          | (TBD)        | Transmit full standby zone contents (0–6 card IDs); currently not sent |
-| StrategySlotState     | (TBD)        | Distinguish facility vs. trap in each of the 2 strategy slots      |
-| ResponseStackState    | (TBD)        | Current response layer depth (0/1/2/3) and whose turn to respond   |
-| EvolutionChargeState  | (TBD)        | Class-specific charge condition progress                           |
-
-> The range 210–219 is partially occupied (210–219 reserved). IDs 220–229 are
-> available for new v2 messages without conflicting with YGOPro2 core (≤200)
-> or existing SCGS allocations.
-
----
-
-## 5. Frozen v1 Invariants (Must Not Change)
-
-The following are **hard invariants** that a v2 redesign must not violate for
-any message previously covered by v1:
-
-1. `kProtocolVersion = 1` byte at payload offset 0 for all existing messages.
-2. `PlayerState` payload is exactly 11 bytes; message is exactly 12 bytes.
-3. `UnitState` payload is exactly 23 bytes; message is exactly 24 bytes.
-4. All multi-byte integers are little-endian.
-5. Golden test vectors must decode to the same values as defined in `docs/protocol.md`.
-6. Message IDs 210–219 field names, types, and byte offsets in the C++ encoder/decoder and C# overlay are immutable under the v1 freeze.
-
----
-
-## 6. v0.4 Rule Changes Driving v2 Protocol Needs
-
-The nine v0.4 rule changes and their protocol implications:
-
-| Rule Change ID | v0.4 Change Summary                          | v1 Gap                                          | v2 Action Required                                 |
-|----------------|----------------------------------------------|-------------------------------------------------|----------------------------------------------------|
-| R01            | PP容量无上限 (§7.1)                           | `maximum_pp` field name misleading; uint8 type adequate | Rename field in docs/overlay to `pp_capacity`  |
-| R02            | 动用未来/预支重做 (§8–§13)                    | flags.bit1 semantics mismatch (v0.1 vs v0.4)   | Rename flags.bit1 to `advance_used_this_turn`      |
-| R03            | 裂痕 (§14)                                   | No `cracks` field in wire                       | Add `cracks` uint8 field to PlayerState            |
-| R04            | 进化系统重做 (§22–§23)                        | `advanced_summon_used_this_turn` (flags.bit3 of UnitState) always 0 | Repurpose UnitState.flags.bit3 as `temporary_rush` |
-| R05            | 战备部署统一 (§24–§25)                        | No `standby_count` or standby card IDs in wire  | Add `standby_count` and `deploy_used_this_turn`    |
-| R06            | 组件能力 (§31)                                | `inherited_imprint` always None; byte wasted    | Repurpose `inherited_imprint` byte for component info |
-| R07            | 三层响应 (§26)                                | `TacticWindow` (218) only signals window open; no depth | Add ResponseStackState message                |
-| R08            | 策略区重命名 (§5)                             | No slot-type field; facility vs. trap not distinguished | Add StrategySlotState message                 |
-| R09            | 关键词效果文字化 (§21)                        | `keywords` uint32 remains valid; boolean flags mapped at unit creation | Document mapping table in protocol.md      |
-
----
-
-## 7. Summary
-
-**v1 → v2 field delta at a glance:**
-
-- **Keep unchanged (7 fields):** player, leader_health, maximum_leader_health,
-  current_pp, evolution_points, own_turn_number; UnitState: controller,
-  sequence, instance_id, attack, health, maximum_health, keywords; flags.bit0/2/3/4
-  on PlayerState; flags.bit0/1/2/4 on UnitState.
-
-- **Rename (2 fields):** `maximum_pp` → `pp_capacity` (PlayerState);
-  flags.bit1 `advanced_summon_used_this_turn` → `advance_used_this_turn` (PlayerState).
-
-- **Repurpose (2 fields):** UnitState.flags.bit3 `advanced_summoned_this_turn`
-  → `temporary_rush`; UnitState `inherited_imprint` byte → component modifier slot.
-
-- **Add to PlayerState (3 fields):** `cracks` (uint8), `standby_count` (uint8),
-  flags.bit4 `deploy_used_this_turn`.
-
-- **Add to UnitState (1 field):** UnitState.flags.bit5 (reserved for component
-  modifier active indicator).
-
-- **New messages (4 candidates):** StandbyState, StrategySlotState,
-  ResponseStackState, EvolutionChargeState.
-
-- **Deprecated messages (3):** AdvancedSummonState (214), RequestMaterials (216),
-  RequestImprint (217) — all tied to the removed v0.1 高级召唤/印记 system.
+- `kProtocolVersion = 1`；
+- PlayerState 12 字节、UnitState 24 字节；
+- 小端序；
+- `docs/protocol.md` 金标；
+- C++ encode/decode、桥接投影和 legacy C# 契约测试；
+- Player flags bit1 当前投影部署、Unit flags bit3 当前投影战备部署入场；
+- 任何未来工作都不能修改上述字节。

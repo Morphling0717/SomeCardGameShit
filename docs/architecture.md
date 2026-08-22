@@ -16,12 +16,20 @@ MatchView / LegalAction / Preview       expected_revision
      │                                       │
      └────────── GameEventView ──────────────┘
                     │
-       后续版本化 C ABI（Gate 2，本轮未做）
+       scgs_v04 C11 + UTF-8 JSON（Gate 2）
                     │
-        Godot 4.7.2 .NET（Gate 3，本轮未做）
+        Godot 4.7.2 .NET（Gate 3，后续）
 ```
 
 客户端不能直接读取 `PlayerState`、自行扣费或复算目标。它只能读取安全快照和查询结果，提交带 revision 的命令，再按观看者读取脱敏事件。legacy YGOPro2/Unity 代码不在现行调用链中。
+
+## 原生 ABI 边界
+
+`scgs_v04` 是纯 C11 动态库接口。公开头只出现明确宽度整数、UTF-8 字节缓冲区和进程内不复用的 64 位 token handle；Windows 固定 `__cdecl`，任何异常都在导出边界转换为 native 状态码。复杂 DTO 不镜像成易碎的 C struct，而是写入调用方所有的两段式 JSON 缓冲区。
+
+ABI version、JSON schema version 与项目包版本相互独立。native/transport 错误和规则 `ErrorCode` 分离；规则枚举由显式映射冻结，不依赖 C++ enum 的底层值。动态库不返回需要跨 CRT 释放的内存，同一 handle 第一版只承诺顺序调用。详见 [`native-api-v04.md`](native-api-v04.md)。
+
+Native 适配层只序列化 Gate 1 的安全 DTO，并且只经 `make_view`、查询、统一命令和 `read_events` 访问对局；它不得先读取 `PlayerState` 或原始事件再做删字段式脱敏。
 
 ## 规则域
 
@@ -99,4 +107,4 @@ Alpha 只验收现有两副固定牌组。主战技 UI、普通主动能力、�
 
 `Game::validate_invariants()` 检查区域唯一性、控制权、序列、区域类型、战斗数值、资源、响应层和终局一致性。无界面代理应在每个命令后检查不变量。
 
-legacy v1 wire 的消息 ID、长度、字节序和金标字节保持冻结。当前引擎状态到 legacy 字段的投影语义见 [`protocol.md`](protocol.md)；它不是 Godot 同进程接口，也不会阻止后续设计版本化 C ABI。
+legacy v1 wire 的消息 ID、长度、字节序和金标字节保持冻结。当前引擎状态到 legacy 字段的投影语义见 [`protocol.md`](protocol.md)；它不是 Godot 同进程接口，Godot 后续只消费独立的 `scgs_v04` ABI。

@@ -1,6 +1,6 @@
 # 路线图
 
-## Gate 0：基线整理 — 本分支
+## Gate 0：基线整理 — 已完成
 
 - [x] README、架构、路线图、测试说明和交接文档统一为 v0.4 + Godot 路线
 - [x] YGOPro2/Unity 文档与源码标为 legacy 历史参考
@@ -12,7 +12,7 @@
 - [x] 锁定 Godot 4.7.2 .NET 与 .NET SDK 10.0.400，明确不支持 Web
 - [x] 由本次最终实测填写 `TEST_REPORT.md` 的准确命令、断言数与 CI 状态
 
-## Gate 1：引擎客户端化加固 — 本分支
+## Gate 1：引擎客户端化加固 — 已完成
 
 ### 规则与状态机
 
@@ -36,14 +36,16 @@
 
 勾选状态应由最终实现和测试结果更新，不以计划文字代替验收。
 
-## Gate 2：版本化 C ABI — 后续
+## Gate 2：版本化 C ABI — 当前分支
 
 - [ ] 设计不暴露 C++ STL/异常/类布局的版本化 ABI
-- [ ] 两段式缓冲区、错误码、UTF-8 和结构尺寸验证
+- [ ] 版本化 JSON、调用方所有的两段式缓冲区、错误码和 UTF-8 验证
 - [ ] C ABI 与直接 C++ 行为对照测试
-- [ ] Windows DLL 与 macOS dylib 打包
+- [ ] C11 consumer、动态加载与导出表审计
+- [ ] Windows DLL、Linux so 与 macOS ARM64 dylib 安装/打包
+- [ ] MSVC、GCC、Clang sanitizer 与 macOS ARM64 CI
 
-本轮明确不实现 Gate 2。
+Gate 2 采用 64 位 token handle 与 schema 1 UTF-8 JSON，不直接展平含 string/vector/optional 的 C++ DTO。规范见 [`native-api-v04.md`](native-api-v04.md)。
 
 ## Gate 3：Godot 热座 Alpha — 后续
 
@@ -53,7 +55,7 @@
 - [ ] Windows x86-64 与 macOS Apple Silicon 实机完整一局
 - [ ] 仅用原创或明确授权的正式素材
 
-本轮不创建场景、不实现正式 UI/美术，也不承诺 Web。
+Gate 2 不创建场景、不实现正式 UI/美术，也不承诺 Web。
 
 ## Alpha 后续
 

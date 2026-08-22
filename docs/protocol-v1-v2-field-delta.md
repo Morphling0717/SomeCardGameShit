@@ -1,6 +1,6 @@
 # Legacy v1 → 未来网络协议字段差异
 
-> 本文只做差异盘点。legacy v1 完全冻结，未来协议尚未设计/实现；Gate 0+1 与后续 Godot 同进程客户端都不以 v1 wire 作为接口。
+> 本文只做差异盘点。legacy v1 完全冻结，未来网络协议尚未设计/实现；Gate 1 安全 C++ API 与 Gate 2 已提供、供 Godot 后续消费的 [`scgs_v04` 同进程 ABI](native-api-v04.md) 都不以 v1 wire 作为接口。
 
 ## 1. v1 实际覆盖
 
@@ -77,7 +77,7 @@ v1 只是旧显示 overlay 的紧凑投影：
 - 无法描述当前 3 格策略区、完整部署或响应栈；
 - 字段被历史语义占用，继续借位会让协议不可审查。
 
-因此 Godot 使用 `MatchView` / 查询 / `GameCommand` / `GameEventView`，后续通过版本化 C ABI 暴露；legacy v1 只继续跑金标回归。
+因此 Gate 2 已通过版本化 `scgs_v04` C ABI 暴露 `MatchView` / 查询 / `GameCommand` / `GameEventView`；Godot 后续直接消费该接口，legacy v1 只继续跑金标回归。
 
 ## 4. 未来网络协议最低需求
 

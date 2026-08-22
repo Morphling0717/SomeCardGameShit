@@ -3,19 +3,20 @@
 **计划代号：** M1-G / Godot Hotseat Alpha  
 **代码基线：** `main@cfdf695d70eeabcc6de9b094c94041364fb1335f`
 **Gate 0+1 实现分支：** `codex/godot-hotseat-gate1`
+**Gate 2 实现分支：** `codex/godot-hotseat-gate2`
 **规则基线：** `docs/rules-v0.4.md`  
 **目标客户端：** Godot 4.7.2 .NET（本轮不创建工程）
 **.NET SDK：** 10.0.400
 **目标平台：** macOS Apple Silicon、Windows x86-64  
-**本阶段目标：** 从完整无界面引擎推进到人类可以完整打一局的单机热座版本
+**M1-G 总目标：** 从完整无界面引擎推进到人类可以完整打一局的单机热座版本
 
-> 当前交付仅实施 Gate 0+1，不实现 C ABI 或 Godot UI；不支持 Web，不修改 legacy v1 wire 字节，不推送、合并或打标签。后续 Gate 必须另行开始。
+> 当前交付在 Gate 0+1 之上实施 Gate 2：版本化 `scgs_v04` C ABI、JSON schema、三平台动态库与对照测试；仍不创建 Godot UI、不支持 Web、不修改 legacy v1 wire 字节、不合并或打标签。功能分支按授权推送以运行 CI。
 
 ---
 
 ## 一、开工基线与当前交付
 
-> 本节的“已经完成/尚未完成”首先记录 `main@cfdf695` 的开工审计，便于解释 Gate 1 的来源。`codex/godot-hotseat-gate1` 已关闭其中的规则边界、客户端安全视图、查询、统一命令与脱敏事件缺口；C ABI 与 Godot 客户端仍属于后续 Gate。
+> 本节的“已经完成/尚未完成”首先记录 `main@cfdf695` 的开工审计，便于解释 Gate 1 的来源。`codex/godot-hotseat-gate1` 已关闭规则边界与客户端安全 API 缺口；`codex/godot-hotseat-gate2` 在其上完成稳定原生消费边界。Godot 客户端仍属于后续 Gate。
 
 ### 1. 已经完成的部分
 
@@ -90,7 +91,7 @@ Godot 客户端：不存在
 人类可玩版本：不存在
 ```
 
-Gate 0+1 交付后，客户端接入接口已完成，并由只使用“快照 → 查询 → 命令 → 事件”的无界面代理整局测试约束；Godot 工程、C ABI、可玩 UI 和桌面导出仍不存在。
+Gate 0+1 交付后，客户端安全 C++ 接口已完成，并由只使用“快照 → 查询 → 命令 → 事件”的无界面代理整局测试约束；Gate 2 在其上提供 `scgs_v04` C ABI。Godot 工程、可玩 UI 和桌面导出仍不存在。
 
 ---
 
@@ -367,16 +368,15 @@ codex/godot-hotseat-gate1
 - `docs/testing.md`
 - `TEST_REPORT.md`
 
-本轮不创建下列后续 C ABI/UI 专项文档；它们分别随 Gate 2/3 在接口和界面真实落地时编写，避免提前固化尚未实现的契约：
+Gate 2 已在接口真实落地时创建规范性 `docs/native-api-v04.md`。下列 UI 专项文档仍随 Gate 3 在界面真实落地时编写，避免提前固化尚未实现的契约：
 
 ```text
 docs/godot-client-architecture.md
-docs/native-api-v0.4.md
 docs/ui-state-map.md
 docs/hotseat-acceptance.md
 ```
 
-Gate 0+1 的已实现架构和验收边界暂统一记录在现有 `docs/architecture.md`、`docs/testing.md`、路线图与现行交接中。
+Gate 0+1+2 的已实现架构和验收边界统一记录在 `docs/architecture.md`、`docs/testing.md`、`docs/native-api-v04.md`、路线图与现行交接中。
 
 清理明确的一次性遗留：
 
@@ -507,72 +507,66 @@ read_events
 engine/include/scgs/native_api_v04.h
 engine/src/native_api_v04.cpp
 engine/tests/test_native_api_v04.cpp
+docs/native-api-v04.md
 ```
 
 ### ABI 原则
 
-- 使用 opaque handle；
-- 所有整数使用明确宽度；
-- 所有结构包含 `struct_size`；
-- 提供 ABI 版本；
-- 字符串统一 UTF-8；
-- 不返回 C++ `std::vector` 或引用；
-- 不让异常跨过 ABI；
-- 数组采用“先问数量，再填缓冲区”；
-- 错误码与错误文本分离；
-- 动态库自行拥有内部内存；
-- C# 只复制自己需要的数据。
+- 使用进程内不复用的 opaque 64 位 token handle，`0` 无效；
+- 所有整数使用明确宽度，不暴露 C `bool`、`size_t` 或编译器 enum；
+- `scgs_v04` 产品线名与 ABI 1.0、JSON schema 1、CMake 包版本分别管理；
+- 复杂 DTO 使用版本化 UTF-8 JSON，不镜像含 string/vector/optional 的 C++ 布局；
+- 所有输出由调用方拥有，统一采用包含末尾 NUL 的两段式缓冲区；
+- 不返回 C++ `std::vector`、引用、内部指针或需要跨 CRT 释放的内存；
+- 所有导出入口捕获异常，Windows 明确使用 `__cdecl`；
+- native/transport 错误码与规则 `ErrorCode` 分离；
+- native 适配层只序列化 Gate 1 安全 DTO，不直接读取 `PlayerState` 或原始事件；
+- 同一 handle 第一版只承诺单线程顺序调用。
 
-### 建议接口
+### 已实现接口
 
 ```c
 uint32_t scgs_v04_abi_version(void);
 
-scgs_handle* scgs_v04_create(
-    const scgs_match_config* config
-);
+scgs_v04_native_code scgs_v04_create(
+    uint32_t requested_abi,
+    const char* config_json,
+    uint64_t config_bytes,
+    scgs_v04_handle* out_handle);
 
-void scgs_v04_destroy(scgs_handle* handle);
+scgs_v04_native_code scgs_v04_destroy(scgs_v04_handle handle);
+scgs_v04_native_code scgs_v04_start(
+    scgs_v04_handle handle,
+    uint32_t* out_engine_code);
 
-scgs_status scgs_v04_start(scgs_handle* handle);
+/* 所有 JSON 输出均为 char* buffer + uint64_t capacity
+   + uint64_t* required_bytes 两段式接口。 */
+scgs_v04_native_code scgs_v04_get_view_json(...);
+scgs_v04_native_code scgs_v04_list_legal_actions_json(...);
+scgs_v04_native_code scgs_v04_list_valid_targets_json(...);
+scgs_v04_native_code scgs_v04_list_valid_slots_json(...);
+scgs_v04_native_code scgs_v04_list_valid_donors_json(...);
+scgs_v04_native_code scgs_v04_preview_payment_json(...);
+scgs_v04_native_code scgs_v04_get_reaction_context_json(...);
+scgs_v04_native_code scgs_v04_submit_command_json(...);
 
-scgs_status scgs_v04_get_view(
-    scgs_handle* handle,
-    uint8_t viewer,
-    scgs_match_view* out_view
-);
-
-size_t scgs_v04_list_actions(
-    scgs_handle* handle,
-    uint8_t viewer,
-    scgs_legal_action* buffer,
-    size_t capacity
-);
-
-size_t scgs_v04_list_targets(
-    scgs_handle* handle,
-    const scgs_action_query* query,
-    scgs_target* buffer,
-    size_t capacity
-);
-
-scgs_status scgs_v04_submit_command(
-    scgs_handle* handle,
-    const scgs_command* command
-);
-
-size_t scgs_v04_drain_events(
-    scgs_handle* handle,
-    scgs_event* buffer,
-    size_t capacity
-);
-
-size_t scgs_v04_get_last_error(
-    scgs_handle* handle,
+scgs_v04_native_code scgs_v04_read_events_json(
+    scgs_v04_handle handle,
+    uint32_t viewer,
+    uint64_t after_sequence,
     char* buffer,
-    size_t capacity
-);
+    uint64_t capacity,
+    uint64_t* required_bytes);
+
+scgs_v04_native_code scgs_v04_get_last_error(
+    char* buffer,
+    uint64_t capacity,
+    uint64_t* required_bytes);
 ```
+
+规范性字段、枚举、错误和所有权规则见 [`native-api-v04.md`](native-api-v04.md)。旧草案中的
+`drain_events` 与 Gate 1 的观看者脱敏/独立游标冲突，已经由非破坏的
+`read_events(viewer, after_sequence)` 取代。
 
 ### 构建产物
 
@@ -602,9 +596,14 @@ Linux CI: libscgs_v04.so
 - 检查隐藏信息；
 - 对照直接调用 `Game` 的状态结果。
 
+此外必须由真正的 C11 consumer 编译公开头，逐项验证 ABI/schema、handle 生命周期、非法
+UTF-8/JSON、全部两段式缓冲区、动态符号加载、安装后消费、双 viewer 事件游标与失败命令
+原子性。适配层测试代理只能走 ABI 完成固定牌组整局。
+
 ### 退出标准
 
-C ABI 与直接 C++ 调用在每一步都得到相同结果。
+C ABI 与直接 C++ 调用在每一步得到相同语义；Windows DLL、Linux so、macOS ARM64 dylib
+均能安装、动态加载并通过导出表审计，四平台 CI 全绿。Gate 2 完成前不创建 Godot 工程。
 
 ---
 
@@ -887,10 +886,9 @@ validate_invariants()
 
 - ABI 版本不匹配；
 - 空 handle；
-- 结构尺寸错误；
-- 缓冲区容量不足；
+- 固定宽度 ABI 签名、调用约定与 schema 不匹配；
+- 所有 JSON/文本输出的 `NULL + 0`、短缓冲区、精确容量、NUL 与无部分写入；
 - UTF-8 文本；
-- 数组两段式读取；
 - 错误码；
 - 动态库创建与销毁；
 - 完整比赛；
@@ -902,8 +900,8 @@ validate_invariants()
 
 通过 `dotnet test` 检查：
 
-- P/Invoke 结构尺寸；
-- enum 数值；
+- P/Invoke 调用约定、固定宽度参数和 64 位 handle；
+- JSON schema 与 enum 数值映射；
 - UTF-8 转换；
 - 动态库搜索路径；
 - 快照映射；
@@ -948,50 +946,47 @@ validate_invariants()
 
 ## 九、CI 计划
 
-### Linux GCC
+### Gate 2 当前矩阵
+
+四个 job 都必须配置、构建并运行完整 CTest，随后安装 `scgs_v04`、从安装目录编译独立
+C11 consumer、审计目标架构与精确 14 个 C 导出，并上传暂存 artifact：
+
+### Linux GCC Release
 
 ```text
-构建规则引擎
-构建 libscgs_v04.so
-运行规则测试
-运行 native API 测试
-运行 wire freeze 测试
+GCC Release + `-Werror`
+2,048-seed 规则压力
+libscgs_v04.so / x86-64
 ```
 
-### Linux Clang Sanitizer
+### Linux Clang ASan/UBSan
 
 ```text
-ASan
-UBSan
-规则测试
-native API 测试
-确定性烟雾对局
+Clang Debug + ASan + UBSan
+256-seed sanitizer 压力
+libscgs_v04.so / x86-64
 ```
 
-### macOS
+### macOS 15 ARM64 Release
 
 ```text
-构建 arm64 dylib
-运行 native API 测试
-dotnet build
-Godot headless import
-导出 macOS 测试包
-上传构建产物
+AppleClang Release
+2,048-seed 规则压力
+libscgs_v04.dylib / arm64
 ```
 
-### Windows MSVC
+### Windows MSVC Release
 
 ```text
-构建 scgs_v04.dll
-运行 native API 测试
-dotnet build
-Godot headless import
-导出 Windows x86-64
-运行基础启动检查
-上传 ZIP
+MSVC Release /W4 /WX
+2,048-seed 规则压力
+scgs_v04.dll / x86-64
 ```
 
-本阶段不设 Web 构建任务。
+### Gate 3 后续增加
+
+Gate 3 创建客户端后，再在 macOS/Windows job 增加 `dotnet build`、Godot headless import、
+原生库加载 smoke 与桌面导出；这些步骤不属于 Gate 2 已实现能力。本路线不设 Web 构建任务。
 
 ---
 
@@ -1015,7 +1010,7 @@ Godot headless import
 | ABI-001 | P0 | 定义 `native_api_v04.h` | ENG-004～008 |
 | ABI-002 | P0 | 实现动态库 | ABI-001 |
 | ABI-003 | P0 | C ABI 对照测试 | ABI-002 |
-| GODOT-001 | P0 | 创建 Godot 4 .NET 工程 | DOC-001 |
+| GODOT-001 | P0 | 创建 Godot 4 .NET 工程 | ABI-003、CI-001 |
 | GODOT-002 | P0 | C# P/Invoke 与库解析 | ABI-002 |
 | UI-001 | P0 | 主战场静态布局 | GODOT-001 |
 | UI-002 | P0 | 热座隐私遮挡 | GODOT-001、ENG-004 |
@@ -1037,7 +1032,7 @@ Godot headless import
 
 ## 十一、提交策略
 
-长期每个 Gate 应独立提交；**Gate 0+1 本轮按用户要求只创建本地提交，不推送、合并或打标签**。后续获得明确授权后再推送并检查 CI：
+长期每个 Gate 应独立提交。Gate 0+1 曾按要求只创建本地提交；Gate 2 已获得明确授权，可推送 `codex/godot-hotseat-gate2` 检查 CI，但仍不创建 PR、不合并或打标签：
 
 ```text
 docs: align repository with v0.4 Godot route
@@ -1148,6 +1143,9 @@ ci: build and export Godot desktop clients
 ---
 
 ## 十四、正式开工顺序
+
+Gate 0+1 已完成 1～10；Gate 2 完成 11～12 及其四平台 CI 后，下一轮从第 13 项开始。
+以下保留 M1-G 的完整依赖顺序，不表示后续 Godot/UI 已在当前分支实现：
 
 1. 基于 `main@cfdf695` 创建 `codex/godot-hotseat-gate1`；
 2. 更新 README、architecture、roadmap 和 testing；

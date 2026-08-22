@@ -2,11 +2,12 @@
 
 原创 1v1 数字卡牌游戏实验项目。C++20 规则引擎是唯一规则真值；正式客户端路线锁定为 **Godot 4.7.2 .NET** 的桌面单机热座版本。
 
-当前分支完成的是客户端开发前的 **Gate 0+1 加固**：整理构建和文档基线，修复关键状态机边界，并提供观看者安全快照、合法行动查询、统一命令提交和脱敏事件读取。它不包含 C ABI、Godot 场景、正式 UI 或美术。
+当前分支完成客户端开发前的 **Gate 0+1 加固**和 **Gate 2 原生接口**：在观看者安全快照、合法行动查询、统一命令与脱敏事件之上，提供纯 C11、版本化、JSON 载荷的 `scgs_v04` 动态库。它仍不包含 Godot 场景、正式 UI 或美术。
 
 - 规则真值：[`docs/rules-v0.4.md`](docs/rules-v0.4.md)
 - Godot 热座开发计划：[`docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md`](docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md)
 - 当前交接：[`docs/DSH-HANDOFF-v0.4-ui.md`](docs/DSH-HANDOFF-v0.4-ui.md)
+- 原生 API 契约：[`docs/native-api-v04.md`](docs/native-api-v04.md)
 - 架构：[`docs/architecture.md`](docs/architecture.md)
 - 实测记录：[`TEST_REPORT.md`](TEST_REPORT.md)
 
@@ -24,13 +25,15 @@
 - 数据驱动效果；
 - legacy v1 wire 金标字节回归。
 
-面向客户端的 C++ API 只暴露观看者可见信息，并遵循以下循环：
+面向客户端的 C++ API 只暴露观看者可见信息，`scgs_v04` C ABI 将同一契约编码为 UTF-8 JSON；两层都遵循以下循环：
 
 ```text
 快照 → 合法行动/目标/位置/支付查询 → 带 revision 的命令 → 脱敏事件
 ```
 
 成功命令使状态 revision 恰好增加一次；失败或过期命令不得改变状态、事件和 revision。对方手牌、背面伏策以及相关事件不会泄露卡名或稳定实例 ID。
+
+C ABI 不暴露 C++ 类、STL、异常或跨 CRT 内存。动态载荷使用调用方所有的两段式缓冲区，native 错误与规则错误分离，事件继续采用 `viewer + after_sequence` 的非破坏读取。完整契约见 [`docs/native-api-v04.md`](docs/native-api-v04.md)。
 
 Alpha 只承诺现有两副固定牌组的闭环。主战技 UI、普通主动能力、人工同时触发排序和固定牌组未使用关键词延后；同一玩家的同时触发暂按确定性场地顺序处理。
 
@@ -40,6 +43,7 @@ Alpha 只承诺现有两副固定牌组的闭环。主战技 UI、普通主动�
 
 - CMake 3.25 或更高；
 - 支持 C++20 的 GCC、Clang 或 MSVC；
+- 支持 C11 的 C 编译器（原生 consumer 契约测试）；
 - Ninja（使用仓库预设时）；
 - Python 3.10 或更高（默认开启的 legacy YGOPro2 Python 回归测试需要）。
 
@@ -68,7 +72,15 @@ cmake --build --preset asan
 ctest --preset asan
 ```
 
-`SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认 `ON`。开启时配置阶段必须找到 Python 3.10+，不能静默少注册测试；只有明确不验证历史兼容层时才可设为 `OFF`。
+`SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认 `ON`。开启时配置阶段必须找到 Python 3.10+，不能静默少注册测试；只有明确不验证历史兼容层时才可设为 `OFF`。CMake 会按版本与 SHA-256 固定获取 JSON 依赖，不要求系统全局安装。
+
+Gate 2 还可安装到暂存目录以检查真正的消费产物：
+
+```bash
+cmake --install build/release --prefix build/stage
+```
+
+安装内容包含 C 头、ABI/JSON 契约及当前平台的 `scgs_v04` 动态库。
 
 辅助脚本：
 
@@ -82,7 +94,7 @@ Windows 可运行 `scripts/test.ps1`。准确命令、测试数量、断言数�
 ## 目录
 
 ```text
-engine/          C++20 权威规则引擎、客户端安全 API 与测试
+engine/          C++20 权威规则引擎、客户端安全 API、C ABI 与测试
 client/          客户端目录；现有 YGOPro2 内容仅为历史参考
 docs/            规则、架构、路线图、协议和交接文档
 scripts/         构建与压力测试脚本

@@ -1,4 +1,4 @@
-# 工程交接：Gate 0+1 → Godot 热座客户端前置完成
+# 工程交接：Gate 0+1+2 → Godot 热座客户端前置完成
 
 > 现行交接文档。旧 [`DSH-HANDOFF.md`](DSH-HANDOFF.md) 与 [`ygopro-integration.md`](ygopro-integration.md) 是历史归档，不是执行指令。
 
@@ -6,19 +6,20 @@
 
 - 仓库：`Morphling0717/SomeCardGameShit`
 - 起始基线：`main@cfdf695d70eeabcc6de9b094c94041364fb1335f`
-- 实现分支：`codex/godot-hotseat-gate1`
+- Gate 1 提交基线：`codex/godot-hotseat-gate1@f048d11`
+- Gate 2 实现分支：`codex/godot-hotseat-gate2`
 - 规则真值：[`rules-v0.4.md`](rules-v0.4.md)，用户最新明确决定优先于旧文档歧义
 - 详细路线：[`GODOT-HOTSEAT-DEVELOPMENT-PLAN.md`](GODOT-HOTSEAT-DEVELOPMENT-PLAN.md)
 - 构建与实测：[`../TEST_REPORT.md`](../TEST_REPORT.md)
 
-本轮只做 Gate 0+1：文档/构建基线、规则状态机加固和客户端安全 C++ API。不创建 Godot 场景、不实现 C ABI、不增加正式美术或表现 JSON；不修改 legacy v1 wire 字节；不推送、合并或打标签。
+当前交付在 Gate 0+1 的文档/状态机/安全 C++ API 上完成 Gate 2：`scgs_v04` 纯 C11 ABI、版本化 UTF-8 JSON、Windows/Linux/macOS 动态库、安装包与对照测试。不创建 Godot 场景、不增加正式美术或表现 JSON；不修改 legacy v1 wire 字节。功能分支已获准推送验证，但不合并或打标签。
 
 ## 1. 不可推翻的架构决定
 
 ```text
 Godot 4.7.2 .NET（后续）
         ↓
-版本化 C ABI（后续）
+scgs_v04 C11 + JSON（Gate 2）
         ↓
 客户端安全 C++ API（Gate 1）
         ↓
@@ -95,9 +96,20 @@ make_view(viewer)
 - 抽牌、调度、设置伏策等事件按 viewer 脱敏；隐藏文本不得含卡名或稳定实例 ID。
 - UI 遮屏只是额外保护，不能替代引擎层脱敏。
 
-## 6. 验收与限制
+## 6. Gate 2 原生消费边界
 
-必须以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 的实际结果为准，覆盖 MSVC Release、可用环境下的 GCC/Clang sanitizer、Release 2,048 seeds、sanitizer 256 seeds、legacy wire/Python tests 与 `git diff --check`。未推送分支不能声称新 commit 的 GitHub CI 已绿。
+- 规范性头文件是 `engine/include/scgs/native_api_v04.h`，载荷契约见 [`native-api-v04.md`](native-api-v04.md)。
+- `scgs_v04` 是 v0.4 产品线名；ABI 初始 1.0，JSON schema 初始 1。CMake 项目版本不能替代 ABI version。
+- ABI 只暴露固定宽度整数、UTF-8 缓冲区和 64 位 token handle；没有 C++ 类、STL、异常、`size_t`、C `bool` 或跨 CRT 释放。
+- 复杂 DTO 采用调用方所有的两段式 JSON 缓冲区，所需长度包含 NUL，容量不足不部分写。
+- Native 状态与规则 `ErrorCode` 分离；所有枚举使用显式冻结映射，不能直接转发 C++ 底层值。
+- `read_events_json(viewer, after_sequence)` 是非破坏读取；旧计划中的无 viewer `drain_events` 草案无效。
+- 适配层只能调用 Gate 1 的安全 API 并序列化安全 DTO，禁止访问 `PlayerState` 或原始事件后再删字段。
+- 同一 handle 第一版只承诺单线程顺序使用；Godot 后续应在主线程消费。
+
+## 7. 验收与限制
+
+必须以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 的实际结果为准，覆盖 MSVC Release/Debug、GCC Release、Clang ASan/UBSan、macOS ARM64、Release 2,048 seeds、sanitizer 256 seeds、C11 consumer、动态加载/导出审计、legacy wire/Python tests 与 `git diff --check`。只有对应 commit 的远端任务完成后才能声称 CI 已绿。
 
 Alpha 只承诺两副现有固定牌组。以下延后：
 
@@ -109,6 +121,6 @@ Alpha 只承诺两副现有固定牌组。以下延后：
 
 同一玩家同时触发暂按确定性场地顺序，是明确的 alpha 限制。
 
-## 7. 下一步
+## 8. 下一步
 
-确认 Gate 0+1 的本地提交和完整测试后，再单独进入 Gate 2：设计版本化 C ABI。不要直接让 Godot 链接 C++ 类/STL，不要让异常跨语言边界，也不要在 C# 中复制规则。Gate 2 稳定后才创建 Godot 4.7.2 .NET 工程。
+确认 Gate 2 的最终提交、三平台产物和四平台 CI 后，再单独进入 Gate 3：安装锁定的 .NET SDK 10.0.400 与 Godot 4.7.2 .NET，创建最小工程，并通过 P/Invoke 读取第一张真实快照。C# 不复制规则、不解析内部 `PlayerState`，也不得绕过 `scgs_v04` 直接链接 C++ 类/STL。正式 UI 仍从最小原生加载 smoke 之后开始。

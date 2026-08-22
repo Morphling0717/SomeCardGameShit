@@ -13,6 +13,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[2]
 GODOT_PROJECT = ROOT / "client/godot/SomeCardGameShit.csproj"
 NATIVE_LIBRARY_ENVIRONMENTS = ("SCGS_NATIVE_LIBRARY", "SCGS_V04_NATIVE_PATH")
+GODOT_BUILD_CONFIGURATIONS = ("Debug", "Release")
 
 
 def _run(*arguments: str) -> None:
@@ -91,15 +92,16 @@ def main() -> int:
             return 1
         _run("dotnet", "restore", str(project), "--locked-mode", "--nologo")
 
-    _run(
-        "dotnet",
-        "build",
-        str(GODOT_PROJECT),
-        "--configuration",
-        "Release",
-        "--no-restore",
-        "--nologo",
-    )
+    for configuration in GODOT_BUILD_CONFIGURATIONS:
+        _run(
+            "dotnet",
+            "build",
+            str(GODOT_PROJECT),
+            "--configuration",
+            configuration,
+            "--no-restore",
+            "--nologo",
+        )
     for project in test_projects:
         _run(
             "dotnet",

@@ -25,7 +25,6 @@ project/assembly_name="SomeCardGameShit"
 
 [gui]
 
-theme/custom="res://assets/themes/default_theme.tres"
 theme/default_font_multichannel_signed_distance_field=true
 
 [internationalization]

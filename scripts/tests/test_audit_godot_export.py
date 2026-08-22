@@ -27,6 +27,7 @@ from prepare_godot_macos_template import (  # noqa: E402
     TemplatePreparationError,
     prepare_template,
 )
+from run_managed_gate3 import GODOT_BUILD_CONFIGURATIONS  # noqa: E402
 
 
 def _thin_mach_o(cpu: int) -> bytes:
@@ -64,6 +65,9 @@ class GodotExportAuditTests(unittest.TestCase):
         project = (root / "client/godot/project.godot").read_text(
             encoding="utf-8"
         )
+        bootstrap = (
+            root / "client/godot/scenes/bootstrap/Bootstrap.tscn"
+        ).read_text(encoding="utf-8")
 
         self.assertEqual(2, workflow.count("--path client/godot --import"))
         self.assertNotIn("--quit-after 2", workflow)
@@ -78,7 +82,13 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertIn(
             "textures/vram_compression/import_etc2_astc=true", project
         )
+        self.assertNotIn('theme/custom="', project)
+        self.assertIn(
+            'path="res://assets/themes/default_theme.tres"', bootstrap
+        )
+        self.assertIn('theme = ExtResource("2_theme")', bootstrap)
         self.assertIn("prepare_godot_macos_template.py", workflow)
+        self.assertEqual(("Debug", "Release"), GODOT_BUILD_CONFIGURATIONS)
 
     def test_prepare_template_adds_executable_arm64_release(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:

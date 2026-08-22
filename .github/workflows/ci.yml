@@ -167,8 +167,8 @@ jobs:
           --timeout 180
           --forbid-output "SCRIPT ERROR:"
           --forbid-output "ERROR:"
-          -- "$env:GODOT4" --headless --editor
-          --path client/godot --quit-after 2
+          -- "$env:GODOT4" --headless
+          --path client/godot --import
       - name: Godot current-project native smoke
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
@@ -292,6 +292,11 @@ jobs:
       - name: Install verified Godot 4.7.2 .NET toolchain
         id: godot
         run: bash scripts/ci/install_godot_macos.sh
+      - name: Prepare derived Godot ARM64 export template
+        run: >-
+          python scripts/ci/prepare_godot_macos_template.py
+          --source "$HOME/Library/Application Support/Godot/export_templates/4.7.2.stable.mono/macos.zip"
+          --output client/godot/native/macos-arm64/godot_macos_release.arm64.zip
       - name: Stage current-commit native library for Godot
         run: >-
           python scripts/stage_godot_native.py
@@ -311,8 +316,8 @@ jobs:
           --timeout 180
           --forbid-output "SCRIPT ERROR:"
           --forbid-output "ERROR:"
-          -- "$GODOT4" --headless --editor
-          --path client/godot --quit-after 2
+          -- "$GODOT4" --headless
+          --path client/godot --import
       - name: Godot current-project native smoke
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}

@@ -18,6 +18,7 @@ Core/
 /client/godot/exports/
 /client/godot/native/windows-x86_64/*.dll
 /client/godot/native/macos-arm64/*.dylib
+/client/godot/native/macos-arm64/*.zip
 client/YGOPro2Overlay/Library/
 client/YGOPro2Overlay/Temp/
 client/YGOPro2Overlay/Obj/

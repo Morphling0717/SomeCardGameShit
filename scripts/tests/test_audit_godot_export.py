@@ -1,15 +1,19 @@
 # SPDX-License-Identifier: GPL-3.0-or-later
 from __future__ import annotations
 
+import hashlib
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
+import zipfile
 from pathlib import Path
 
 
 SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
+sys.path.insert(0, str(SCRIPTS / "ci"))
 
 from audit_godot_export import (  # noqa: E402
     ExportAuditError,
@@ -17,13 +21,186 @@ from audit_godot_export import (  # noqa: E402
     _audit_licenses,
     _audit_macos_bundle_architectures,
 )
+from prepare_godot_macos_template import (  # noqa: E402
+    ARM64_ENTRY,
+    UNIVERSAL_ENTRY,
+    TemplatePreparationError,
+    prepare_template,
+)
 
 
 def _thin_mach_o(cpu: int) -> bytes:
     return b"\xcf\xfa\xed\xfe" + struct.pack("<I", cpu) + bytes(64)
 
 
+def _fat_mach_o(*cpus: int) -> bytes:
+    entries = b"".join(
+        struct.pack(">IIIII", cpu, 0, 0, 0, 0) for cpu in cpus
+    )
+    return b"\xca\xfe\xba\xbe" + struct.pack(">I", len(cpus)) + entries
+
+
+def _write_template_archive(path: Path, binary: bytes | None) -> str:
+    with zipfile.ZipFile(path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("macos_template.app/Contents/Info.plist", "plist")
+        if binary is not None:
+            entry = zipfile.ZipInfo(UNIVERSAL_ENTRY, date_time=(2026, 8, 22, 0, 0, 0))
+            entry.create_system = 3
+            entry.compress_type = zipfile.ZIP_DEFLATED
+            entry.external_attr = (0o100755) << 16
+            archive.writestr(entry, binary)
+    return hashlib.sha512(path.read_bytes()).hexdigest()
+
+
 class GodotExportAuditTests(unittest.TestCase):
+    def test_ci_waits_for_cold_import_and_uses_official_macos_template_shape(
+        self,
+    ) -> None:
+        root = SCRIPTS.parent
+        workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        preset = (root / "client/godot/export_presets.cfg").read_text(
+            encoding="utf-8"
+        )
+        project = (root / "client/godot/project.godot").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertEqual(2, workflow.count("--path client/godot --import"))
+        self.assertNotIn("--quit-after 2", workflow)
+        self.assertIn('binary_format/architecture="arm64"', preset)
+        self.assertNotIn('binary_format/architecture="universal"', preset)
+        self.assertIn(
+            'custom_template/release="res://native/macos-arm64/'
+            'godot_macos_release.arm64.zip"',
+            preset,
+        )
+        self.assertIn("texture_format/etc2_astc=true", preset)
+        self.assertIn(
+            "textures/vram_compression/import_etc2_astc=true", project
+        )
+        self.assertIn("prepare_godot_macos_template.py", workflow)
+
+    def test_prepare_template_adds_executable_arm64_release(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            source = directory / "macos.zip"
+            output = directory / "derived.zip"
+            expected_hash = _write_template_archive(
+                source, _fat_mach_o(0x01000007, 0x0100000C)
+            )
+            output.write_bytes(b"old output")
+
+            def fake_lipo(_: Path, destination: Path) -> None:
+                destination.write_bytes(_thin_mach_o(0x0100000C))
+
+            digest = prepare_template(
+                source,
+                output,
+                expected_source_sha512=expected_hash,
+                thin_runner=fake_lipo,
+            )
+
+            self.assertEqual(hashlib.sha512(output.read_bytes()).hexdigest(), digest)
+            self.assertNotEqual(b"old output", output.read_bytes())
+            with zipfile.ZipFile(output, "r") as archive:
+                self.assertIn(UNIVERSAL_ENTRY, archive.namelist())
+                matches = [
+                    item
+                    for item in archive.infolist()
+                    if item.filename == ARM64_ENTRY
+                ]
+                self.assertEqual(1, len(matches))
+                self.assertEqual(3, matches[0].create_system)
+                self.assertEqual(0o100755, matches[0].external_attr >> 16)
+                self.assertEqual(
+                    _thin_mach_o(0x0100000C), archive.read(matches[0])
+                )
+
+    def test_prepare_template_rejects_wrong_hash_and_missing_entry(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            source = directory / "macos.zip"
+            output = directory / "derived.zip"
+            expected_hash = _write_template_archive(source, None)
+
+            with self.assertRaisesRegex(TemplatePreparationError, "SHA-512"):
+                prepare_template(
+                    source,
+                    output,
+                    expected_source_sha512="0" * 128,
+                    thin_runner=lambda _source, _destination: None,
+                )
+            with self.assertRaisesRegex(TemplatePreparationError, "exactly one"):
+                prepare_template(
+                    source,
+                    output,
+                    expected_source_sha512=expected_hash,
+                    thin_runner=lambda _source, _destination: None,
+                )
+
+    def test_prepare_template_rejects_non_universal_input(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            source = directory / "macos.zip"
+            output = directory / "derived.zip"
+            expected_hash = _write_template_archive(
+                source, _thin_mach_o(0x0100000C)
+            )
+
+            with self.assertRaisesRegex(TemplatePreparationError, "not an x86_64"):
+                prepare_template(
+                    source,
+                    output,
+                    expected_source_sha512=expected_hash,
+                    thin_runner=lambda _source, _destination: None,
+                )
+
+    def test_prepare_template_rejects_lipo_failure_and_wrong_output(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            source = directory / "macos.zip"
+            output = directory / "derived.zip"
+            expected_hash = _write_template_archive(
+                source, _fat_mach_o(0x01000007, 0x0100000C)
+            )
+            output.write_bytes(b"sentinel")
+
+            def fail_lipo(_: Path, __: Path) -> None:
+                raise subprocess.CalledProcessError(1, ["lipo"])
+
+            with self.assertRaises(subprocess.CalledProcessError):
+                prepare_template(
+                    source,
+                    output,
+                    expected_source_sha512=expected_hash,
+                    thin_runner=fail_lipo,
+                )
+            self.assertEqual(b"sentinel", output.read_bytes())
+
+            def wrong_lipo(_: Path, destination: Path) -> None:
+                destination.write_bytes(_thin_mach_o(0x01000007))
+
+            with self.assertRaisesRegex(TemplatePreparationError, "arm64-only"):
+                prepare_template(
+                    source,
+                    output,
+                    expected_source_sha512=expected_hash,
+                    thin_runner=wrong_lipo,
+                )
+            self.assertEqual(b"sentinel", output.read_bytes())
+
+            def malformed_lipo(_: Path, destination: Path) -> None:
+                destination.write_bytes(b"\xca")
+
+            with self.assertRaisesRegex(TemplatePreparationError, "invalid Mach-O"):
+                prepare_template(
+                    source,
+                    output,
+                    expected_source_sha512=expected_hash,
+                    thin_runner=malformed_lipo,
+                )
+            self.assertEqual(b"sentinel", output.read_bytes())
+
     def test_all_mach_o_files_must_be_arm64_only(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             bundle = Path(temporary) / "Sample.app"

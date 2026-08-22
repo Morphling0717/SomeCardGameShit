@@ -36,7 +36,7 @@ client/godot/native/macos-arm64/libscgs_v04.dylib
 
 托管 resolver 只加载调用方给出的绝对路径，拒绝相对路径、当前目录和 `PATH` 搜索，也拒绝非 Windows x64 / macOS arm64 进程。首次使用验证 ABI 为 `0x00010000`。
 
-Windows 导出把 DLL 放在 EXE 同目录。macOS 导出把 dylib 放在 `.app/Contents/Frameworks`，然后重新进行 ad-hoc codesign。Windows 产品 DLL 默认使用静态 MSVC runtime；制品审计禁止 `MSVCP140*` 和 `VCRUNTIME140*` 导入。
+Windows 导出把 DLL 放在 EXE 同目录。Godot 4.7.2 官方 macOS template 仅提供 universal 引擎文件，因此 CI 从固定哈希的官方 archive 派生一个临时 arm64 release template；preset 仍以 arm64 导出，使 C# 只发布一套 osx-arm64 托管数据。派生 template 不提交且不修改官方缓存。导出后把 dylib 放在 `.app/Contents/Frameworks`，再进行 ad-hoc codesign。Windows 产品 DLL 默认使用静态 MSVC runtime；制品审计禁止 `MSVCP140*` 和 `VCRUNTIME140*` 导入。
 
 导出包同时携带项目 GPL、Godot MIT 与完整 `COPYRIGHT.txt`、.NET 8.0.30 MIT 与第三方声明、nlohmann/json MIT、Noto OFL 和总第三方声明；审计会逐项检查固定标记与嵌入的 .NET runtime 版本。macOS 审计还会递归拒绝 bundle 内任何非 arm64-only 的 Mach-O 文件。
 

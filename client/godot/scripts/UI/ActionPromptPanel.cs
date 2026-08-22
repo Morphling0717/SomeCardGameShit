@@ -41,13 +41,21 @@ public sealed partial class ActionPromptPanel : PanelContainer
         FreeChildren(_buttons);
         foreach (ActionKind action in actions.Distinct().OrderBy(value => (uint)value))
         {
+            bool supported = Enum.IsDefined(action);
             var button = new Button
             {
                 Text = ActionPresentation.FormatAction(action),
                 CustomMinimumSize = new Vector2(0, 42),
-                FocusMode = FocusModeEnum.All,
+                Disabled = !supported,
+                FocusMode = supported ? FocusModeEnum.All : FocusModeEnum.None,
+                TooltipText = supported
+                    ? string.Empty
+                    : "当前客户端版本尚不支持提交此行动。",
             };
-            button.Pressed += () => ActionRequested?.Invoke(action);
+            if (supported)
+            {
+                button.Pressed += () => ActionRequested?.Invoke(action);
+            }
             _buttons.AddChild(button);
         }
 

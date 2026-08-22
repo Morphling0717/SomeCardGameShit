@@ -2,14 +2,18 @@
 
 [ext_resource type="Script" path="res://scripts/UI/SnapshotSlot.cs" id="1_script"]
 
-[node name="SnapshotSlot" type="PanelContainer"]
-custom_minimum_size = Vector2(170, 70)
+[node name="SnapshotSlot" type="Button"]
+custom_minimum_size = Vector2(118, 70)
+focus_mode = 0
+flat = true
 script = ExtResource("1_script")
 
 [node name="SlotLabel" type="Label" parent="."]
 unique_name_in_owner = true
 layout_mode = 2
-theme_override_font_sizes/font_size = 16
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.9, 0.94, 0.95, 1)
+theme_override_font_sizes/font_size = 14
 text = "区域 1\n— 空 —"
 horizontal_alignment = 1
 vertical_alignment = 1

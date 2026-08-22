@@ -1,0 +1,54 @@
+[gd_scene load_steps=8 format=3]
+
+[ext_resource type="Script" path="res://scripts/UI/MatchInteractionDock.cs" id="1_script"]
+[ext_resource type="PackedScene" path="res://scenes/panels/MulliganPanel.tscn" id="2_mulligan"]
+[ext_resource type="PackedScene" path="res://scenes/panels/ActionPromptPanel.tscn" id="3_actions"]
+[ext_resource type="PackedScene" path="res://scenes/panels/ConfirmationPanel.tscn" id="4_confirm"]
+[ext_resource type="PackedScene" path="res://scenes/panels/ReactionPanel.tscn" id="5_reaction"]
+[ext_resource type="PackedScene" path="res://scenes/panels/CardDetailPanel.tscn" id="6_detail"]
+[ext_resource type="PackedScene" path="res://scenes/panels/EventLogPanel.tscn" id="7_events"]
+
+[node name="MatchInteractionDock" type="PanelContainer"]
+custom_minimum_size = Vector2(374, 0)
+script = ExtResource("1_script")
+
+[node name="Margin" type="MarginContainer" parent="."]
+layout_mode = 2
+theme_override_constants/margin_left = 8
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 8
+theme_override_constants/margin_bottom = 8
+
+[node name="Layout" type="VBoxContainer" parent="Margin"]
+layout_mode = 2
+theme_override_constants/separation = 7
+
+[node name="Title" type="Label" parent="Margin/Layout"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.46, 0.86, 0.81, 1)
+theme_override_font_sizes/font_size = 21
+text = "行动与信息"
+
+[node name="MulliganPanel" parent="Margin/Layout" instance=ExtResource("2_mulligan")]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="ActionPromptPanel" parent="Margin/Layout" instance=ExtResource("3_actions")]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="ConfirmationPanel" parent="Margin/Layout" instance=ExtResource("4_confirm")]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="ReactionPanel" parent="Margin/Layout" instance=ExtResource("5_reaction")]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="CardDetailPanel" parent="Margin/Layout" instance=ExtResource("6_detail")]
+unique_name_in_owner = true
+layout_mode = 2
+
+[node name="EventLogPanel" parent="Margin/Layout" instance=ExtResource("7_events")]
+unique_name_in_owner = true
+layout_mode = 2

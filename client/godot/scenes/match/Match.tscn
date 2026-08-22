@@ -1,7 +1,10 @@
-[gd_scene load_steps=3 format=3]
+[gd_scene load_steps=6 format=3]
 
 [ext_resource type="Script" path="res://scripts/Match/MatchScreen.cs" id="1_script"]
 [ext_resource type="PackedScene" path="res://scenes/overlays/PassDeviceOverlay.tscn" id="2_privacy"]
+[ext_resource type="PackedScene" path="res://scenes/panels/MatchInteractionDock.tscn" id="3_dock"]
+[ext_resource type="PackedScene" path="res://scenes/overlays/ResultOverlay.tscn" id="4_result"]
+[ext_resource type="PackedScene" path="res://scenes/overlays/ErrorOverlay.tscn" id="5_error"]
 
 [node name="Match" type="Control"]
 layout_mode = 3
@@ -31,7 +34,7 @@ grow_horizontal = 2
 grow_vertical = 2
 theme_override_constants/margin_left = 28
 theme_override_constants/margin_top = 12
-theme_override_constants/margin_right = 28
+theme_override_constants/margin_right = 420
 theme_override_constants/margin_bottom = 12
 
 [node name="Layout" type="VBoxContainer" parent="SafeMargin"]
@@ -49,13 +52,13 @@ theme_override_constants/margin_right = 18
 
 [node name="HeaderRow" type="HBoxContainer" parent="SafeMargin/Layout/Header/HeaderMargin"]
 layout_mode = 2
-theme_override_constants/separation = 24
+theme_override_constants/separation = 10
 
 [node name="Title" type="Label" parent="SafeMargin/Layout/Header/HeaderMargin/HeaderRow"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.46, 0.86, 0.81, 1)
-theme_override_font_sizes/font_size = 28
-text = "真实引擎快照"
+theme_override_font_sizes/font_size = 22
+text = "热座对战"
 vertical_alignment = 1
 
 [node name="ViewerLabel" type="Label" parent="SafeMargin/Layout/Header/HeaderMargin/HeaderRow"]
@@ -82,9 +85,10 @@ size_flags_horizontal = 3
 
 [node name="ReturnButton" type="Button" parent="SafeMargin/Layout/Header/HeaderMargin/HeaderRow"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(176, 50)
+custom_minimum_size = Vector2(126, 46)
 layout_mode = 2
-text = "返回主菜单"
+theme_override_font_sizes/font_size = 17
+text = "返回菜单"
 
 [node name="OpponentPanel" type="PanelContainer" parent="SafeMargin/Layout"]
 custom_minimum_size = Vector2(0, 112)
@@ -128,6 +132,28 @@ vertical_alignment = 1
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 6
+
+[node name="OpponentControls" type="HBoxContainer" parent="SafeMargin/Layout/OpponentPanel/OpponentMargin/OpponentInfo"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="OpponentLeaderButton" type="Button" parent="SafeMargin/Layout/OpponentPanel/OpponentMargin/OpponentInfo/OpponentControls"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 34)
+layout_mode = 2
+focus_mode = 0
+disabled = true
+theme_override_font_sizes/font_size = 14
+text = "对方主战者"
+
+[node name="OpponentStandbyButton" type="Button" parent="SafeMargin/Layout/OpponentPanel/OpponentMargin/OpponentInfo/OpponentControls"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 34)
+layout_mode = 2
+focus_mode = 0
+disabled = true
+theme_override_font_sizes/font_size = 14
+text = "查看对方战备"
 
 [node name="Board" type="PanelContainer" parent="SafeMargin/Layout"]
 layout_mode = 2
@@ -205,7 +231,7 @@ text = "己方策略区（3 格）"
 horizontal_alignment = 1
 
 [node name="OwnPanel" type="PanelContainer" parent="SafeMargin/Layout"]
-custom_minimum_size = Vector2(0, 64)
+custom_minimum_size = Vector2(0, 96)
 layout_mode = 2
 
 [node name="OwnMargin" type="MarginContainer" parent="SafeMargin/Layout/OwnPanel"]
@@ -229,6 +255,28 @@ unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(0.67, 0.74, 0.78, 1)
 theme_override_font_sizes/font_size = 17
+
+[node name="OwnControls" type="HBoxContainer" parent="SafeMargin/Layout/OwnPanel/OwnMargin/OwnInfo"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="OwnLeaderButton" type="Button" parent="SafeMargin/Layout/OwnPanel/OwnMargin/OwnInfo/OwnControls"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 34)
+layout_mode = 2
+focus_mode = 0
+disabled = true
+theme_override_font_sizes/font_size = 14
+text = "己方主战者"
+
+[node name="OwnStandbyButton" type="Button" parent="SafeMargin/Layout/OwnPanel/OwnMargin/OwnInfo/OwnControls"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 34)
+layout_mode = 2
+focus_mode = 0
+disabled = true
+theme_override_font_sizes/font_size = 14
+text = "查看己方战备"
 
 [node name="HandPanel" type="PanelContainer" parent="SafeMargin/Layout"]
 custom_minimum_size = Vector2(0, 112)
@@ -261,6 +309,28 @@ vertical_scroll_mode = 0
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 12
+
+[node name="InteractionDock" parent="." instance=ExtResource("3_dock")]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 6
+anchor_left = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -400.0
+offset_top = 12.0
+offset_right = -18.0
+offset_bottom = -12.0
+grow_horizontal = 0
+grow_vertical = 2
+
+[node name="ResultOverlay" parent="." instance=ExtResource("4_result")]
+unique_name_in_owner = true
+layout_mode = 1
+
+[node name="ErrorOverlay" parent="." instance=ExtResource("5_error")]
+unique_name_in_owner = true
+layout_mode = 1
 
 [node name="PassDeviceOverlay" parent="." instance=ExtResource("2_privacy")]
 unique_name_in_owner = true

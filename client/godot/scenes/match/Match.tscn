@@ -1,10 +1,14 @@
-[gd_scene load_steps=6 format=3]
+[gd_scene load_steps=10 format=3]
 
 [ext_resource type="Script" path="res://scripts/Match/MatchScreen.cs" id="1_script"]
 [ext_resource type="PackedScene" path="res://scenes/overlays/PassDeviceOverlay.tscn" id="2_privacy"]
 [ext_resource type="PackedScene" path="res://scenes/panels/MatchInteractionDock.tscn" id="3_dock"]
 [ext_resource type="PackedScene" path="res://scenes/overlays/ResultOverlay.tscn" id="4_result"]
 [ext_resource type="PackedScene" path="res://scenes/overlays/ErrorOverlay.tscn" id="5_error"]
+[ext_resource type="PackedScene" path="res://scenes/panels/DirectActionPanel.tscn" id="6_direct"]
+[ext_resource type="PackedScene" path="res://scenes/panels/ReactionPanel.tscn" id="7_reaction"]
+[ext_resource type="Script" path="res://scripts/UI/DirectDropButton.cs" id="8_drop"]
+[ext_resource type="Script" path="res://scripts/UI/TargetingLine.cs" id="9_line"]
 
 [node name="Match" type="Control"]
 layout_mode = 3
@@ -83,6 +87,24 @@ vertical_alignment = 1
 layout_mode = 2
 size_flags_horizontal = 3
 
+[node name="SurrenderButton" type="Button" parent="SafeMargin/Layout/Header/HeaderMargin/HeaderRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(82, 42)
+layout_mode = 2
+focus_mode = 0
+disabled = true
+theme_override_font_sizes/font_size = 15
+text = "投降"
+
+[node name="EndTurnButton" type="Button" parent="SafeMargin/Layout/Header/HeaderMargin/HeaderRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(112, 46)
+layout_mode = 2
+focus_mode = 0
+disabled = true
+theme_override_font_sizes/font_size = 17
+text = "结束回合"
+
 [node name="ReturnButton" type="Button" parent="SafeMargin/Layout/Header/HeaderMargin/HeaderRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(126, 46)
@@ -145,6 +167,7 @@ focus_mode = 0
 disabled = true
 theme_override_font_sizes/font_size = 14
 text = "对方主战者"
+script = ExtResource("8_drop")
 
 [node name="OpponentStandbyButton" type="Button" parent="SafeMargin/Layout/OpponentPanel/OpponentMargin/OpponentInfo/OpponentControls"]
 unique_name_in_owner = true
@@ -203,6 +226,19 @@ theme_override_colors/font_color = Color(0.46, 0.86, 0.81, 1)
 theme_override_font_sizes/font_size = 17
 text = "先手：—  ·  当前行动：—  ·  Seed：—"
 horizontal_alignment = 1
+
+[node name="CastZone" type="Button" parent="SafeMargin/Layout/Board/BoardMargin/BoardRows"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(260, 42)
+layout_mode = 2
+size_flags_horizontal = 4
+focus_mode = 0
+disabled = true
+theme_override_colors/font_color = Color(0.62, 0.91, 0.86, 1)
+theme_override_font_sizes/font_size = 16
+text = "拖到这里施放 / 发动"
+script = ExtResource("8_drop")
 
 [node name="OwnUnits" type="HBoxContainer" parent="SafeMargin/Layout/Board/BoardMargin/BoardRows"]
 unique_name_in_owner = true
@@ -268,6 +304,7 @@ focus_mode = 0
 disabled = true
 theme_override_font_sizes/font_size = 14
 text = "己方主战者"
+script = ExtResource("8_drop")
 
 [node name="OwnStandbyButton" type="Button" parent="SafeMargin/Layout/OwnPanel/OwnMargin/OwnInfo/OwnControls"]
 unique_name_in_owner = true
@@ -323,6 +360,130 @@ offset_right = -18.0
 offset_bottom = -12.0
 grow_horizontal = 0
 grow_vertical = 2
+
+[node name="DirectActionPanel" parent="." instance=ExtResource("6_direct")]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 12
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 230.0
+offset_top = -230.0
+offset_right = -610.0
+offset_bottom = -118.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="StandbyTray" type="PanelContainer" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 12
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 160.0
+offset_top = -252.0
+offset_right = -520.0
+offset_bottom = -116.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="Margin" type="MarginContainer" parent="StandbyTray"]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 8
+
+[node name="Layout" type="VBoxContainer" parent="StandbyTray/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Header" type="HBoxContainer" parent="StandbyTray/Margin/Layout"]
+layout_mode = 2
+
+[node name="StandbyTrayTitle" type="Label" parent="StandbyTray/Margin/Layout/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.62, 0.91, 0.86, 1)
+theme_override_font_sizes/font_size = 17
+text = "战备区"
+
+[node name="CloseStandbyButton" type="Button" parent="StandbyTray/Margin/Layout/Header"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(72, 34)
+layout_mode = 2
+text = "收起"
+
+[node name="StandbyScroll" type="ScrollContainer" parent="StandbyTray/Margin/Layout"]
+layout_mode = 2
+horizontal_scroll_mode = 2
+vertical_scroll_mode = 0
+
+[node name="StandbyCards" type="HBoxContainer" parent="StandbyTray/Margin/Layout/StandbyScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ReactionOverlay" parent="." instance=ExtResource("7_reaction")]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -310.0
+offset_top = -132.0
+offset_right = 310.0
+offset_bottom = 132.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ResolvingShield" type="ColorRect" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.015, 0.025, 0.04, 0.42)
+mouse_filter = 0
+
+[node name="ResolvingLabel" type="Label" parent="ResolvingShield"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -190.0
+offset_top = -34.0
+offset_right = 190.0
+offset_bottom = 34.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.78, 0.95, 0.92, 1)
+theme_override_font_sizes/font_size = 24
+text = "正在结算…"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="TargetingLine" type="Control" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("9_line")
 
 [node name="ResultOverlay" parent="." instance=ExtResource("4_result")]
 unique_name_in_owner = true

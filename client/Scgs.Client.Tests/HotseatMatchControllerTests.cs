@@ -75,8 +75,10 @@ public sealed class HotseatMatchControllerTests
             partial.MulliganCards!.ToArray());
 
         Assert.IsTrue(controller.ConfirmSelection());
-        Assert.IsTrue(controller.State.IsCovered);
+        Assert.AreEqual(HotseatUiMode.Resolving, controller.State.Mode);
+        Assert.IsFalse(controller.State.IsCovered);
         Assert.IsNull(controller.State.Snapshot);
+        Assert.IsNotNull(controller.State.PublicBoard);
         Assert.IsTrue(controller.State.CommandPrepared);
         Assert.IsFalse(controller.ConfirmSelection());
 
@@ -396,7 +398,7 @@ public sealed class HotseatMatchControllerTests
             controller.SelectLegalAction(endTurn);
             Assert.IsTrue(controller.ConfirmSelection());
             Assert.ThrowsExactly<InvalidOperationException>(() => controller.CancelSelection());
-            Assert.AreEqual(HotseatUiMode.Covered, controller.State.Mode);
+            Assert.AreEqual(HotseatUiMode.Resolving, controller.State.Mode);
             Assert.IsNull(controller.State.Snapshot);
             Assert.IsNull(controller.State.Viewer);
             Assert.AreEqual(1, session.SubmittedCommands.Count);
@@ -540,4 +542,374 @@ public sealed class HotseatMatchControllerTests
         Assert.IsFalse(session.Calls.Any(call =>
             call.StartsWith("submit:", StringComparison.Ordinal)));
     }
+
+    [TestMethod]
+    public void SourceFirstSelectionAutoCompletesOnlySafeDefaultsAndRequiresExactSlot()
+    {
+        PaymentPreview payment = HotseatTestModel.Payment(baseCost: 1);
+        LegalAction slot0 = HotseatTestModel.Action(
+            PlayerId.Player0, ActionKind.PlayUnit, 12, source: 100, slot: 0,
+            payment: payment);
+        LegalAction slot1 = HotseatTestModel.Action(
+            PlayerId.Player0, ActionKind.PlayUnit, 12, source: 100, slot: 1,
+            payment: payment);
+        var session = ActionSession(12, [slot0, slot1]);
+        using var controller = new HotseatMatchController(session);
+        controller.Reveal();
+
+        controller.BeginSourceSelection(100);
+
+        Assert.AreEqual(ActionKind.PlayUnit, controller.State.Interaction.Action);
+        Assert.AreEqual(HotseatSelectionStep.ChooseSlot, controller.State.Interaction.Step);
+        Assert.IsTrue(controller.State.Selection.HasTarget);
+        Assert.IsNull(controller.State.Selection.Target);
+        Assert.IsTrue(controller.State.Selection.HasDonor);
+        Assert.IsNull(controller.State.Selection.Donor);
+        Assert.IsTrue(controller.State.Selection.HasAdvanceChoice);
+        Assert.IsFalse(controller.State.Selection.UseAdvance);
+        Assert.IsFalse(controller.State.Selection.HasSlot);
+        Assert.IsNull(controller.State.SelectedAction);
+        Assert.AreSame(payment, controller.State.Interaction.Payment);
+        Assert.IsFalse(controller.PrepareSelectedCommand());
+
+        controller.SelectSlot(1);
+
+        Assert.AreEqual(HotseatSelectionStep.Ready, controller.State.Interaction.Step);
+        Assert.AreSame(slot1, controller.State.Interaction.CanonicalAction);
+        Assert.AreSame(payment, controller.State.Interaction.Payment);
+        Assert.AreEqual(1UL, controller.State.SelectedAction!.Command.Slot);
+    }
+
+    [TestMethod]
+    public void FirstSourceClickNeverPreparesAnOtherwiseCompleteCommand()
+    {
+        LegalAction endTurn = HotseatTestModel.Action(
+            PlayerId.Player0, ActionKind.EndTurn, 18);
+        var session = ActionSession(18, [endTurn]);
+        using var controller = new HotseatMatchController(session);
+        controller.Reveal();
+
+        controller.BeginSourceSelection(0);
+
+        Assert.AreEqual(HotseatSelectionStep.Ready, controller.State.Interaction.Step);
+        Assert.AreSame(endTurn, controller.State.SelectedAction);
+        Assert.AreEqual(HotseatUiMode.Action, controller.State.Mode);
+        Assert.IsFalse(controller.State.CommandPrepared);
+        Assert.IsEmpty(session.SubmittedCommands);
+
+        Assert.IsTrue(controller.PrepareSelectedCommand());
+        Assert.AreEqual(HotseatUiMode.Resolving, controller.State.Mode);
+    }
+
+    [TestMethod]
+    public void MultipleSourceVerbsUseContextChoiceAndStepBackTracksOnlyExplicitChoices()
+    {
+        Target enemyLeader = Target.Leader(PlayerId.Player1);
+        LegalAction attack = HotseatTestModel.Action(
+            PlayerId.Player0, ActionKind.Attack, 20, source: 500, target: enemyLeader);
+        LegalAction evolve = HotseatTestModel.Action(
+            PlayerId.Player0, ActionKind.Evolve, 20, source: 500);
+        var session = ActionSession(20, [attack, evolve]);
+        using var controller = new HotseatMatchController(session);
+        controller.Reveal();
+
+        controller.BeginSourceSelection(500);
+        Assert.AreEqual(HotseatSelectionStep.ChooseAction, controller.State.Interaction.Step);
+        Assert.IsNull(controller.State.Interaction.Action);
+        CollectionAssert.AreEquivalent(
+            new[] { ActionKind.Attack, ActionKind.Evolve },
+            controller.State.Interaction.Actions.ToArray());
+
+        controller.ChooseAction(ActionKind.Attack);
+        Assert.AreEqual(HotseatSelectionStep.ChooseTarget, controller.State.Interaction.Step);
+        Assert.IsTrue(controller.State.Interaction.CanStepBack);
+
+        Assert.IsTrue(controller.StepBackSelection());
+        Assert.AreEqual(HotseatSelectionStep.ChooseAction, controller.State.Interaction.Step);
+        Assert.AreEqual(500UL, controller.State.Interaction.Source);
+        Assert.IsNull(controller.State.Interaction.Action);
+
+        Assert.IsTrue(controller.StepBackSelection());
+        Assert.AreEqual(HotseatSelectionStep.None, controller.State.Interaction.Step);
+        Assert.IsNull(controller.State.Interaction.Source);
+        Assert.IsFalse(controller.State.Interaction.CanStepBack);
+        Assert.IsFalse(controller.StepBackSelection());
+    }
+
+    [TestMethod]
+    public void ForcedAdvanceIsAutoCompletedWhileTheOnlyNonNullTargetStaysExplicit()
+    {
+        Target enemy = Target.UnitTarget(PlayerId.Player1, 620);
+        LegalAction forcedAdvance = HotseatTestModel.Action(
+            PlayerId.Player0, ActionKind.CastSpell, 25, source: 610, target: enemy,
+            useAdvance: true,
+            payment: HotseatTestModel.Payment(baseCost: 2, usedAdvance: true));
+        using var controller = new HotseatMatchController(ActionSession(25, [forcedAdvance]));
+        controller.Reveal();
+
+        controller.BeginSourceSelection(610);
+
+        Assert.AreEqual(ActionKind.CastSpell, controller.State.Interaction.Action);
+        Assert.IsTrue(controller.State.Selection.HasAdvanceChoice);
+        Assert.IsTrue(controller.State.Selection.UseAdvance);
+        Assert.IsFalse(controller.State.Selection.HasTarget);
+        Assert.AreEqual(HotseatSelectionStep.ChooseTarget, controller.State.Interaction.Step);
+        Assert.IsFalse(controller.PrepareSelectedCommand());
+
+        controller.SelectTarget(enemy);
+        Assert.AreEqual(HotseatSelectionStep.Ready, controller.State.Interaction.Step);
+        Assert.AreSame(forcedAdvance, controller.State.Interaction.CanonicalAction);
+    }
+
+    [TestMethod]
+    public void DeploySelectionRequiresDonorSlotTargetThenAdvanceEvenWhenEachIsUnique()
+    {
+        Target enemy = Target.UnitTarget(PlayerId.Player1, 901);
+        LegalAction withoutDonor = HotseatTestModel.Action(
+            PlayerId.Player0, ActionKind.Deploy, 30, source: 700, slot: 0);
+        LegalAction withDonor = HotseatTestModel.Action(
+            PlayerId.Player0, ActionKind.Deploy, 30, source: 700, target: enemy,
+            slot: 0, donor: 800);
+        LegalAction withAdvance = HotseatTestModel.Action(
+            PlayerId.Player0, ActionKind.Deploy, 30, source: 700, target: enemy,
+            slot: 0, donor: 800, useAdvance: true,
+            payment: HotseatTestModel.Payment(usedAdvance: true));
+        var session = ActionSession(30, [withoutDonor, withDonor, withAdvance]);
+        using var controller = new HotseatMatchController(session);
+        controller.Reveal();
+
+        controller.BeginSourceSelection(700);
+        Assert.AreEqual(HotseatSelectionStep.ChooseDonor, controller.State.Interaction.Step);
+
+        controller.SelectDonor(800);
+        Assert.AreEqual(HotseatSelectionStep.ChooseSlot, controller.State.Interaction.Step);
+        Assert.IsFalse(controller.State.Selection.HasSlot);
+
+        controller.SelectSlot(0);
+        Assert.AreEqual(HotseatSelectionStep.ChooseTarget, controller.State.Interaction.Step);
+        Assert.IsFalse(controller.State.Selection.HasTarget);
+
+        controller.SelectTarget(enemy);
+        Assert.AreEqual(HotseatSelectionStep.ChooseAdvance, controller.State.Interaction.Step);
+
+        controller.SelectAdvance(false);
+        Assert.AreEqual(HotseatSelectionStep.Ready, controller.State.Interaction.Step);
+        Assert.AreSame(withDonor, controller.State.SelectedAction);
+
+        Assert.IsTrue(controller.StepBackSelection());
+        Assert.AreEqual(HotseatSelectionStep.ChooseAdvance, controller.State.Interaction.Step);
+        Assert.IsFalse(controller.State.Selection.HasAdvanceChoice);
+    }
+
+    [TestMethod]
+    public void ResolvingUsesNeutralProjectionAndMakesAllPrivateStateUnreachable()
+    {
+        CardView publicUnit = HotseatTestModel.Card(
+            401, PlayerId.Player0, Zone.Unit, "公开单位");
+        CardView ownSecretTrap = HotseatTestModel.Card(
+            402, PlayerId.Player0, Zone.Tactic, "己方绝密伏策", faceDown: true);
+        CardView enemySecretTrap = HotseatTestModel.Card(
+            403, PlayerId.Player1, Zone.Tactic, "敌方绝密伏策", faceDown: true);
+        LegalAction endTurn = HotseatTestModel.Action(
+            PlayerId.Player0, ActionKind.EndTurn, 40);
+        var session = new FakeGameSession
+        {
+            ViewHandler = viewer => HotseatTestModel.View(
+                viewer, 40, MatchPhase.Action, PlayerId.Player0, true, true,
+                [101, 102],
+                player0Units: [publicUnit, null, null, null, null],
+                player0Tactics: [ownSecretTrap, null, null],
+                player1Tactics: [enemySecretTrap, null, null]),
+            ActionsHandler = query => HotseatTestModel.Filter(query, 40, [endTurn]),
+            EventsHandler = (viewer, after) => HotseatTestModel.Events(40, after, 2, viewer),
+        };
+        using var controller = new HotseatMatchController(session);
+        controller.Reveal();
+        controller.SelectLegalAction(endTurn);
+
+        Assert.IsTrue(controller.PrepareSelectedCommand());
+        HotseatUiState state = controller.State;
+
+        Assert.AreEqual(HotseatUiMode.Resolving, state.Mode);
+        Assert.IsNull(state.CoverReason);
+        Assert.IsNull(state.Viewer);
+        Assert.IsNull(state.AwaitingPlayer);
+        Assert.IsNull(state.Snapshot);
+        Assert.IsEmpty(state.LegalActions);
+        Assert.IsEmpty(state.CandidateOptions.Actions);
+        Assert.IsEmpty(state.Events);
+        Assert.IsEmpty(state.PendingEvents);
+        Assert.IsFalse(state.PendingEventLastSequence.HasValue);
+        Assert.AreEqual(HotseatSelectionStep.None, state.Interaction.Step);
+        Assert.IsTrue(state.CommandPrepared);
+        Assert.ThrowsExactly<InvalidOperationException>(() => controller.AcknowledgeEvents());
+
+        HotseatPublicBoardView board = state.PublicBoard!;
+        Assert.AreEqual(40UL, board.Revision);
+        Assert.IsNull(typeof(HotseatPublicPlayerView).GetProperty("Hand"));
+        HotseatPublicCardView projectedUnit = board.Players[0].Units[0]!;
+        Assert.AreEqual(401UL, projectedUnit.InstanceId);
+        Assert.AreEqual("公开单位", projectedUnit.Name);
+
+        HotseatPublicCardView projectedOwnTrap = board.Players[0].Tactics[0]!;
+        HotseatPublicCardView projectedEnemyTrap = board.Players[1].Tactics[0]!;
+        foreach (HotseatPublicCardView trap in new[] { projectedOwnTrap, projectedEnemyTrap })
+        {
+            Assert.IsTrue(trap.FaceDown);
+            Assert.IsNull(trap.InstanceId);
+            Assert.IsNull(trap.DefinitionId);
+            Assert.IsNull(trap.Kind);
+            Assert.AreEqual(string.Empty, trap.Name);
+            Assert.AreEqual(0, trap.Cost);
+            Assert.AreEqual(0, trap.CurrentAttack);
+            Assert.IsFalse(trap.HasKnownIdentity);
+        }
+    }
+
+    [TestMethod]
+    public void DifferentExplicitSelectionOrdersConvergeOnTheSameCanonicalCommand()
+    {
+        Target enemy = Target.UnitTarget(PlayerId.Player1, 991);
+        LegalAction action = HotseatTestModel.Action(
+            PlayerId.Player0, ActionKind.PlayUnit, 50, source: 100, target: enemy,
+            slot: 3);
+
+        using var first = new HotseatMatchController(ActionSession(50, [action]));
+        first.Reveal();
+        first.BeginSourceSelection(100);
+        first.SelectSlot(3);
+        first.SelectTarget(enemy);
+        GameCommandRequest firstCommand = first.State.Interaction.CanonicalAction!.Command;
+
+        using var second = new HotseatMatchController(ActionSession(50, [action]));
+        second.Reveal();
+        second.BeginSourceSelection(100);
+        second.SelectTarget(enemy);
+        second.SelectSlot(3);
+        GameCommandRequest secondCommand = second.State.Interaction.CanonicalAction!.Command;
+
+        Assert.AreEqual(firstCommand, secondCommand);
+        Assert.AreEqual(HotseatSelectionStep.Ready, first.State.Interaction.Step);
+        Assert.AreEqual(HotseatSelectionStep.Ready, second.State.Interaction.Step);
+    }
+
+    [TestMethod]
+    public void FrozenActionKindsEnterThroughTheirExpectedPhaseSourceAndSelectionStep()
+    {
+        Target enemy = Target.UnitTarget(PlayerId.Player1, 9_001);
+        var seen = new List<ActionKind>();
+
+        LegalAction mulligan = HotseatTestModel.Action(
+            PlayerId.Player0,
+            ActionKind.Mulligan,
+            60);
+        using (var controller = new HotseatMatchController(
+                   ActionSession(60, [mulligan], MatchPhase.Mulligan)))
+        {
+            controller.Reveal();
+            Assert.AreEqual(HotseatUiMode.MulliganSelecting, controller.State.Mode);
+            Assert.AreEqual(HotseatSelectionStep.Ready, controller.State.Interaction.Step);
+            Assert.AreEqual(0UL, controller.State.SelectedAction!.Command.Source);
+            Assert.IsFalse(controller.State.CommandPrepared);
+            seen.Add(ActionKind.Mulligan);
+        }
+
+        var cases = new[]
+        {
+            (ActionKind.PlayUnit, MatchPhase.Action, 1_001UL, (Target?)null, (ulong?)2, (ulong?)null,
+                HotseatSelectionStep.ChooseSlot),
+            (ActionKind.CastSpell, MatchPhase.Action, 1_002UL, enemy, (ulong?)null, (ulong?)null,
+                HotseatSelectionStep.ChooseTarget),
+            (ActionKind.PlayTactic, MatchPhase.Action, 1_003UL, (Target?)null, (ulong?)1, (ulong?)null,
+                HotseatSelectionStep.ChooseSlot),
+            (ActionKind.Attack, MatchPhase.Action, 1_004UL, enemy, (ulong?)null, (ulong?)null,
+                HotseatSelectionStep.ChooseTarget),
+            (ActionKind.Evolve, MatchPhase.Action, 1_005UL, (Target?)null, (ulong?)null, (ulong?)null,
+                HotseatSelectionStep.Ready),
+            (ActionKind.Deploy, MatchPhase.Action, 1_006UL, enemy, (ulong?)2, (ulong?)8_001,
+                HotseatSelectionStep.ChooseDonor),
+            (ActionKind.ActivateTrap, MatchPhase.Reaction, 1_007UL, enemy, (ulong?)null, (ulong?)null,
+                HotseatSelectionStep.ChooseTarget),
+            (ActionKind.PassReaction, MatchPhase.Reaction, 0UL, (Target?)null, (ulong?)null, (ulong?)null,
+                HotseatSelectionStep.Ready),
+            (ActionKind.EndTurn, MatchPhase.Action, 0UL, (Target?)null, (ulong?)null, (ulong?)null,
+                HotseatSelectionStep.Ready),
+            (ActionKind.Surrender, MatchPhase.Action, 0UL, (Target?)null, (ulong?)null, (ulong?)null,
+                HotseatSelectionStep.Ready),
+        };
+
+        foreach ((ActionKind kind, MatchPhase phase, ulong source, Target? target,
+                     ulong? slot, ulong? donor, HotseatSelectionStep expectedStep) in cases)
+        {
+            LegalAction action = HotseatTestModel.Action(
+                PlayerId.Player0,
+                kind,
+                60 + (uint)kind,
+                source,
+                target,
+                slot,
+                donor);
+
+            using var controller = new HotseatMatchController(
+                ActionSession(action.Command.ExpectedRevision, [action], phase));
+            controller.Reveal();
+            controller.BeginSourceSelection(source);
+
+            Assert.AreEqual(
+                phase == MatchPhase.Reaction ? HotseatUiMode.Reaction : HotseatUiMode.Action,
+                controller.State.Mode,
+                $"{kind} entered through the wrong hot-seat phase.");
+            Assert.AreEqual(source, controller.State.Interaction.Source, $"{kind} source mapping changed.");
+            Assert.AreEqual(expectedStep, controller.State.Interaction.Step, $"{kind} began at the wrong step.");
+            Assert.IsFalse(controller.State.CommandPrepared, $"{kind} submitted on its first source click.");
+
+            for (int guard = 0; guard < 5 &&
+                 controller.State.Interaction.Step != HotseatSelectionStep.Ready; guard++)
+            {
+                switch (controller.State.Interaction.Step)
+                {
+                    case HotseatSelectionStep.ChooseDonor:
+                        controller.SelectDonor(donor);
+                        break;
+                    case HotseatSelectionStep.ChooseSlot:
+                        controller.SelectSlot(slot);
+                        break;
+                    case HotseatSelectionStep.ChooseTarget:
+                        controller.SelectTarget(target);
+                        break;
+                    case HotseatSelectionStep.ChooseAdvance:
+                        controller.SelectAdvance(action.Command.UseAdvance);
+                        break;
+                    default:
+                        Assert.Fail(
+                            $"{kind} stopped at unexpected step {controller.State.Interaction.Step}.");
+                        break;
+                }
+            }
+
+            Assert.AreEqual(
+                HotseatSelectionStep.Ready,
+                controller.State.Interaction.Step,
+                $"{kind} did not converge to a ready command.");
+            Assert.AreEqual(kind, controller.State.Interaction.Action);
+            Assert.AreSame(action, controller.State.Interaction.CanonicalAction);
+            Assert.IsNotNull(controller.State.Interaction.Payment);
+            seen.Add(kind);
+        }
+
+        ActionKind[] covered = seen.OrderBy(kind => kind).ToArray();
+        CollectionAssert.AreEqual(Enum.GetValues<ActionKind>(), covered);
+    }
+
+    private static FakeGameSession ActionSession(
+        ulong revision,
+        IReadOnlyList<LegalAction> actions,
+        MatchPhase phase = MatchPhase.Action) => new()
+        {
+            ViewHandler = viewer => HotseatTestModel.View(
+                viewer, revision, phase, PlayerId.Player0, true, true, [10]),
+            ActionsHandler = query => HotseatTestModel.Filter(query, revision, actions),
+            EventsHandler = (viewer, after) =>
+                HotseatTestModel.Events(revision, after, after, viewer),
+        };
 }

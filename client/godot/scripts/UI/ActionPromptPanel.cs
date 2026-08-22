@@ -22,6 +22,9 @@ public sealed partial class ActionPromptPanel : PanelContainer
 
     public event Action? CancelRequested;
 
+    internal bool HasSensitiveContentForSmoke =>
+        !string.IsNullOrEmpty(_prompt.Text) || _buttons.GetChildCount() != 0;
+
     public override void _Ready()
     {
         _prompt = GetNode<Label>("%ActionPrompt");

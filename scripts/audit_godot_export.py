@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
-"""Audit a finalized Gate 3B Windows or macOS Godot export."""
+"""Audit a finalized Gate 3C Windows or macOS Godot export."""
 
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
+import os
 import plistlib
+import re
 import struct
 import subprocess
 import sys
@@ -90,7 +92,7 @@ def _audit_dotnet_runtime(directory: Path) -> None:
         )
 
 
-def _audit_licenses(directory: Path) -> None:
+def _audit_licenses(directory: Path, expected_commit: str | None = None) -> None:
     for filename, marker in LICENSE_MARKERS.items():
         path = directory / filename
         if not path.is_file():
@@ -98,10 +100,35 @@ def _audit_licenses(directory: Path) -> None:
         if marker not in path.read_text(encoding="utf-8"):
             raise ExportAuditError(f"packaged notice has unexpected content: {path}")
     build_info = (directory / "BUILD_INFO.txt").read_text(encoding="utf-8")
-    if "SomeCardGameShit Gate 3B" not in build_info:
-        raise ExportAuditError("packaged build info does not identify Gate 3B")
-    if "dotnet_runtime=8.0.30" not in build_info:
+    lines = build_info.splitlines()
+    if not lines or lines[0] != "SomeCardGameShit Gate 3C":
+        raise ExportAuditError("packaged build info does not identify Gate 3C")
+    entries: dict[str, str] = {}
+    for line in lines[1:]:
+        if line.count("=") != 1:
+            raise ExportAuditError("packaged build info contains a malformed field")
+        key, value = line.split("=", 1)
+        if not key or not value or key in entries:
+            raise ExportAuditError("packaged build info contains an empty or duplicate field")
+        entries[key] = value
+    expected_keys = {"commit", "godot", "dotnet_sdk", "dotnet_runtime"}
+    if set(entries) != expected_keys:
+        raise ExportAuditError(
+            f"packaged build info fields differ: {sorted(entries)}"
+        )
+    if entries["godot"] != "4.7.2.stable.mono":
+        raise ExportAuditError("packaged build info has an unexpected Godot version")
+    if entries["dotnet_sdk"] != "10.0.400":
+        raise ExportAuditError("packaged build info has an unexpected .NET SDK")
+    if entries["dotnet_runtime"] != "8.0.30":
         raise ExportAuditError("packaged build info has an unexpected .NET runtime")
+    commit = entries["commit"]
+    if commit != "local" and re.fullmatch(r"[0-9a-fA-F]{40}", commit) is None:
+        raise ExportAuditError("packaged build info has an invalid commit")
+    if expected_commit is not None and commit.lower() != expected_commit.lower():
+        raise ExportAuditError(
+            "packaged build info commit does not match the current GitHub checkout"
+        )
 
 
 def _audit_font_source() -> None:
@@ -138,7 +165,7 @@ def _audit_macos_bundle_architectures(export: Path) -> int:
     return checked
 
 
-def _audit_windows(export: Path) -> None:
+def _audit_windows(export: Path, expected_commit: str | None = None) -> None:
     if not export.is_file() or export.suffix.lower() != ".exe":
         raise ExportAuditError(f"missing Windows executable: {export}")
     if _pe_architecture(export) != "x86_64":
@@ -157,10 +184,10 @@ def _audit_windows(export: Path) -> None:
     foreign = list(export.parent.rglob("libscgs_v04.dylib"))
     if foreign:
         raise ExportAuditError(f"macOS native library leaked into Windows export: {foreign}")
-    _audit_licenses(export.parent / "licenses")
+    _audit_licenses(export.parent / "licenses", expected_commit)
 
 
-def _audit_macos(export: Path) -> None:
+def _audit_macos(export: Path, expected_commit: str | None = None) -> None:
     if not export.is_dir() or export.suffix != ".app":
         raise ExportAuditError(f"missing macOS app bundle: {export}")
     contents = export / "Contents"
@@ -189,7 +216,7 @@ def _audit_macos(export: Path) -> None:
     foreign = list(export.rglob("scgs_v04.dll"))
     if foreign:
         raise ExportAuditError(f"Windows native library leaked into macOS export: {foreign}")
-    _audit_licenses(resources / "licenses")
+    _audit_licenses(resources / "licenses", expected_commit)
 
     subprocess.run(
         ["/usr/bin/codesign", "--verify", "--deep", "--strict", str(export)],
@@ -208,10 +235,11 @@ def main() -> int:
     try:
         export = args.export.resolve(strict=True)
         _audit_font_source()
+        expected_commit = os.environ.get("GITHUB_SHA")
         if args.platform == "windows-x86_64":
-            _audit_windows(export)
+            _audit_windows(export, expected_commit)
         else:
-            _audit_macos(export)
+            _audit_macos(export, expected_commit)
     except (
         AuditError,
         ExportAuditError,

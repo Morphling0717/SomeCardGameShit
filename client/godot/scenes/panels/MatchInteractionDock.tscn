@@ -23,11 +23,23 @@ theme_override_constants/margin_bottom = 8
 layout_mode = 2
 theme_override_constants/separation = 7
 
-[node name="Title" type="Label" parent="Margin/Layout"]
+[node name="TitleRow" type="HBoxContainer" parent="Margin/Layout"]
 layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Title" type="Label" parent="Margin/Layout/TitleRow"]
+layout_mode = 2
+size_flags_horizontal = 3
 theme_override_colors/font_color = Color(0.46, 0.86, 0.81, 1)
 theme_override_font_sizes/font_size = 21
-text = "行动与信息"
+text = "卡牌与记录"
+
+[node name="DockCollapseButton" type="Button" parent="Margin/Layout/TitleRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(68, 36)
+layout_mode = 2
+theme_override_font_sizes/font_size = 14
+text = "收起"
 
 [node name="MulliganPanel" parent="Margin/Layout" instance=ExtResource("2_mulligan")]
 unique_name_in_owner = true

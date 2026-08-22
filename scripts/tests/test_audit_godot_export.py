@@ -89,6 +89,22 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertIn('theme = ExtResource("2_theme")', bootstrap)
         self.assertIn("prepare_godot_macos_template.py", workflow)
         self.assertEqual(("Debug", "Release"), GODOT_BUILD_CONFIGURATIONS)
+        self.assertEqual(6, workflow.count("validate_gate3c_report.py"))
+        self.assertEqual(6, workflow.count("--scenario full-match"))
+        self.assertEqual(6, workflow.count("--expect-output SCGS_GODOT_CI_SMOKE_OK"))
+        self.assertEqual(6, workflow.count("--expect-output-count 1"))
+        self.assertEqual(6, workflow.count("Unhandled exception"))
+        self.assertEqual(2, workflow.count("gate3c-current-project-"))
+        self.assertEqual(2, workflow.count("gate3c-export-"))
+        self.assertEqual(2, workflow.count("gate3c-roundtrip-"))
+        self.assertEqual(
+            4,
+            workflow.count("-DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON"),
+        )
+        self.assertNotIn("validate_gate3b_report.py", workflow)
+        self.assertNotIn("SomeCardGameShit-gate3b-", workflow)
+        self.assertIn("SomeCardGameShit-gate3c-windows-x86_64", workflow)
+        self.assertIn("SomeCardGameShit-gate3c-macos-arm64", workflow)
 
     def test_prepare_template_adds_executable_arm64_release(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -245,9 +261,11 @@ class GodotExportAuditTests(unittest.TestCase):
                 content = marker
                 if filename == "BUILD_INFO.txt":
                     content = (
-                        "SomeCardGameShit Gate 3B\n"
+                        "SomeCardGameShit Gate 3C\n"
+                        "commit=0123456789abcdef0123456789abcdef01234567\n"
                         f"{marker}\n"
-                        "dotnet_runtime=8.0.30"
+                        "dotnet_sdk=10.0.400\n"
+                        "dotnet_runtime=8.0.30\n"
                     )
                 (directory / filename).write_text(content, encoding="utf-8")
             _audit_licenses(directory)
@@ -255,6 +273,55 @@ class GodotExportAuditTests(unittest.TestCase):
             (directory / "Godot-COPYRIGHT.txt").unlink()
             with self.assertRaisesRegex(ExportAuditError, "missing packaged"):
                 _audit_licenses(directory)
+
+    def test_packaged_build_info_is_a_strict_versioned_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            for filename, marker in LICENSE_MARKERS.items():
+                content = marker
+                if filename == "BUILD_INFO.txt":
+                    content = (
+                        "SomeCardGameShit Gate 3C\n"
+                        "commit=local\n"
+                        "godot=4.7.2.stable.mono\n"
+                        "dotnet_sdk=10.0.400\n"
+                        "dotnet_runtime=8.0.30\n"
+                    )
+                (directory / filename).write_text(content, encoding="utf-8")
+
+            _audit_licenses(directory)
+            build_info = directory / "BUILD_INFO.txt"
+            for old, new, message in (
+                ("dotnet_sdk=10.0.400", "dotnet_sdk=10.0.401", "SDK"),
+                ("commit=local", "commit=", "empty"),
+                ("godot=4.7.2.stable.mono", "godot=4.7.1.stable.mono", "unexpected"),
+            ):
+                with self.subTest(field=old):
+                    valid = (
+                        "SomeCardGameShit Gate 3C\n"
+                        "commit=local\n"
+                        "godot=4.7.2.stable.mono\n"
+                        "dotnet_sdk=10.0.400\n"
+                        "dotnet_runtime=8.0.30\n"
+                    )
+                    build_info.write_text(valid.replace(old, new), encoding="utf-8")
+                    with self.assertRaisesRegex(ExportAuditError, message):
+                        _audit_licenses(directory)
+
+            valid = (
+                "SomeCardGameShit Gate 3C\n"
+                "commit=0123456789abcdef0123456789abcdef01234567\n"
+                "godot=4.7.2.stable.mono\n"
+                "dotnet_sdk=10.0.400\n"
+                "dotnet_runtime=8.0.30\n"
+            )
+            build_info.write_text(valid, encoding="utf-8")
+            with self.assertRaisesRegex(ExportAuditError, "GitHub checkout"):
+                _audit_licenses(directory, "f" * 40)
+            _audit_licenses(
+                directory,
+                "0123456789abcdef0123456789abcdef01234567",
+            )
 
 
 if __name__ == "__main__":

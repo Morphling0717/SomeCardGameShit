@@ -7,8 +7,8 @@
 | CMake | 3.25 或更高 | C++ 配置与构建；`CMakePresets.json` schema 6 以 3.25 为最低版本 |
 | C | C11 | `scgs_v04` 公共头与原生 consumer 测试 |
 | C++ | C++20 | 权威规则引擎与 C ABI 适配层 |
-| Python | 3.10 或更高 | legacy YGOPro2 overlay 与协议契约回归测试 |
-| Godot | **4.7.2 .NET** | Gate 3B 桌面热座工程、headless full-match smoke 与导出 |
+| Python | 3.10 或更高 | legacy 兼容、制品审计、超时与 Gate 3B/3C 报告契约测试 |
+| Godot | **4.7.2 .NET** | Gate 3C 桌面热座工程、signal-driven full-match smoke 与导出 |
 | .NET SDK | **10.0.400** | C# 绑定、测试与 Godot 项目；由根目录 `global.json` 精确锁定 |
 
 正式客户端目标仅为 Windows x86-64 与 macOS Apple Silicon。本阶段明确不支持 Web；Godot .NET 的 Web 导出不属于 alpha 承诺，也不得在文档或 CI 中宣称已支持。

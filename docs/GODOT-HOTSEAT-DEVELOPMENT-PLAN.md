@@ -5,20 +5,21 @@
 **Gate 0+1 实现分支：** `codex/godot-hotseat-gate1`
 **Gate 2 实现分支：** `codex/godot-hotseat-gate2`
 **Gate 3A 已验收尖端：** `codex/godot-hotseat-gate3@5158409`
-**Gate 3B 工作分支：** `codex/godot-hotseat-gate3b`
+**Gate 3B 已验收尖端：** `codex/godot-hotseat-gate3b@dd38e93`
+**Gate 3C 工作分支：** `codex/godot-hotseat-gate3c`
 **规则基线：** `docs/rules-v0.4.md`  
-**目标客户端：** Godot 4.7.2 .NET（Gate 3B 源码与自动复验已完成，发布硬门待办）
+**目标客户端：** Godot 4.7.2 .NET（Gate 3C 直接交互与公共结算投影）
 **.NET SDK：** 10.0.400
 **目标平台：** macOS Apple Silicon、Windows x86-64  
 **M1-G 总目标：** 从完整无界面引擎推进到人类可以完整打一局的单机热座版本
 
-> Gate 3B 已在 Gate 3A 上增加纯托管 `Scgs.Hotseat`、完整调度/行动/响应/终局/重开编排、两阶段遮挡提交和渲染后事件 ACK。被测实现 `9845a3f` 的自动整局、Windows/macOS 导出和四项 CI 已通过，结果以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准；物理 Apple Silicon 与两名真人热座仍是发布标签前硬门。项目不支持 Web，未修改 legacy v1 wire 字节，也不在本 Gate 创建 PR、合并或标签。
+> Gate 3B 已建立纯托管 `Scgs.Hotseat` 与完整调度/行动/响应/终局/重开闭环。Gate 3C 把开发式菜单确认流程升级为点击/拖拽战场直操、复杂动作上下文选择与中立公开 `Resolving` 投影；最终自动化、导出和 CI 结果只以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 的同提交实测为准。物理 Apple Silicon 与两名真人热座仍是发布标签前硬门。项目不支持 Web，不修改 legacy v1 wire 字节，也不在本 Gate 创建 PR、合并或标签。
 
 ---
 
 ## 一、开工基线与当前交付
 
-> 本节的“已经完成/尚未完成”首先记录 `main@cfdf695` 的开工审计，便于解释 Gate 1 的来源。Gate 1 已关闭规则边界与客户端安全 API 缺口，Gate 2 完成稳定原生消费边界，Gate 3A 完成 Godot 桌面骨架与首张安全快照，Gate 3B 接入完整操作流程；真人/物理设备验收仍未完成。
+> 本节的“已经完成/尚未完成”首先记录 `main@cfdf695` 的开工审计，便于解释 Gate 1 的来源。Gate 1 已关闭规则边界与客户端安全 API 缺口，Gate 2 完成稳定原生消费边界，Gate 3A 完成 Godot 桌面骨架与首张安全快照，Gate 3B 接入完整操作流程，Gate 3C 负责直接交互加固；真人/物理设备验收仍未完成。
 
 ### 1. 已经完成的部分
 
@@ -319,7 +320,7 @@ Godot Control 场景
         │
         ▼
 C# BootstrapController / MatchScreen
-        │  只渲染状态、传递选择、安排遮挡后的延迟提交
+        │  只渲染状态、传递 intent、安排公共投影后的延迟提交
         ▼
 Scgs.Hotseat / HotseatMatchController
         │  只编排 IScgsGameSession，不判断规则
@@ -350,7 +351,7 @@ C++ Game
 6. 第一版所有引擎调用都在 Godot 主线程；
 7. 第一版不使用 C++ 回调 C#，采用主动轮询；
 8. 两位 viewer 的事件 cursor 独立，只有 Godot 完成事件渲染后才 ACK；
-9. 命令确认先发布完全遮挡状态，Godot 延迟提交后才允许路由下一操作者；
+9. 准备命令先发布中立公开 `Resolving`，完整绘制至少两帧后延迟提交；只有操作者变化才完全遮挡并等待主动揭示；
 10. legacy v1 wire 保留并继续测试，但不作为 Godot 同进程客户端接口。
 
 ---
@@ -680,9 +681,9 @@ Windows 产品 DLL 使用静态 MSVC runtime。macOS 导出临时派生 ARM64 te
 - 每位 viewer 独立的事件 cursor、`PendingEvents` 和渲染后 `AcknowledgeEvents()`；
 - `StaleRevision` 清选重查、engine code 中文化和 native/协议故障状态。
 
-### 两阶段隐私提交
+### 两阶段隐私提交（Gate 3B 历史基线）
 
-`ConfirmSelection()` 只冻结规范命令，立即发布 `Covered(ResolvingCommand)` 并移除可见快照；Godot 先绘制完全不透明遮挡，再用延迟回调执行 `SubmitPreparedCommand()`。提交后只读取提交前 viewer 的结果；若操作者变化，则停在 `Covered(PassingDevice)`，等新玩家主动揭示后才读取其快照/查询/事件。
+Gate 3B 的 `ConfirmSelection()` 会发布 `Covered(ResolvingCommand)`。Gate 3C 已将该现行语义替换为 `PrepareSelectedCommand()` → 中立公开 `Resolving` → 至少两个完整绘制帧 → `SubmitPreparedCommand()`；只有初始揭示与实际换手继续使用 `Covered`。
 
 调度成功后先进入 `MulliganReview`，让原 viewer 查看自己的替换手牌；确认看完后才交给下一席或进入实际先手。响应也按 responder 重复同一遮挡交接，不允许跨 viewer 预读。
 
@@ -929,7 +930,7 @@ validate_invariants()
 - 快照映射；
 - 对方隐藏手牌；
 - `ReactionOrigin` 的 pending/idle shape 与未来 action 降级；
-- 两阶段遮挡提交和新 viewer 揭示前零调用；
+- 中立公开 `Resolving` 投影、两帧提交屏障和新 viewer 揭示前零调用；
 - 调度 selection/review、渐进候选和规范命令匹配；
 - 支付预览与合法行动费用一致，stale revision 清选不自动重提；
 - 两位 viewer cursor 只在 ACK 后独立推进；
@@ -946,7 +947,7 @@ validate_invariants()
 - Match 场景节点路径完整；
 - 原生库能够加载；
 - 揭示前没有 viewer 读取，揭示后能创建比赛并取得安全快照；
-- 两阶段遮挡提交不会在绘制遮挡前执行命令；
+- 命令不会在中立公开 `Resolving` 完整绘制两帧前执行；
 - 调度、普通行动、响应、终局和重开路径能由安全 DTO/查询驱动；
 - 每位 viewer 的事件只在日志渲染后 ACK；
 - 成功标记只出现一次，结构化报告通过严格字段白名单校验；
@@ -1075,8 +1076,8 @@ Gate 3B 被测实现 `9845a3f` 的 run [`32583321294`](https://github.com/Morphl
 | GODOT-001 | 完成 | P0 | 创建 Godot 4 .NET 工程 | ABI-003、CI-001 |
 | GODOT-002 | 完成 | P0 | C# P/Invoke 与库解析 | ABI-002 |
 | UI-001 | 完成 | P0 | 主战场静态布局 | GODOT-001 |
-| HOTSEAT-001 | 完成 | P0 | 双 TFM 热座状态机、两阶段遮挡提交与独立 cursor/ACK | GODOT-002、ENG-004～008 |
-| UI-002 | 完成 | P0 | 首次、持续换手和结算遮挡 | HOTSEAT-001 |
+| HOTSEAT-001 | Gate 3C 开发中 | P0 | 双 TFM 热座状态机、公共结算投影、换手遮挡与独立 cursor/ACK | GODOT-002、ENG-004～008 |
+| UI-002 | Gate 3C 开发中 | P0 | 初始/持续换手遮挡与中立公开结算投影 | HOTSEAT-001 |
 | UI-003 | 完成 | P0 | 基础出牌/攻击/结束回合/投降 | GODOT-002、ENG-005 |
 | UI-004 | 完成 | P0 | 双方调度与替换手牌 review | UI-002、ABI-003 |
 | UI-005 | 完成 | P0 | 预支/燃耗支付预览 | ENG-007、UI-003 |
@@ -1139,7 +1140,7 @@ docs: record Gate 3B implementation and measured validation
 控制：
 
 - 所有高亮来源于合法行动查询；
-- 所有确认窗口来源于支付预览；
+- 所有支付提示来源于支付预览；
 - C# 只显示；
 - 引擎拒绝后立即刷新快照。
 
@@ -1167,8 +1168,9 @@ docs: record Gate 3B implementation and measured validation
 控制：
 
 - viewer-scoped snapshot；
-- 确认命令先进入 `Covered(ResolvingCommand)`，清空当前快照后才延迟提交；
-- 遮挡期间销毁当前手牌 UI；
+- 准备命令先进入 `Resolving`，清空 viewer 私有引用并生成独立的中立公开投影；
+- 公共投影完整绘制至少两帧才提交，期间锁死输入、事件 ACK 和旧 revision 回调；
+- `Resolving` 中双方手牌只保留数量，背面伏策统一匿名，销毁详情/日志/tooltip/metadata/候选；
 - 卡牌详情面板关闭；
 - 新操作者主动揭示前不调用其 view/query/events；
 - 不在日志记录隐藏卡牌名称；
@@ -1238,7 +1240,7 @@ Gate 0+1 已完成 1～10，Gate 2 已完成 11～12，Gate 3A 已完成 13～15
 13. [完成] 创建 Godot 4 .NET 工程；
 14. [完成] 加入 P/Invoke；
 15. [完成] 显示第一张真实引擎快照；
-16. [完成] 调度 review、每次换手和命令结算的两阶段完全遮挡；
+16. [Gate 3B 历史完成] 调度 review、每次换手和命令结算的两阶段完全遮挡；Gate 3C 将命令结算替换为公共投影，只保留真实换手完全遮挡；
 17. [完成] 接入普通单位、法术/策略、攻击、结束回合和投降；
 18. [完成源码] 接入从双方调度到结果/重开的完整基础比赛；
 19. [完成源码] 接入预支、燃耗、裂痕和引擎支付预览；
@@ -1247,5 +1249,32 @@ Gate 0+1 已完成 1～10，Gate 2 已完成 11～12，Gate 3A 已完成 13～15
 22. [Gate 3A 与 Gate 3B 自动复验完成] macOS ARM64 和 Windows x86-64 CI 导出/启动 smoke；
 23. [待办] 在两类机器上完成真人整局测试；
 24. [待办] 标记 `v0.4-hotseat-alpha.1`。
+
+## 十五、Gate 3C：直接交互加固
+
+Gate 3C 基于 `codex/godot-hotseat-gate3b@dd38e93`，不修改 C++ 规则、C ABI、schema 1、14 个导出、固定牌组或 legacy v1 wire。
+
+### 固定操作语义
+
+- 高频动作采用“点击来源 → 点击目的地”或等价拖拽；两条路径进入相同 intent 并得到逐字段相同的规范命令。
+- 第一次点击来源不提交。唯一动作自动进入下一必要步骤，多动作才在来源旁显示上下文按钮。
+- 目标、组件、具体格位和预支是选择步骤；最后一个必要选择完成后立即准备命令，不显示通用确认页。
+- 无目标动作必须再按明确动作按钮；调度整批确认与投降二次确认保留，结束回合直接执行。
+- Esc/右键空白逐步回退；无效拖放原位回弹，不调用 native。
+- 右侧行动列表退出主流程，只保留可折叠详情与事件日志；复杂响应采用居中提示层。
+
+### 新状态与隐私
+
+- `HotseatSelectionStep`、`HotseatInteractionContext` 与选择历史由 `Scgs.Hotseat` 提供；Godot 不解析动作规则。
+- `Resolving` 与 `Covered` 分离。前者只持有不含 viewer 私有引用的 `HotseatPublicBoardView`，后者只用于初始揭示和实际换手。
+- 每次命令准备后必须先完整绘制公共投影至少两帧；期间禁止输入、ACK、重复提交与旧 revision 回调。
+- 同一操作者继续时刷新原 viewer；操作者变化时先完全遮挡，新 viewer 主动揭示前不得调用 view/query/events。
+
+### 自动验收
+
+- 保留 Gate 3B 的 native/managed/整局/导出/ZIP 往返矩阵并新增选择步骤、逐步回退和公共投影隐私测试。
+- Godot full-match 必须通过真实控件 signal 覆盖 `ActionKind` 0～10：第一局自然终局后真实触发结果页重开，第二局再以真实投降 signal 终局；不得直接注入最终 `LegalAction`。
+- Gate 3C smoke 报告使用独立 schema version 2；唯一 marker 仍为 `SCGS_GODOT_CI_SMOKE_OK`。
+- Windows/macOS artifact 改用 `SomeCardGameShit-gate3c-*`；最终真实 run、数量和摘要只写入 `TEST_REPORT.md`。
 
 **历史决策与持续约束：Gate 0+1 先完成文档纠偏、规则回归和客户端查询接口，再进入 UI；后续也必须保持 Godot 只是表现层，不让 C# 逐步长成第二套规则引擎。**

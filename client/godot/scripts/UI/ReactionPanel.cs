@@ -13,10 +13,16 @@ public sealed partial class ReactionPanel : PanelContainer
     private Label _summary = null!;
     private Container _traps = null!;
     private Button _passButton = null!;
+    private readonly Dictionary<SnapshotSlot, Action<SnapshotSlot>> _trapHandlers = new();
 
     public event Action<ulong>? TrapRequested;
 
     public event Action? PassRequested;
+
+    internal bool HasSensitiveContentForSmoke =>
+        !string.IsNullOrEmpty(_summary.Text) ||
+        _traps.GetChildren().OfType<SnapshotSlot>().Any(slot => slot.Visible) ||
+        _trapHandlers.Count != 0 || !_passButton.Disabled;
 
     public override void _Ready()
     {
@@ -42,7 +48,9 @@ public sealed partial class ReactionPanel : PanelContainer
             if (knownId.HasValue)
             {
                 ulong capturedId = knownId.Value;
-                slot.Activated += _ => TrapRequested?.Invoke(capturedId);
+                Action<SnapshotSlot> handler = _ => TrapRequested?.Invoke(capturedId);
+                _trapHandlers.Add(slot, handler);
+                slot.Activated += handler;
             }
             else
             {
@@ -74,6 +82,28 @@ public sealed partial class ReactionPanel : PanelContainer
         Visible = false;
     }
 
+    internal void RequestPassForSmoke()
+    {
+        if (_passButton.Disabled)
+        {
+            throw new InvalidOperationException("The reaction pass button is unavailable.");
+        }
+        _passButton.EmitSignal(Button.SignalName.Pressed);
+    }
+
+    internal void RequestTrapForSmoke(ulong instanceId)
+    {
+        SnapshotSlot? trap = _traps.GetChildren()
+            .OfType<SnapshotSlot>()
+            .FirstOrDefault(slot => slot.Visible && slot.KnownInstanceId == instanceId);
+        if (trap is null || trap.Disabled)
+        {
+            throw new InvalidOperationException(
+                $"Reaction trap {instanceId} is unavailable in the centered overlay.");
+        }
+        trap.EmitSignal(Button.SignalName.Pressed);
+    }
+
     private static string FormatWindow(ReactionWindow window) => window switch
     {
         ReactionWindow.SpellDeclared => "法术宣言",
@@ -83,15 +113,21 @@ public sealed partial class ReactionPanel : PanelContainer
         _ => $"未知（{(uint)window}）",
     };
 
-    private static void FreeChildren(Node parent)
+    private void FreeChildren(Node parent)
     {
         foreach (Node child in parent.GetChildren())
         {
             if (child is SnapshotSlot slot)
             {
+                if (_trapHandlers.Remove(slot, out Action<SnapshotSlot>? handler))
+                {
+                    slot.Activated -= handler;
+                }
                 slot.ClearSensitive();
+                slot.Visible = false;
             }
-            child.Free();
+            child.QueueFree();
         }
+        _trapHandlers.Clear();
     }
 }

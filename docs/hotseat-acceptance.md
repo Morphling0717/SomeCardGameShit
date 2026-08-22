@@ -1,81 +1,71 @@
-# Gate 3B 热座 Alpha 验收
+# Gate 3C 直接交互热座验收
 
-本清单把“源码已接入”“自动化已通过”和“真人/物理设备已验收”分开记录。勾选只能依据同一提交上的实现、测试日志或人工记录；不能用计划文字、headless smoke 或 CI 架构审计代替真人热座与物理 Mac 验收。准确运行结果以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准。
+本清单把 Gate 3B 已验收基线、Gate 3C 源码契约、自动化结果与真人/物理设备验收分开记录。勾选只能依据同一提交的实现、测试日志或人工记录；准确运行数量与远端 CI 状态只以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准。
 
-## 已建立的 Gate 3A 基线
+## 必须保留的 Gate 3B 基线
 
-- [x] `.NET SDK 10.0.400`、Godot 4.7.2 .NET、locked restore 与桌面导出工具链；
-- [x] `Scgs.Client` 的 14 个 ABI 绑定、严格 UTF-8/缓冲边界、schema 1 DTO、SafeHandle 和 native/engine 错误分层；
-- [x] Windows x64 / macOS arm64 同提交原生库暂存、导出布局、架构与许可证审计；
-- [x] create/start 后先遮挡，首次主动揭示前不读取 Player0 快照；
-- [x] 自己手牌完整、对方手牌与背面伏策脱敏的首张真实快照。
+- [x] Godot 4.7.2 .NET、.NET SDK 10.0.400、locked restore 与 Windows x64/macOS arm64 导出链；
+- [x] `Scgs.Client` 的 ABI 1.0/schema 1/14 导出、安全 JSON/UTF-8/handle 和 native/engine 错误分层；
+- [x] `Scgs.Hotseat` 只依赖 `IScgsGameSession`，Godot 不复制规则；
+- [x] 双方调度、行动、响应、终局/重开源码闭环和两位 viewer 独立事件 cursor/ACK；
+- [x] 初始及换手完全遮挡，主动揭示前新 viewer 调用为零；
+- [x] 自己手牌完整、对方手牌与背面伏策脱敏；
+- [x] native、managed、Godot 整局、桌面导出、ZIP 往返审计与启动回归均继续保留。
 
-Gate 3A 的历史通过结论不自动证明 Gate 3B 的完整交互仍然通过；Gate 3B 必须重新跑完整矩阵。
+Gate 3B 的历史通过不能证明 Gate 3C 的交互或公共投影安全；Gate 3C 必须在最终尖端重新跑完整矩阵。
 
-## Gate 3B 源码契约
+## Gate 3C 源码契约
 
-### 编排与隐私
+### 选择与命令
 
-- [x] 新增无 Godot 依赖、双 TFM（`net8.0` / `net10.0`）的 `Scgs.Hotseat`；
-- [x] `HotseatMatchController` 只依赖 `IScgsGameSession`，Godot 不复制费用、目标、响应或胜负规则；
-- [x] `Covered`、`MulliganSelecting`、`MulliganReview`、`Action`、`Reaction`、`Finished`、`Faulted`、`Disposed` 有明确状态；
-- [x] 调度、普通行动和响应都采用“准备命令 → 清敏感数据并完全遮挡 → Godot 延迟提交”的两阶段路径；
-- [x] 操作者变化后不读取新 viewer，必须等下一位主动揭示；
-- [x] 对方手牌/背面伏策的 UI 节点不保存身份、tooltip 或稳定 metadata；
-- [x] 每位 viewer 独立保存事件 cursor，事件渲染完成后显式 ACK 才推进；
-- [x] 返回菜单、错误恢复与重开路径释放旧 session，重复 dispose 安全。
+- [ ] `HotseatUiMode.Resolving` 与 `Covered` 分离；选择公开 `HotseatSelectionStep` 和 `HotseatInteractionContext`；
+- [ ] 来源、动作、目标、格位、组件与预支只过滤同 revision 的引擎 `LegalAction`，不拼第二套命令；
+- [ ] 点击与拖拽进入同一 intent，最终得到逐字段相等的 `GameCommandRequest`；
+- [ ] 第一次点击来源不提交；单一动作直接进入下一选择，多动作才显示来源旁上下文按钮；
+- [ ] 最后一个必要目标/格位/组件选择后立即准备命令，不出现通用确认页；
+- [ ] 无目标动作要求明确动作按钮；调度整批确认、投降二次确认、结束回合直接执行；
+- [ ] `StepBackSelection` 逐个撤销显式步骤，自动补全不占历史；完整取消才清空来源；
+- [ ] 无效拖放不调用 native，不改变 revision、事件或游标；
+- [ ] 支付提示完全来自 `PreviewPayment`，预支/燃耗/容量/裂痕变化醒目但不追加确认。
 
-### 完整操作闭环
+### 战场输入与反馈
 
-- [x] 双方可选择任意起手牌调度，并在提交后查看自己的替换手牌再交接；
-- [x] 手牌、单位、策略、战备、主战者和空位均可由 DTO/合法行动候选驱动选择；
-- [x] 单位、法术、设施、伏策、攻击、结束回合与投降使用统一 `GameCommand` 提交；
-- [x] 目标、单位/策略位置、部署组件来源与预支选择逐步缩小引擎候选；
-- [x] 支付确认显示 PP 及有变化的容量/裂痕/进化能量，并标出燃耗/预支构成，且只接受同 revision 预览；
-- [x] 进化、部署和组件选择走合法查询，不在 C# 重算条件；
-- [x] 响应页显示公开 origin、当前 responder、可发动伏策与“不过”；反制后的下一 responder 重新遮挡；
-- [x] 终局显示胜负/平局，提供重开和返回菜单；规则错误、native 错误与协议错误分层展示；
-- [x] 中文行动、事件与规则错误文本由 DTO/冻结 code 映射生成，未知未来值有受控降级。
+- [ ] 手牌、场上单位/策略、战备、主战者与空位可直接点击或拖拽，高亮不只依赖颜色；
+- [ ] 攻击显示目标连线，放置显示幽灵牌，部署显示组件及成本；
+- [ ] 右栏只承载可折叠详情/日志，不再列出主行动流程；
+- [ ] 悬停显示详情，右键固定详情或在空白处回退，Esc 与键盘确认路径可用；
+- [ ] 响应以居中上下文层显示公开 origin、合法伏策/目标与“不过”。
 
-### 引擎客户端安全补强
+### Resolving 与热座隐私
 
-- [x] `PaymentPreview` 是严格费用投影，不执行卡牌效果，也不通过隐藏伏策改变结果；
-- [x] 响应上下文公开 `ReactionOrigin`，pending 必有、非 pending 省略；
-- [x] ABI 仍为 1.0、schema 仍为 1、导出仍精确 14 个，legacy v1 wire 字节不变。
+- [ ] 命令准备后先绘制至少两个完整帧的 `HotseatPublicBoardView`，期间输入、ACK、重复提交和旧 revision 回调全部锁死；
+- [ ] 公共投影中双方手牌只有数量，所有背面伏策匿名，且没有详情、日志、tooltip、metadata、候选或私密回调；
+- [ ] `Resolving` 内 `Snapshot`、`Viewer`、`LegalActions` 与 `PendingEvents` 为空，不保留 viewer DTO/节点引用；
+- [ ] 同一操作者继续时才刷新原 viewer；操作者变化立即完全遮挡，新 viewer 主动揭示前调用为零；
+- [ ] engine 拒绝回到刷新后的原 viewer 状态，native/协议故障先清私密状态再进入受控错误页。
 
-## 自动化复验（本分支必须重新完成）
+## 最终提交自动化
 
-以下项目只有在最终提交上有真实输出后才能勾选；不要在 CI 尚未结束时提前修改：
+以下项目在最终提交有真实输出后才能勾选：
 
-- [x] MSVC Release、GCC Release、Clang ASan/UBSan 与 AppleClang ARM64 的原生矩阵全绿；
-- [x] 2,048-seed Release 与 256-seed sanitizer 压力、legacy wire/Python、精确 14 导出和 `git diff --check` 通过；
-- [x] managed 单元测试覆盖两阶段遮挡、调度 review、渐进候选、支付一致、stale revision、响应换手、独立 cursor/ACK、未知值与 dispose；
-- [x] 同提交真实动态库测试只经安全接口完成 8 局固定牌组/先手矩阵自然终局及独立投降终局，并覆盖双 viewer 隐私；
-- [ ] Godot 结果页通过真实按钮 signal 完成随机重开、再次终局、返回菜单与受控错误恢复；
-- [x] Godot 冷导入、四个主场景及新增面板/overlay 实例化无 C# exception/Godot error；
-- [x] 当前工程与 Windows/macOS 导出各自只输出一次 `SCGS_GODOT_CI_SMOKE_OK`，并生成通过严格 schema 校验的 Gate 3B 报告；
-- [x] 导出包完成解包后再次审计和真实启动，不只检查压缩前目录；
-- [x] Windows x86-64 与 macOS arm64 Gate 3B artifact 名称、架构、native 布局、许可证和 SHA-256 已记录。
+- [ ] GCC Release、Clang ASan/UBSan、MSVC Release 与 AppleClang ARM64 四项原生矩阵全绿；
+- [ ] 2,048-seed Release、256-seed sanitizer、legacy wire/Python、精确 14 导出和 `git diff --check` 通过；
+- [ ] managed 测试覆盖每种动作的选择步骤、自动补全、逐步回退、规范命令收敛、支付与公共投影隐私；
+- [ ] Godot 通过真实控件 signal 覆盖调度、出牌、攻击、进化、部署、伏策发动/不过、结束回合、投降、终局和重开；
+- [ ] 点击/拖拽路径产生相同规范命令；最后必要选择后无通用确认；
+- [ ] 恶意私密 DTO 不能泄露到 `Resolving` 的截图、节点 metadata、tooltip 或回调；
+- [ ] Gate 3C schema v2 报告严格通过：`action_kinds` 为 0～10、`gate="3C"`、三项直接交互布尔为 true、`resolving_public_frames>=2`、两类泄露计数为 0、`restarts>=1`、`surrender_terminals>=1`、`disposed_sessions>=2`；
+- [ ] 当前工程、Windows/macOS 导出及 ZIP 解包后启动各只输出一次 `SCGS_GODOT_CI_SMOKE_OK`；
+- [ ] artifact 使用 `SomeCardGameShit-gate3c-windows-x86_64` 与 `SomeCardGameShit-gate3c-macos-arm64`，架构、native 布局、许可证和摘要已记录。
 
-## 必跑的 Gate 3B 场景
+## 视觉与人工验收
 
-自动化报告与人工观察合并后至少覆盖：
+- [ ] 1600×900 与 1280×720 的主要选择/响应/结算/换手状态无重叠，中文完整可读；
+- [ ] 两名真人完成一局并确认直接操作可理解、公共结算不泄露、每次实际换手完全遮挡；
+- [ ] 物理 Apple Silicon Mac 完成整局、退出和重开；
+- [ ] 未安装 Visual Studio 的 Windows x86-64 机器启动导出包并完成整局；
+- [ ] 人工发现的问题加入回归并重跑完整矩阵；以上完成后才允许 `v0.4-hotseat-alpha.1` 标签。
 
-- [ ] `privacy-mulligan`：揭示前零 viewer 读取、两席调度、替换手牌 review、每次交接全遮挡；
-- [x] `full-match`：固定牌组从 Mulligan 打到唯一自然终局，包含所有非投降行动种类；由 CI helper 驱动合法行动，不代表 Godot Button signal E2E；
-- [ ] `resources`：预支、燃耗、裂痕/修复/增长及支付预览与实际资源变化一致；
-- [ ] `evolve-deploy`：进化、战备部署、位置和组件来源选择；
-- [ ] `reaction`：设施/伏策、公开 origin、发动/不过、反制换手和 LIFO 结果；
-- [ ] `terminal-restart`：结果遮挡、旧 session 释放、随机配置重开、返回菜单和受控错误恢复。
+## Gate 3C 之外
 
-## 发布标签前硬门（当前未完成）
-
-- [ ] 在物理 Apple Silicon Mac 上运行未正式签名的 arm64 `.app`，完成整局、退出并重开；
-- [ ] 两名真人在目标桌面构建上完成一局，逐次确认“遮挡 → 交接 → 主动揭示”，无旁观者手牌/伏策/日志泄露；
-- [ ] 至少一台未安装 Visual Studio 的 Windows x86-64 机器验证导出包可启动并完成整局；
-- [ ] 对真人测试发现的问题完成回归并重跑自动化矩阵；
-- [ ] 上述硬门完成后才允许创建 `v0.4-hotseat-alpha.1` 标签。
-
-## 明确不在 Gate 3B
-
-主战技、普通主动能力、同时触发人工排序、固定牌组未使用关键词、正式卡图/音效/动画、独立正式表现 JSON、Developer ID 签名与公证、Web/Linux 正式客户端、联机、录像和卡组编辑均延后。同一玩家的同时触发继续使用确定性场地顺序，并作为 Alpha 限制公开记录。
+正式卡图/音效/复杂动画、触摸/手柄、主战技、普通主动能力、同时触发人工排序、固定牌组未使用关键词、独立正式表现 JSON、Developer ID 签名/公证、Web/Linux 正式客户端、联机、录像和卡组编辑均延后。同一玩家同时触发继续使用确定性场地顺序，并作为 Alpha 限制公开记录。

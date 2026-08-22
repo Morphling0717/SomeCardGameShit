@@ -5,7 +5,7 @@ using Scgs.Hotseat;
 
 namespace Scgs.GodotClient.Ci;
 
-internal sealed record Gate3BSmokeOutcome(
+internal sealed record Gate3CSmokeOutcome(
     MatchView FinalView,
     int Steps,
     int Turns,
@@ -13,9 +13,16 @@ internal sealed record Gate3BSmokeOutcome(
     int Covers,
     int Reveals,
     int PrematureViewerCalls,
-    int DisposedSessions);
+    int DisposedSessions,
+    bool SignalE2e,
+    bool ClickDragCanonicalParity,
+    bool SelectionCommitWithoutConfirmation,
+    int ResolvingPublicFrames,
+    int ResolvingPrivateLeaks,
+    int Restarts,
+    int SurrenderTerminals);
 
-internal sealed class Gate3BFullMatchSmoke
+internal sealed class Gate3CFullMatchSmoke
 {
     private const int MaximumCommandsPerMatch = 1200;
     private const int MaximumFramesPerTransition = 600;
@@ -33,17 +40,25 @@ internal sealed class Gate3BFullMatchSmoke
 
     private readonly MatchScreen match;
     private readonly Func<Task> nextFrame;
+    private readonly string? resolvingScreenshotPath;
     private readonly HashSet<ActionKind> submittedKinds = [];
     private readonly HashSet<(PlayerId Player, int OwnTurn)> reactionProbeTurns = [];
     private int endTurnCount;
+    private bool parityProbed;
+    private bool layoutProbed;
+    private bool privacySentinelProbed;
 
-    internal Gate3BFullMatchSmoke(MatchScreen match, Func<Task> nextFrame)
+    internal Gate3CFullMatchSmoke(
+        MatchScreen match,
+        Func<Task> nextFrame,
+        string? resolvingScreenshotPath = null)
     {
         this.match = match ?? throw new ArgumentNullException(nameof(match));
         this.nextFrame = nextFrame ?? throw new ArgumentNullException(nameof(nextFrame));
+        this.resolvingScreenshotPath = resolvingScreenshotPath;
     }
 
-    internal async Task<Gate3BSmokeOutcome> RunAsync()
+    internal async Task<Gate3CSmokeOutcome> RunAsync()
     {
         while (match.CiSuccessfulSubmissionCount < MaximumCommandsPerMatch)
         {
@@ -53,6 +68,11 @@ internal sealed class Gate3BFullMatchSmoke
             {
                 case HotseatUiMode.Covered:
                     await RevealCoveredViewerAsync(state);
+                    break;
+                case HotseatUiMode.Resolving:
+                    await WaitUntilAsync(
+                        () => match.CiState.Mode != HotseatUiMode.Resolving,
+                        "the public resolving projection did not advance");
                     break;
                 case HotseatUiMode.MulliganSelecting:
                     await SubmitMulliganAsync(state);
@@ -84,13 +104,8 @@ internal sealed class Gate3BFullMatchSmoke
     {
         if (!covered.AwaitingPlayer.HasValue)
         {
-            // A resolving-command cover is advanced only by MatchScreen's own
-            // two-frame deferred submit path. The external driver never bypasses it.
-            await WaitUntilAsync(
-                () => match.CiState.Mode != HotseatUiMode.Covered ||
-                      match.CiState.AwaitingPlayer.HasValue,
-                "the resolving-command cover did not advance");
-            return;
+            throw new InvalidOperationException(
+                "Gate 3C Covered state must name the viewer awaiting reveal.");
         }
 
         if (!match.IsPrivacyCoverVisible || match.HasPresentedSnapshot)
@@ -131,7 +146,9 @@ internal sealed class Gate3BFullMatchSmoke
                 "The mulligan UI did not present the exact empty replacement command.");
         }
 
-        await ConfirmAndWaitForSubmissionAsync(ActionKind.Mulligan);
+        await SubmitAndWaitAsync(
+            ActionKind.Mulligan,
+            match.ConfirmCurrentSelectionForCi);
     }
 
     private async Task CompleteMulliganReviewAsync(HotseatUiState state)
@@ -152,44 +169,78 @@ internal sealed class Gate3BFullMatchSmoke
         ValidateVisibleSnapshot(state);
         await WaitForRenderedEventsAsync();
         state = match.CiState;
+        if (!layoutProbed)
+        {
+            if (!match.VerifyDockCollapseForCi() ||
+                !MatchScreen.ValidateReferenceLayoutForCi(1600, 900) ||
+                !MatchScreen.ValidateReferenceLayoutForCi(1280, 720))
+            {
+                throw new InvalidOperationException(
+                    "The collapsible dock or reference-resolution layout contract failed.");
+            }
+            layoutProbed = true;
+        }
         MatchView view = state.Snapshot ??
             throw new InvalidOperationException("A command state is missing its safe snapshot.");
         LegalAction selected = SelectCommand(state.LegalActions, view, view.Viewer) ??
             throw new InvalidOperationException(
                 $"The selector found no non-surrender command at revision {view.Revision}.");
 
-        match.SelectLegalActionForCi(selected);
-        await WaitUntilAsync(
-            () => match.CiState.SelectedAction is not null && match.CiConfirmationVisible,
-            $"the confirmation panel did not render for {selected.Command.Action}");
-        if (!Equals(match.CiState.SelectedAction?.Command, selected.Command))
+        if (!parityProbed)
         {
-            throw new InvalidOperationException("The confirmation panel is bound to a different legal command.");
+            LegalAction[] dragCandidates = state.LegalActions.Where(action =>
+                action.Command.Source != 0 &&
+                action.Command.ComponentDonor is null &&
+                (action.Command.Target is { Kind: TargetKind.Unit } ||
+                 action.Command.Slot.HasValue)).ToArray();
+            LegalAction? probe = dragCandidates.FirstOrDefault(action =>
+                                     action.Command.Target is { Kind: TargetKind.Unit } &&
+                                     action.Command.Slot.HasValue) ??
+                                 dragCandidates.FirstOrDefault();
+            if (probe is not null)
+            {
+                if (!match.VerifyCancelledDragNoSideEffectsForCi(probe) ||
+                    !match.VerifyClickDragParityForCi(probe))
+                {
+                    throw new InvalidOperationException(
+                        "Click/drag parity or cancelled-drag side-effect probe failed.");
+                }
+                parityProbed = true;
+                state = match.CiState;
+                selected = SelectCommand(state.LegalActions, state.Snapshot!, state.Snapshot!.Viewer) ??
+                    throw new InvalidOperationException("No command remained after the parity probe.");
+            }
         }
 
-        await ConfirmAndWaitForSubmissionAsync(selected.Command.Action);
+        LegalAction captured = selected;
+        if (!privacySentinelProbed)
+        {
+            match.ArmResolvingPrivacySentinelForCi(resolvingScreenshotPath);
+            privacySentinelProbed = true;
+        }
+        await SubmitAndWaitAsync(
+            selected.Command.Action,
+            () => match.SubmitLegalActionThroughSignalsForCi(captured));
     }
 
-    private async Task ConfirmAndWaitForSubmissionAsync(ActionKind expectedAction)
+    private async Task SubmitAndWaitAsync(ActionKind expectedAction, Action submitThroughUi)
     {
         int before = match.CiSubmissionCount;
-        int coverCount = match.CiCoverPresentationCount;
-        match.ConfirmCurrentSelectionForCi();
-        if (!match.IsPrivacyCoverVisible || match.CiState.Mode != HotseatUiMode.Covered ||
-            match.CiState.CoverReason != HotseatCoverReason.ResolvingCommand ||
-            match.CiCoverPresentationCount != coverCount + 1)
+        submitThroughUi();
+        if (match.IsPrivacyCoverVisible || match.CiState.Mode != HotseatUiMode.Resolving ||
+            match.CiState.PublicBoard is null || match.CiResolvingPrivateLeakCount != 0)
         {
             throw new InvalidOperationException(
-                $"{expectedAction} was not protected by a resolving-command cover.");
+                $"{expectedAction} did not enter a leak-free public resolving projection.");
         }
 
-        // MatchScreen promises at least one complete process frame with the
-        // cover visible before it calls SubmitPreparedCommand.
+        // The native command may run only after the public projection has
+        // survived two complete process frames.
         await nextFrame();
         if (match.CiSubmissionCount != before)
         {
             throw new InvalidOperationException(
-                $"{expectedAction} was submitted before the cover survived a complete frame.");
+                $"{expectedAction} was submitted before the public board survived a complete frame.");
         }
 
         await WaitUntilAsync(
@@ -214,7 +265,7 @@ internal sealed class Gate3BFullMatchSmoke
             $"the post-{expectedAction} UI state was not rendered");
     }
 
-    private async Task<Gate3BSmokeOutcome> CompleteAsync(HotseatUiState state)
+    private async Task<Gate3CSmokeOutcome> CompleteAsync(HotseatUiState state)
     {
         await WaitUntilAsync(
             () => match.HasPresentedSnapshot && match.CiResultVisible,
@@ -236,7 +287,19 @@ internal sealed class Gate3BFullMatchSmoke
             match.CiPassingDeviceCoverCount == 0 ||
             match.CiRevealRequestCount < 2 ||
             match.CiEventAcknowledgeCount == 0 ||
-            endTurnCount == 0)
+            endTurnCount == 0 ||
+            !parityProbed ||
+            !layoutProbed ||
+            !privacySentinelProbed ||
+            !match.CiPrivacySentinelVerified ||
+            (resolvingScreenshotPath is not null && !match.CiResolvingScreenshotCaptured) ||
+            !match.CiCancelledDragNoSideEffects ||
+            !match.CiSourceAdjacentPanelVerified ||
+            !match.CiSignalE2e ||
+            !match.CiClickDragCanonicalParity ||
+            !match.CiSelectionCommitWithoutConfirmation ||
+            match.CiMinimumResolvingFrames < 2 ||
+            match.CiResolvingPrivateLeakCount != 0)
         {
             throw new InvalidOperationException(
                 "The deterministic UI match did not exercise every non-surrender action, " +
@@ -254,13 +317,7 @@ internal sealed class Gate3BFullMatchSmoke
         int reveals = match.CiRevealRequestCount;
         int premature = match.CiPrematureViewerCallCount;
         ActionKind[] actionKinds = submittedKinds.OrderBy(action => action).ToArray();
-        match.DisposeForCiSmoke();
-        if (match.CiDisposedSessionCount < 1)
-        {
-            throw new InvalidOperationException("The terminal UI match did not dispose its owned session.");
-        }
-
-        return new Gate3BSmokeOutcome(
+        return new Gate3CSmokeOutcome(
             finalView,
             steps,
             endTurnCount,
@@ -268,7 +325,14 @@ internal sealed class Gate3BFullMatchSmoke
             covers,
             reveals,
             premature,
-            match.CiDisposedSessionCount);
+            0,
+            match.CiSignalE2e,
+            match.CiClickDragCanonicalParity,
+            match.CiSelectionCommitWithoutConfirmation,
+            match.CiMinimumResolvingFrames,
+            match.CiResolvingPrivateLeakCount,
+            0,
+            0);
     }
 
     private async Task WaitForRenderedEventsAsync()
@@ -453,4 +517,185 @@ internal sealed class Gate3BFullMatchSmoke
         PlayerId.Player1 => PlayerId.Player0,
         _ => throw new ArgumentOutOfRangeException(nameof(player), player, "Unsupported player value."),
     };
+}
+
+internal sealed record Gate3CSurrenderOutcome(
+    MatchView FinalView,
+    int Steps,
+    int Covers,
+    int Reveals,
+    int PrematureViewerCalls,
+    int DisposedSessions,
+    int ResolvingPublicFrames,
+    int ResolvingPrivateLeaks);
+
+internal sealed class Gate3CSurrenderSmoke
+{
+    private const int MaximumFramesPerTransition = 600;
+    private readonly MatchScreen match;
+    private readonly Func<Task> nextFrame;
+    private int mulligans;
+
+    internal Gate3CSurrenderSmoke(MatchScreen match, Func<Task> nextFrame)
+    {
+        this.match = match ?? throw new ArgumentNullException(nameof(match));
+        this.nextFrame = nextFrame ?? throw new ArgumentNullException(nameof(nextFrame));
+    }
+
+    internal async Task<Gate3CSurrenderOutcome> RunAsync()
+    {
+        for (int guard = 0; guard < 80; guard++)
+        {
+            HotseatUiState state = match.CiState;
+            switch (state.Mode)
+            {
+                case HotseatUiMode.Covered:
+                    if (!state.AwaitingPlayer.HasValue)
+                    {
+                        throw new InvalidOperationException("A covered state lacks its next viewer.");
+                    }
+                    match.RevealForCiSmoke();
+                    await WaitUntilAsync(
+                        () => match.CiState.Mode != HotseatUiMode.Covered && match.HasPresentedSnapshot,
+                        "the surrender phase viewer was not revealed");
+                    break;
+                case HotseatUiMode.Resolving:
+                    await WaitUntilAsync(
+                        () => match.CiState.Mode != HotseatUiMode.Resolving,
+                        "the surrender phase resolving projection did not advance");
+                    break;
+                case HotseatUiMode.MulliganSelecting:
+                    await SubmitMulliganAsync();
+                    mulligans++;
+                    break;
+                case HotseatUiMode.MulliganReview:
+                    match.CompleteMulliganReviewThroughSignalForCi();
+                    await nextFrame();
+                    break;
+                case HotseatUiMode.Action:
+                    if (mulligans < 2)
+                    {
+                        throw new InvalidOperationException(
+                            "The surrender phase reached actions before both mulligans completed.");
+                    }
+                    await SubmitSurrenderAsync();
+                    break;
+                case HotseatUiMode.Finished:
+                    return await CompleteAsync(state);
+                case HotseatUiMode.Faulted:
+                    throw new InvalidOperationException(
+                        $"The surrender phase faulted: {state.FailureText}");
+                case HotseatUiMode.Reaction:
+                    throw new InvalidOperationException("The surrender phase unexpectedly entered a reaction.");
+                case HotseatUiMode.Disposed:
+                    throw new InvalidOperationException("The surrender phase disposed before its terminal result.");
+                default:
+                    throw new InvalidOperationException($"Unsupported surrender phase state {state.Mode}.");
+            }
+        }
+
+        throw new TimeoutException("The surrender phase exceeded its state-transition guard.");
+    }
+
+    private async Task SubmitMulliganAsync()
+    {
+        int before = match.CiSubmissionCount;
+        match.ConfirmMulliganThroughSignalForCi();
+        ValidateResolving(ActionKind.Mulligan);
+        await nextFrame();
+        if (match.CiSubmissionCount != before)
+        {
+            throw new InvalidOperationException("Mulligan submitted before one complete public frame.");
+        }
+        await WaitUntilAsync(
+            () => match.CiSubmissionCount == before + 1,
+            "the signal-driven mulligan was not submitted");
+        await nextFrame();
+    }
+
+    private async Task SubmitSurrenderAsync()
+    {
+        int before = match.CiSubmissionCount;
+        match.SubmitSurrenderThroughSignalsForCi();
+        ValidateResolving(ActionKind.Surrender);
+        await nextFrame();
+        if (match.CiSubmissionCount != before)
+        {
+            throw new InvalidOperationException("Surrender submitted before one complete public frame.");
+        }
+        await WaitUntilAsync(
+            () => match.CiSubmissionCount == before + 1,
+            "the signal-driven surrender was not submitted");
+    }
+
+    private void ValidateResolving(ActionKind action)
+    {
+        if (match.CiState.Mode != HotseatUiMode.Resolving ||
+            match.CiState.PublicBoard is null || match.IsPrivacyCoverVisible ||
+            match.CiResolvingPrivateLeakCount != 0)
+        {
+            throw new InvalidOperationException(
+                $"{action} did not enter a leak-free public resolving projection.");
+        }
+    }
+
+    private async Task<Gate3CSurrenderOutcome> CompleteAsync(HotseatUiState state)
+    {
+        await WaitUntilAsync(
+            () => match.HasPresentedSnapshot && match.CiResultVisible,
+            "the surrender terminal overlay was not shown");
+        MatchView finalView = match.CiState.Snapshot ??
+            throw new InvalidOperationException("The surrender terminal snapshot is unavailable.");
+        if (finalView.Result == GameResult.Ongoing ||
+            !match.CiSuccessfulActionKinds.Contains(ActionKind.Surrender) ||
+            mulligans != 2 || match.CiRevealRequestCount < 2 ||
+            match.CiMinimumResolvingFrames < 2 ||
+            match.CiResolvingPrivateLeakCount != 0 ||
+            match.CiPrematureViewerCallCount != 0)
+        {
+            throw new InvalidOperationException(
+                "The restart/surrender phase did not satisfy its signal, privacy, or terminal contract.");
+        }
+
+        int steps = match.CiSuccessfulSubmissionCount;
+        int covers = match.CiCoverPresentationCount;
+        int reveals = match.CiRevealRequestCount;
+        int premature = match.CiPrematureViewerCallCount;
+        int frames = match.CiMinimumResolvingFrames;
+        int leaks = match.CiResolvingPrivateLeakCount;
+        match.DisposeForCiSmoke();
+        if (match.CiDisposedSessionCount < 1)
+        {
+            throw new InvalidOperationException("The surrender match session was not disposed.");
+        }
+
+        return new Gate3CSurrenderOutcome(
+            finalView,
+            steps,
+            covers,
+            reveals,
+            premature,
+            match.CiDisposedSessionCount,
+            frames,
+            leaks);
+    }
+
+    private async Task WaitUntilAsync(Func<bool> predicate, string failure)
+    {
+        for (int frame = 0; frame < MaximumFramesPerTransition; frame++)
+        {
+            if (predicate())
+            {
+                return;
+            }
+            if (match.CiState.Mode == HotseatUiMode.Faulted)
+            {
+                throw new InvalidOperationException(
+                    $"{failure}; UI faulted: {match.CiState.FailureText}");
+            }
+            await nextFrame();
+        }
+        throw new TimeoutException(
+            $"Timed out after {MaximumFramesPerTransition} frames waiting for {failure}.");
+    }
 }

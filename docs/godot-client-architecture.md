@@ -1,6 +1,6 @@
 # Godot 客户端架构
 
-本文描述 Gate 3B 的 Godot 4.7.2 .NET 桌面客户端边界。规则、费用、目标、响应与胜负仍完全由 C++ 引擎裁决；托管层只编排安全查询/命令，Godot 只渲染 DTO 并收集用户选择。
+本文描述 Gate 3C 的 Godot 4.7.2 .NET 桌面客户端边界。规则、费用、目标、响应与胜负仍完全由 C++ 引擎裁决；托管层只编排安全查询/规范命令，Godot 将点击、拖拽和键盘输入转换成同一套选择 intent。
 
 ## 分层
 
@@ -71,6 +71,7 @@ Covered
 MulliganSelecting → MulliganReview
 Action
 Reaction
+Resolving
 Finished
 Faulted
 Disposed
@@ -78,26 +79,35 @@ Disposed
 
 编排层遵守这些约束：
 
-1. 根据当前 viewer 和 revision 枚举完整 `LegalAction` 集；目标、位置、组件来源与是否预支的逐步选择，只会缩小引擎返回的候选集。
+1. 根据当前 viewer 和 revision 枚举完整 `LegalAction` 集；来源、动作、目标、位置、组件来源与是否预支的逐步选择，只会缩小引擎返回的候选集。
 2. UI 不能自行拼出“看起来合法”的命令；最终提交项必须与同 revision 的规范 `LegalAction` 完全相同。
-3. 支付确认来自 `PreviewPayment`。预览只投影命令的费用与资源变化，不模拟卡牌效果或读取隐藏伏策，实际提交仍由引擎再次验证。
+3. 支付提示来自 `PreviewPayment`。预览只投影命令的费用与资源变化，不模拟卡牌效果或读取隐藏伏策；它不是通用确认页，实际提交仍由引擎再次验证。
 4. `StaleRevision` 或查询 revision 变化会刷新快照并清空临时选择、旧高亮和旧支付预览，不自动重提命令。
 5. 未知未来行动可以保留在通用展示中，但本客户端不会把不认识的行动当作可交互流程提交。
 
-## 两阶段遮挡提交
+## 直接交互与规范命令
 
-任何命令都采用“准备 → 遮挡 → 延迟提交”两阶段：
+第一次点击来源只建立选择。若来源只有一种动作，直接进入下一必要步骤；若有多种动作，则在来源旁显示动作按钮。目标、组件、具体格位和预支选择都由同 revision 候选派生；完成最后一个必要选择后立即冻结规范命令，不再显示通用确认页。无目标且无其他选择的动作必须通过一次明确动作按钮提交；调度保留整批确认，投降保留二次确认，结束回合固定按钮直接执行。
+
+点击与拖拽必须汇入同一 intent 和同一规范命令。拖拽不能绕过候选过滤、revision 或支付预览；无效拖放不调用 native。`StepBackSelection` 只撤销最近一个显式选择，完整取消才清空来源。
+
+## Resolving 公共投影与交接遮挡
+
+任何命令都采用“准备 → 中立投影 → 延迟提交”两阶段：
 
 ```text
 可见选择
-  → ConfirmSelection（冻结规范命令，不调用 native）
-  → Covered(ResolvingCommand)，清除快照/详情/敏感日志并绘制不透明遮挡
-  → Godot 下一帧/延迟回调 SubmitPreparedCommand
+  → PrepareSelectedCommand（冻结规范命令，不调用 native）
+  → Resolving（清除 viewer 私有对象并绘制中立公开战场）
+  → 至少两个完整绘制帧
+  → SubmitPreparedCommand
   → 读取旧 viewer 的结果
   → 同一操作者继续，或 Covered(PassingDevice) 等待下一位主动揭示
 ```
 
-这样即使结束回合、响应或调度会立刻改变操作者，也不会在遮挡完成前请求新 viewer。规则拒绝会回到刷新后的可见状态并显示中文错误；native/协议错误会销毁敏感展示并进入受控错误页。
+`Resolving` 不是旧 viewer 快照的删字段副本。其公共 DTO 只保存公开资源、公开区域和手牌数量；双方手牌身份均不存在，所有背面伏策都没有 definition/instance ID、tooltip 或稳定 metadata。详情、日志、候选、高亮、输入回调和拖拽数据也必须在进入该状态时清空。规则拒绝会回到刷新后的旧 viewer 可见状态；native/协议错误会销毁敏感展示并进入受控错误页。
+
+初始揭示和真实操作者变化使用完全不透明的 `Covered`。下一位主动揭示前，控制器不得为其调用 view、query 或 events；`Resolving` 不能替代这层物理隐私屏障。
 
 调度提交后先向原 viewer 展示替换后的己方手牌（`MulliganReview`）。该 viewer 确认看完后，控制器才决定交给另一席或进入实际先手的行动阶段。
 
@@ -117,21 +127,21 @@ Disposed
 
 - `Bootstrap`：定位、加载并验证原生库，创建/释放 session，处理重开与受控错误；
 - `MainMenu`：两席分别选择 `midrange` 或 `advance`，允许相同牌组；
-- `Match`：渲染双方公开资源、战备、单位、策略、墓地/封存、己方手牌和对方牌背，并把点击转交给热座控制器；
-- `PassDeviceOverlay`：初次揭示、换手和命令结算时的完全不透明遮挡；
+- `Match`：渲染双方公开资源、战备、单位、策略、墓地/封存、己方手牌和对方牌背，并把点击/拖拽转交给热座控制器；
+- `PassDeviceOverlay`：仅用于初次揭示和真实换手的完全不透明遮挡；
 - `SnapshotSlot`：公开或脱敏卡位；隐藏卡绝不携带 definition/instance ID、tooltip 或可反推身份的 metadata；
-- `MulliganPanel`、`ActionPromptPanel`、`CardDetailPanel`、`ConfirmationPanel`、`ReactionPanel`、`EventLogPanel`：分别承载调度、合法行动/候选、卡牌详情、支付确认、伏策响应和观看者日志；
+- 调度、卡牌详情、上下文动作、居中响应、事件日志与投降确认控件：承载复杂选择与信息；右侧栏只作可折叠详情/日志，不再是主要操作入口；
 - `ResultOverlay`、`ErrorOverlay`：终局的重开/返回菜单，以及可恢复或不可恢复错误。
 
 产品启动省略 seed、随机决定先手并洗牌。测试路径可固定 seed、强制 Player0 且关闭洗牌。界面使用纯色几何和 DTO 派生的中文文本，不包含第二套正式卡牌表现 JSON。
 
-## Gate 3B 边界
+## Gate 3C 边界
 
-Gate 3B 的代码范围覆盖双方调度、普通行动、目标/位置/组件/预支选择、支付确认、攻击、进化、部署、设施与伏策、反制/过牌、结束回合、投降、终局、返回菜单和重开。自动化与导出验收状态以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准，不以本文替代测试报告。
+Gate 3C 的代码范围是在 Gate 3B 完整闭环上交付战场直接操作、点击/拖拽一致、逐步回退、上下文动作、无需通用确认的目标选择，以及中立公开 `Resolving` 投影。自动化与导出验收状态以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准，不以本文替代测试报告。
 
 以下仍是发布标签前的硬门，不能因 headless 或 CI smoke 通过而省略：
 
 - 在物理 Apple Silicon Mac 上启动、完成整局、退出并重开；
 - 两名真人在目标桌面构建上完成热座整局并检查遮挡/交接。
 
-Developer ID 签名、公证、正式美术/音效、主战技、普通主动能力、同时触发人工排序、Web 与 Linux 正式客户端不属于本 Gate。
+Developer ID 签名、公证、正式美术/音效/复杂动画、触摸/手柄、主战技、普通主动能力、同时触发人工排序、Web 与 Linux 正式客户端不属于本 Gate。

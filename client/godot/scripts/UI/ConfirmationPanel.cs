@@ -17,6 +17,9 @@ public sealed partial class ConfirmationPanel : PanelContainer
 
     public event Action? CancelRequested;
 
+    internal bool HasSensitiveContentForSmoke =>
+        !string.IsNullOrEmpty(_summary.Text) || !string.IsNullOrEmpty(_payment.Text);
+
     public override void _Ready()
     {
         _title = GetNode<Label>("%ConfirmationTitle");
@@ -63,5 +66,14 @@ public sealed partial class ConfirmationPanel : PanelContainer
         _confirmButton.Disabled = true;
         _cancelButton.Disabled = true;
         Visible = false;
+    }
+
+    internal void RequestConfirmForSmoke()
+    {
+        if (!Visible || _confirmButton.Disabled)
+        {
+            throw new InvalidOperationException("The confirmation button is unavailable.");
+        }
+        _confirmButton.EmitSignal(Button.SignalName.Pressed);
     }
 }

@@ -5,6 +5,11 @@ namespace Scgs.GodotClient.UI;
 
 public sealed partial class MatchInteractionDock : PanelContainer
 {
+    private Button _collapseButton = null!;
+
+    public event Action<bool>? CollapsedChanged;
+
+    public bool IsCollapsed { get; private set; }
     public MulliganPanel Mulligan { get; private set; } = null!;
 
     public ActionPromptPanel Actions { get; private set; } = null!;
@@ -25,6 +30,8 @@ public sealed partial class MatchInteractionDock : PanelContainer
         Confirmation = GetNode<ConfirmationPanel>("%ConfirmationPanel");
         Reaction = GetNode<ReactionPanel>("%ReactionPanel");
         EventLog = GetNode<EventLogPanel>("%EventLogPanel");
+        _collapseButton = GetNode<Button>("%DockCollapseButton");
+        _collapseButton.Pressed += ToggleCollapsed;
     }
 
     public void ShowMulligan()
@@ -68,4 +75,17 @@ public sealed partial class MatchInteractionDock : PanelContainer
         Reaction.ClearSensitive();
         EventLog.ClearSensitive();
     }
+
+    private void ToggleCollapsed()
+    {
+        IsCollapsed = !IsCollapsed;
+        CardDetails.Visible = !IsCollapsed;
+        EventLog.Visible = !IsCollapsed;
+        _collapseButton.Text = IsCollapsed ? "展开" : "收起";
+        CustomMinimumSize = new Vector2(IsCollapsed ? 72 : 374, 0);
+        CollapsedChanged?.Invoke(IsCollapsed);
+    }
+
+    internal void ToggleForSmoke() =>
+        _collapseButton.EmitSignal(Button.SignalName.Pressed);
 }

@@ -100,7 +100,11 @@ internal static class HotseatTestModel
         PlayerId firstPlayer = PlayerId.Player0,
         PlayerId responder = PlayerId.Player0,
         GameResult result = GameResult.Ongoing,
-        ReactionOrigin? origin = null)
+        ReactionOrigin? origin = null,
+        IReadOnlyList<CardView?>? player0Units = null,
+        IReadOnlyList<CardView?>? player1Units = null,
+        IReadOnlyList<CardView?>? player0Tactics = null,
+        IReadOnlyList<CardView?>? player1Tactics = null)
     {
         ownHand ??= [];
         PlayerView MakePlayer(PlayerId player) => new()
@@ -137,8 +141,10 @@ internal static class HotseatTestModel
             Hand = player == viewer
                 ? ownHand.Select(id => Card(id, player, Zone.Hand)).ToArray()
                 : [],
-            Units = new CardView?[5],
-            Tactics = new CardView?[3],
+            Units = (player == PlayerId.Player0 ? player0Units : player1Units)?.ToArray() ??
+                new CardView?[5],
+            Tactics = (player == PlayerId.Player0 ? player0Tactics : player1Tactics)?.ToArray() ??
+                new CardView?[3],
             Graveyard = [],
             Archive = [],
             Standby = [],
@@ -272,12 +278,17 @@ internal static class HotseatTestModel
         return new LegalActionsResult(revision, Array.AsReadOnly(filtered));
     }
 
-    private static CardView Card(ulong instanceId, PlayerId player, Zone zone)
+    internal static CardView Card(
+        ulong instanceId,
+        PlayerId player,
+        Zone zone,
+        string name = "测试牌",
+        bool faceDown = false)
     {
         var definition = new CardDefinition
         {
             Id = 1,
-            Name = "测试牌",
+            Name = name,
             Kind = CardKind.Unit,
             Cost = 1,
             Attack = 1,
@@ -321,7 +332,7 @@ internal static class HotseatTestModel
             EnteredThisTurn = false,
             TemporaryRush = false,
             DeployedFromStandby = false,
-            FaceDown = false,
+            FaceDown = faceDown,
             Countdown = 0,
             GrantedComponent = definition.Component,
         };

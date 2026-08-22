@@ -9,8 +9,8 @@ public sealed class HotseatMatchController : IDisposable
 
     private readonly IScgsGameSession session;
     private readonly EventBatch?[] pendingEventBatches = new EventBatch?[2];
+    private readonly List<HotseatActionSelection> selectionHistory = [];
     private HotseatEventCursors eventCursors;
-    private HotseatUiState? stateBeforePreparation;
     private GameCommandRequest? preparedCommand;
     private PlayerId preparedViewer;
     private bool submissionInProgress;
@@ -54,7 +54,7 @@ public sealed class HotseatMatchController : IDisposable
     public bool AcknowledgeEvents()
     {
         ThrowIfDisposed();
-        if (!State.Viewer.HasValue || State.IsCovered)
+        if (!State.Viewer.HasValue || State.Mode is HotseatUiMode.Covered or HotseatUiMode.Resolving)
         {
             throw new InvalidOperationException(
                 "Events can only be acknowledged by the currently revealed viewer.");
@@ -124,11 +124,42 @@ public sealed class HotseatMatchController : IDisposable
             throw new ArgumentOutOfRangeException(nameof(action), action, "Unsupported action value.");
         }
 
+        selectionHistory.Clear();
         ApplyActionSelection(new HotseatActionSelection
         {
             Action = action,
             Source = source,
-        });
+        }, HotseatActionSelection.Empty);
+    }
+
+    public void BeginSourceSelection(ulong source)
+    {
+        EnsureActionSelectionMode();
+        selectionHistory.Clear();
+        ApplyActionSelection(new HotseatActionSelection
+        {
+            Source = source,
+        }, HotseatActionSelection.Empty);
+    }
+
+    public void ChooseAction(ActionKind action)
+    {
+        EnsureActionSelectionMode();
+        if (!Enum.IsDefined(action))
+        {
+            throw new ArgumentOutOfRangeException(nameof(action), action, "Unsupported action value.");
+        }
+
+        if (!State.Selection.Source.HasValue)
+        {
+            throw new InvalidOperationException("BeginSourceSelection must be called first.");
+        }
+
+        ApplyActionSelection(new HotseatActionSelection
+        {
+            Action = action,
+            Source = State.Selection.Source,
+        }, State.Selection);
     }
 
     public void SelectTarget(Target? target)
@@ -138,7 +169,7 @@ public sealed class HotseatMatchController : IDisposable
         {
             HasTarget = true,
             Target = target,
-        });
+        }, State.Selection);
     }
 
     public void SelectSlot(ulong? slot)
@@ -148,7 +179,7 @@ public sealed class HotseatMatchController : IDisposable
         {
             HasSlot = true,
             Slot = slot,
-        });
+        }, State.Selection);
     }
 
     public void SelectDonor(ulong? donor)
@@ -158,7 +189,7 @@ public sealed class HotseatMatchController : IDisposable
         {
             HasDonor = true,
             Donor = donor,
-        });
+        }, State.Selection);
     }
 
     public void SelectAdvance(bool useAdvance)
@@ -168,7 +199,7 @@ public sealed class HotseatMatchController : IDisposable
         {
             HasAdvanceChoice = true,
             UseAdvance = useAdvance,
-        });
+        }, State.Selection);
     }
 
     public void SelectLegalAction(LegalAction action)
@@ -182,11 +213,14 @@ public sealed class HotseatMatchController : IDisposable
                 $"Action {Convert.ToUInt32(canonical.Command.Action)} is not supported by this client.");
         }
 
+        selectionHistory.Clear();
+        selectionHistory.Add(HotseatActionSelection.Empty);
         ReplaceVisibleSelection(
             SelectionFrom(canonical.Command),
             Array.Empty<ulong>(),
             [canonical],
-            canonical);
+            canonical,
+            HotseatSelectionStep.Ready);
     }
 
     public PaymentPreview? PreviewSelectedPayment()
@@ -237,41 +271,84 @@ public sealed class HotseatMatchController : IDisposable
         switch (State.Mode)
         {
             case HotseatUiMode.MulliganSelecting:
+                selectionHistory.Clear();
                 ApplyMulliganSelection(Array.Empty<ulong>());
                 break;
             case HotseatUiMode.Action:
             case HotseatUiMode.Reaction:
+                selectionHistory.Clear();
                 ReplaceVisibleSelection(
                     HotseatActionSelection.Empty,
                     Array.Empty<ulong>(),
                     State.LegalActions,
-                    selectedAction: null);
+                    selectedAction: null,
+                    HotseatSelectionStep.None);
                 break;
             default:
                 throw new InvalidOperationException("There is no visible selection to cancel.");
         }
     }
 
-    public bool ConfirmSelection()
+    public bool StepBackSelection()
+    {
+        EnsureActionSelectionMode();
+        if (submissionInProgress || preparedCommand is not null)
+        {
+            throw new InvalidOperationException(
+                "A prepared command cannot be changed while it is resolving.");
+        }
+
+        if (selectionHistory.Count == 0)
+        {
+            return false;
+        }
+
+        int index = selectionHistory.Count - 1;
+        HotseatActionSelection previous = selectionHistory[index];
+        selectionHistory.RemoveAt(index);
+        ApplyActionSelection(previous, historyEntry: null);
+        return true;
+    }
+
+    public bool PrepareSelectedCommand()
     {
         ThrowIfDisposed();
         if (submissionInProgress || preparedCommand is not null || State.SelectedAction is null ||
-            State.Viewer is null || State.IsCovered)
+            State.Viewer is null || State.Interaction.Step != HotseatSelectionStep.Ready ||
+            State.Mode is not HotseatUiMode.MulliganSelecting and
+                not HotseatUiMode.Action and not HotseatUiMode.Reaction)
         {
             return false;
         }
 
         LegalAction canonical = FindCanonicalAction(State.SelectedAction.Command);
-        stateBeforePreparation = State;
+        MatchView snapshot = State.Snapshot ??
+            throw new InvalidOperationException("The visible snapshot is unavailable.");
         preparedCommand = CloneCommand(canonical.Command);
         preparedViewer = State.Viewer.Value;
-        SetState(CoveredState(
+        selectionHistory.Clear();
+        SetState(CreateState(
+            HotseatUiMode.Resolving,
+            coverReason: null,
+            viewer: null,
             awaitingPlayer: null,
-            HotseatCoverReason.ResolvingCommand,
+            snapshot: null,
+            legalActions: [],
+            candidateActions: [],
+            HotseatActionSelection.Empty,
+            mulliganCards: [],
+            selectedAction: null,
+            events: [],
+            pendingEvents: [],
+            pendingEventLastSequence: null,
+            lastEngineCode: null,
+            failureText: null,
             commandPrepared: true,
-            lastEngineCode: null));
+            publicBoard: new HotseatPublicBoardView(snapshot)));
         return true;
     }
+
+    public bool ConfirmSelection() => PrepareSelectedCommand();
 
     public void CompleteMulliganReview()
     {
@@ -305,7 +382,7 @@ public sealed class HotseatMatchController : IDisposable
     {
         ThrowIfDisposed();
         if (submissionInProgress || preparedCommand is null ||
-            State.Mode != HotseatUiMode.Covered || !State.CommandPrepared)
+            State.Mode != HotseatUiMode.Resolving || !State.CommandPrepared)
         {
             throw new InvalidOperationException("No prepared command is ready for submission.");
         }
@@ -322,14 +399,12 @@ public sealed class HotseatMatchController : IDisposable
         }
         catch
         {
-            stateBeforePreparation = null;
             submissionInProgress = false;
             SetFaulted();
             throw;
         }
 
         submissionInProgress = false;
-        stateBeforePreparation = null;
         try
         {
             if (status.IsSuccess && command.Action == ActionKind.Mulligan)
@@ -361,8 +436,8 @@ public sealed class HotseatMatchController : IDisposable
 
         disposed = true;
         preparedCommand = null;
-        stateBeforePreparation = null;
         submissionInProgress = false;
+        selectionHistory.Clear();
         Array.Clear(pendingEventBatches);
         session.Dispose();
         SetState(CreateState(
@@ -389,6 +464,7 @@ public sealed class HotseatMatchController : IDisposable
         uint? lastEngineCode,
         int remainingRetries = RefreshRetryLimit)
     {
+        selectionHistory.Clear();
         MatchView view = session.GetView(viewer);
         PlayerId? actor = DetermineActor(view);
         if (actor.HasValue && actor.Value != viewer)
@@ -469,6 +545,7 @@ public sealed class HotseatMatchController : IDisposable
 
     private void ShowMulliganReview(PlayerId viewer)
     {
+        selectionHistory.Clear();
         MatchView view = session.GetView(viewer);
         if (!view.Players[(int)viewer].MulliganDone)
         {
@@ -565,10 +642,13 @@ public sealed class HotseatMatchController : IDisposable
             SelectionFrom(localMatches[0].Command),
             canonical,
             localMatches,
-            localMatches[0]);
+            localMatches[0],
+            HotseatSelectionStep.Ready);
     }
 
-    private void ApplyActionSelection(HotseatActionSelection selection)
+    private void ApplyActionSelection(
+        HotseatActionSelection selection,
+        HotseatActionSelection? historyEntry)
     {
         LegalAction[] localMatches = State.LegalActions.Where(action =>
             MatchesSelection(action.Command, selection)).ToArray();
@@ -605,11 +685,23 @@ public sealed class HotseatMatchController : IDisposable
         LegalAction[] queriedLocalMatches = queried.Where(action =>
             localMatches.Any(local => CommandsEqual(local.Command, action.Command))).ToArray();
         RequireSameCandidateSet(localMatches, queriedLocalMatches);
+        HotseatActionSelection completed = CompleteInvariantDefaults(selection, localMatches);
+        HotseatSelectionStep step = DetermineSelectionStep(completed, localMatches);
+        LegalAction? selectedAction = localMatches.Length == 1 &&
+                                      step == HotseatSelectionStep.Ready
+            ? localMatches[0]
+            : null;
+        if (historyEntry is not null && !Equals(historyEntry, completed))
+        {
+            selectionHistory.Add(historyEntry);
+        }
+
         ReplaceVisibleSelection(
-            selection,
+            completed,
             [],
             localMatches,
-            localMatches.Length == 1 ? localMatches[0] : null);
+            selectedAction,
+            step);
     }
 
     private LegalAction[]? QueryCurrentRevision(ActionQueryRequest query)
@@ -644,7 +736,8 @@ public sealed class HotseatMatchController : IDisposable
         HotseatActionSelection selection,
         IReadOnlyList<ulong> mulliganCards,
         IReadOnlyList<LegalAction> candidates,
-        LegalAction? selectedAction)
+        LegalAction? selectedAction,
+        HotseatSelectionStep selectionStep)
     {
         SetState(CreateState(
             State.Mode,
@@ -662,7 +755,8 @@ public sealed class HotseatMatchController : IDisposable
             State.PendingEventLastSequence,
             State.LastEngineCode,
             State.FailureText,
-            commandPrepared: false));
+            commandPrepared: false,
+            selectionStep: selectionStep));
     }
 
     private LegalAction FindCanonicalAction(GameCommandRequest command)
@@ -729,6 +823,10 @@ public sealed class HotseatMatchController : IDisposable
         uint? lastEngineCode)
     {
         bool pending = pendingEventBatches[PlayerIndex(viewer)] is not null;
+        HotseatSelectionStep selectionStep =
+            mode == HotseatUiMode.MulliganSelecting && selectedAction is not null
+                ? HotseatSelectionStep.Ready
+                : HotseatSelectionStep.None;
         return CreateState(
             mode,
             coverReason: null,
@@ -745,7 +843,8 @@ public sealed class HotseatMatchController : IDisposable
             pending ? eventBatch.LastSequence : null,
             lastEngineCode,
             lastEngineCode.HasValue ? EngineCodeZhCnFormatter.Format(lastEngineCode.Value) : null,
-            commandPrepared: false);
+            commandPrepared: false,
+            selectionStep: selectionStep);
     }
 
     private HotseatUiState CoveredState(
@@ -786,7 +885,9 @@ public sealed class HotseatMatchController : IDisposable
         ulong? pendingEventLastSequence,
         uint? lastEngineCode,
         string? failureText,
-        bool commandPrepared) => new(
+        bool commandPrepared,
+        HotseatPublicBoardView? publicBoard = null,
+        HotseatSelectionStep selectionStep = HotseatSelectionStep.None) => new(
             mode,
             coverReason,
             viewer,
@@ -803,7 +904,10 @@ public sealed class HotseatMatchController : IDisposable
             eventCursors,
             lastEngineCode,
             failureText,
-            commandPrepared);
+            commandPrepared,
+            publicBoard,
+            selectionStep,
+            selectionHistory.Count != 0);
 
     private static HotseatUiState CopyState(
         HotseatUiState source,
@@ -826,25 +930,32 @@ public sealed class HotseatMatchController : IDisposable
             eventCursors,
             source.LastEngineCode,
             source.FailureText,
-            source.CommandPrepared);
+            source.CommandPrepared,
+            source.PublicBoard,
+            source.Interaction.Step,
+            source.Interaction.CanStepBack);
 
-    private void SetFaulted() => SetState(CreateState(
-        HotseatUiMode.Faulted,
-        coverReason: null,
-        viewer: null,
-        awaitingPlayer: null,
-        snapshot: null,
-        legalActions: [],
-        candidateActions: [],
-        HotseatActionSelection.Empty,
-        mulliganCards: [],
-        selectedAction: null,
-        events: [],
-        pendingEvents: [],
-        pendingEventLastSequence: null,
-        lastEngineCode: null,
-        failureText: "客户端无法继续读取对局。",
-        commandPrepared: false));
+    private void SetFaulted()
+    {
+        selectionHistory.Clear();
+        SetState(CreateState(
+            HotseatUiMode.Faulted,
+            coverReason: null,
+            viewer: null,
+            awaitingPlayer: null,
+            snapshot: null,
+            legalActions: [],
+            candidateActions: [],
+            HotseatActionSelection.Empty,
+            mulliganCards: [],
+            selectedAction: null,
+            events: [],
+            pendingEvents: [],
+            pendingEventLastSequence: null,
+            lastEngineCode: null,
+            failureText: "客户端无法继续读取对局。",
+            commandPrepared: false));
+    }
 
     private static PlayerId? DetermineActor(MatchView view) => view.Phase switch
     {
@@ -860,6 +971,108 @@ public sealed class HotseatMatchController : IDisposable
         MatchPhase.Finished => null,
         _ => throw new ScgsProtocolException($"Phase {view.Phase} has no hot-seat actor."),
     };
+
+    private static HotseatActionSelection CompleteInvariantDefaults(
+        HotseatActionSelection selection,
+        IReadOnlyList<LegalAction> candidates)
+    {
+        if (!selection.Source.HasValue && !selection.Action.HasValue)
+        {
+            return selection;
+        }
+
+        HotseatActionSelection completed = selection;
+        ActionKind[] actionKinds = candidates
+            .Select(candidate => candidate.Command.Action)
+            .Distinct()
+            .ToArray();
+        if (!completed.Action.HasValue && actionKinds.Length == 1 &&
+            Enum.IsDefined(actionKinds[0]))
+        {
+            completed = completed with { Action = actionKinds[0] };
+        }
+
+        if (!completed.HasTarget && candidates.All(candidate => candidate.Command.Target is null))
+        {
+            completed = completed with { HasTarget = true, Target = null };
+        }
+
+        if (!completed.HasSlot && candidates.All(candidate => !candidate.Command.Slot.HasValue))
+        {
+            completed = completed with { HasSlot = true, Slot = null };
+        }
+
+        if (!completed.HasDonor &&
+            candidates.All(candidate => !candidate.Command.ComponentDonor.HasValue))
+        {
+            completed = completed with { HasDonor = true, Donor = null };
+        }
+
+        bool[] advanceChoices = candidates
+            .Select(candidate => candidate.Command.UseAdvance)
+            .Distinct()
+            .ToArray();
+        if (!completed.HasAdvanceChoice && advanceChoices.Length == 1)
+        {
+            completed = completed with
+            {
+                HasAdvanceChoice = true,
+                UseAdvance = advanceChoices[0],
+            };
+        }
+
+        return completed;
+    }
+
+    private static HotseatSelectionStep DetermineSelectionStep(
+        HotseatActionSelection selection,
+        IReadOnlyList<LegalAction> candidates)
+    {
+        if (!selection.Source.HasValue)
+        {
+            return HotseatSelectionStep.None;
+        }
+
+        if (!selection.Action.HasValue)
+        {
+            return HotseatSelectionStep.ChooseAction;
+        }
+
+        bool needsDonor = !selection.HasDonor &&
+                          candidates.Any(candidate => candidate.Command.ComponentDonor.HasValue);
+        bool needsSlot = !selection.HasSlot &&
+                         candidates.Any(candidate => candidate.Command.Slot.HasValue);
+        bool needsTarget = !selection.HasTarget &&
+                           candidates.Any(candidate => candidate.Command.Target is not null);
+        bool needsAdvance = !selection.HasAdvanceChoice &&
+                            candidates.Any(candidate => candidate.Command.UseAdvance);
+
+        return selection.Action.Value switch
+        {
+            ActionKind.Deploy when needsDonor => HotseatSelectionStep.ChooseDonor,
+            ActionKind.Deploy when needsSlot => HotseatSelectionStep.ChooseSlot,
+            ActionKind.Deploy when needsTarget => HotseatSelectionStep.ChooseTarget,
+            ActionKind.Deploy when needsAdvance => HotseatSelectionStep.ChooseAdvance,
+
+            ActionKind.PlayUnit or ActionKind.PlayTactic when needsSlot =>
+                HotseatSelectionStep.ChooseSlot,
+            ActionKind.PlayUnit or ActionKind.PlayTactic when needsTarget =>
+                HotseatSelectionStep.ChooseTarget,
+            ActionKind.PlayUnit or ActionKind.PlayTactic when needsAdvance =>
+                HotseatSelectionStep.ChooseAdvance,
+
+            ActionKind.CastSpell or ActionKind.Attack or ActionKind.Evolve or
+                ActionKind.ActivateTrap when needsTarget => HotseatSelectionStep.ChooseTarget,
+            ActionKind.CastSpell or ActionKind.Attack or ActionKind.Evolve or
+                ActionKind.ActivateTrap when needsAdvance => HotseatSelectionStep.ChooseAdvance,
+
+            _ when needsDonor => HotseatSelectionStep.ChooseDonor,
+            _ when needsSlot => HotseatSelectionStep.ChooseSlot,
+            _ when needsTarget => HotseatSelectionStep.ChooseTarget,
+            _ when needsAdvance => HotseatSelectionStep.ChooseAdvance,
+            _ => HotseatSelectionStep.Ready,
+        };
+    }
 
     private static bool MatchesSelection(
         GameCommandRequest command,

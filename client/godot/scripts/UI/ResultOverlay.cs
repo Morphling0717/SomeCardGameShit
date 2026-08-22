@@ -42,4 +42,13 @@ public sealed partial class ResultOverlay : Control
         Visible = false;
         MouseFilter = MouseFilterEnum.Ignore;
     }
+
+    internal void RequestRestartForSmoke()
+    {
+        if (!Visible || _restartButton.Disabled)
+        {
+            throw new InvalidOperationException("The result restart button is unavailable.");
+        }
+        _restartButton.EmitSignal(Button.SignalName.Pressed);
+    }
 }

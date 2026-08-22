@@ -1,6 +1,6 @@
 # Godot UI 状态图
 
-Gate 3B 把“首次安全快照”扩展为完整热座编排。`HotseatUiState` 是 Godot 的唯一输入，但不是规则真值；快照、合法行动、支付和胜负仍来自引擎。
+Gate 3C 在 Gate 3B 的完整热座闭环上增加直接战场操作，并把命令结算与设备交接拆成不同隐私状态。`HotseatUiState` 与 `HotseatInteractionContext` 是 Godot 的输入，但不是规则真值；快照、合法行动、支付与胜负仍来自引擎。
 
 ## 应用生命周期
 
@@ -22,9 +22,9 @@ Booting ──ABI/schema 可用──> MainMenu ──开始──> CreatingMatc
                                   Dispose old session（native handle 至多销毁一次）
 ```
 
-重开不是复用旧 handle：必须先 dispose 旧 controller/session，再按产品随机配置重新 create/start，并回到 `Covered(Player0, InitialReveal)`。上层重复调用 dispose 必须安全，`SafeHandle` 保证 native destroy 至多一次。
+重开不是复用旧 handle：先 dispose 旧 controller/session，再按产品随机配置重新 create/start，并回到初始完全遮挡。重复 dispose 安全，`SafeHandle` 保证 native destroy 至多一次。
 
-## 热座状态
+## 热座与提交状态
 
 ```text
 Covered(InitialReveal/PassingDevice)
@@ -35,21 +35,46 @@ Covered(InitialReveal/PassingDevice)
        └─ phase=Finished ───────────────> Finished
 
 MulliganSelecting / Action / Reaction
-  └─ 选择规范 LegalAction
-       └─ ConfirmSelection
-            └─ Covered(ResolvingCommand, CommandPrepared=true)
-                 └─ Godot 延迟回调 SubmitPreparedCommand
-                      ├─ 调度成功 ──────> MulliganReview
-                      │                    └─ CompleteMulliganReview
-                      ├─ 同一操作者继续 ─> 对应可见状态
-                      ├─ 操作者变化 ─────> Covered(next, PassingDevice)
-                      ├─ 规则拒绝 ───────> 刷新后的可见状态 + 中文原因
-                      └─ native/协议错 ──> Faulted
+  └─ 来源与必要选择收敛为规范 LegalAction
+       └─ PrepareSelectedCommand（不调用 native）
+            └─ Resolving(CommandPrepared=true, PublicBoard!=null)
+                 └─ Godot 完整绘制至少两帧
+                      └─ SubmitPreparedCommand
+                           ├─ 调度成功 ──────> MulliganReview
+                           │                    └─ CompleteMulliganReview
+                           ├─ 同一操作者继续 ─> 对应可见状态
+                           ├─ 操作者变化 ─────> Covered(next, PassingDevice)
+                           ├─ 规则拒绝 ───────> 刷新后的旧 viewer 状态 + 中文原因
+                           └─ native/协议错 ──> Faulted
 
 任一可见状态发现 result!=Ongoing ──────> Finished
 ```
 
-`Action` 与 `Reaction` 内部的目标、位置、组件来源和预支选择是 `HotseatActionSelection` 的渐进状态，不另造规则状态。候选来自同 revision 的合法行动集合；候选收敛到唯一规范命令后才允许预览与确认。
+`Resolving` 只用于提交期间的中立公开投影；`Covered` 只用于初次揭示与真实换手。两者不能互换：公共投影改善连续操作反馈，完全遮挡保护即将接手玩家的私密信息。
+
+## 直接交互选择步骤
+
+```text
+None
+ └─ 点击/拖拽合法来源
+      ├─ 多种动作 ───────────────> ChooseAction
+      └─ 唯一动作 ───────────────> 下一个必要步骤
+                                      │
+                  ChooseDonor ─ ChooseSlot ─ ChooseTarget ─ ChooseAdvance
+                                      │ 省略不适用步骤；顺序由候选决定
+                                      ▼
+                                   Ready
+                                      │ 最后一个必要选择已完成
+                                      └──────────────> PrepareSelectedCommand
+```
+
+- 第一次点击来源不提交。无目标、格位或组件的动作必须再按一次来源旁的明确动作按钮。
+- 多个动作只在来源附近显示上下文按钮；单一动作直接高亮下一组合法对象。
+- 点击和拖拽产生相同 intent，并经过相同候选过滤、revision 与支付预览。
+- 目标、部署组件、具体格位和预支都是选择步骤，不再增加通用确认页。
+- 调度保留一次整批确认，投降保留二次确认；结束回合固定按钮直接准备命令。
+- `StepBackSelection()` 撤销最近一个显式步骤；自动补全的共同字段不单独进入历史。完整取消才清空来源。
+- 无效拖放原位回弹，不调用 native，也不改变 revision、事件或游标。
 
 ## 状态职责
 
@@ -59,20 +84,25 @@ MulliganSelecting / Action / Reaction
 | `MainMenu` | 否 | 否 | 两席选牌组、开始、退出 |
 | `CreatingMatch` | create/start | 否 | 退出 |
 | `Covered(InitialReveal/PassingDevice)` | 不得读取等待中的新 viewer | 否；全画面完全不透明 | 揭示、返回菜单 |
-| `Covered(ResolvingCommand)` | 只允许延迟提交已冻结命令，并读取提交前 viewer 的结果 | 否 | 无；避免重复提交 |
-| `MulliganSelecting` | 当前 viewer 的 view/actions/events | 是，仅该 viewer 安全视图 | 选/取消起手牌、确认 |
+| `MulliganSelecting` | 当前 viewer 的 view/actions/events | 是，仅该 viewer 安全视图 | 切换调度牌、整批确认 |
 | `MulliganReview` | 当前 viewer 的替换后 view/events | 是，仅原调度玩家 | 阅读替换手牌、确认交接 |
-| `Action` | 当前 viewer 的 view/actions/queries/payment/events | 是，仅当前行动玩家 | 出牌、攻击、进化、部署、结束、投降等 |
-| `Reaction` | 当前 responder 的 view/actions/reaction/events | 是，仅当前响应玩家 | 发动合法伏策或不过 |
-| `Finished` | 使用控制器已取得的终局结果；不再发命令 | 只显示结果；战场、详情和日志已关闭 | 重开、返回菜单 |
+| `Action` | 当前 viewer 的 view/actions/queries/payment/events | 是，仅当前行动玩家 | 直接出牌、攻击、进化、部署、结束、投降等 |
+| `Reaction` | 当前 responder 的 view/actions/reaction/events | 是，仅当前响应玩家 | 选择合法伏策/目标，或不过 |
+| `Resolving` | 只允许提交冻结命令及读取提交前 viewer 结果 | 否；仅中立公开投影 | 无；输入锁死 |
+| `Finished` | 使用已取得的终局结果；不再发命令 | 只显示结果 | 重开、返回菜单 |
 | `Faulted` | 不继续访问失败 session | 否 | 重试/返回菜单/退出 |
 | `Disposed` | 否 | 否 | 无 |
 
-## 命令提交的绘制屏障
+## Resolving 公共投影不变量
 
-`ConfirmSelection()` 只冻结引擎枚举出的规范命令，绝不立即调用 `SubmitCommand`。它先发布 `Covered(ResolvingCommand)`，使 `MatchScreen` 清除手牌节点、卡牌详情、候选 metadata 和敏感日志，并让不透明遮挡至少完成一次 UI 更新；随后才以 Godot 延迟调用执行 `SubmitPreparedCommand()`。
+`HotseatPublicBoardView` 由进入 `Resolving` 前的安全状态投影，但不持有 viewer 私有 DTO 或节点引用：
 
-这条顺序是热座隐私硬约束，不是视觉优化。尤其对结束回合、调度和响应命令，提交后操作者可能立即变化；新操作者的 `GetView`、queries 和 events 必须等其主动揭示后才发生。
+1. 双方手牌只保留数量，没有任何 definition、instance、名称或可反推 metadata。
+2. 所有背面伏策统一匿名，没有 tooltip、详情或稳定 ID；公开单位、公开战备和公开资源可以显示。
+3. 卡牌详情、事件日志、候选、高亮、拖拽 payload、旧 signal 回调和输入焦点全部清除。
+4. `HotseatUiState.Snapshot`、`Viewer`、`LegalActions`、`PendingEvents` 在 `Resolving` 内为空。
+5. 公共投影至少完整绘制两帧后才允许提交；期间禁止 ACK、重复提交和旧 revision 回调。
+6. 提交后操作者变化时，立即转入完全不透明的 `Covered(PassingDevice)`，不得短暂显示下一 viewer 数据。
 
 ## 事件读取与 ACK
 
@@ -88,29 +118,15 @@ AcknowledgeEvents()
         └─ cursor[viewer] = last_sequence
 ```
 
-约束：
-
-1. Player0 与 Player1 的 cursor 独立；切换观看者不得复制或推进另一方 cursor。
-2. 未完成渲染前不得 ACK。刷新或重入若再次读到同一 sequence，日志替换当前批次而不是重复追加。
-3. 遮挡时日志和 `PendingEvents` 不显示；揭示后只读取对应 viewer 的脱敏事件。
-4. 事件只驱动日志/表现，不能用于推演权威战场；每次提交后都以新快照为准。
-
-## 隐私不变量
-
-1. create/start 后首先显示完全不透明的 `PassDeviceOverlay`；首次揭示前 Player0 的 `GetView` 次数必须为零。
-2. 操作者变化前必须清除手牌、卡牌详情、选中态、tooltip、metadata 和敏感日志；不得保留半透明战场。
-3. 只有等待中的玩家主动揭示后，才请求该 viewer 的快照、合法查询和事件。
-4. 对方手牌只显示数量/无身份牌背；对方背面伏策不得包含 definition、instance ID、卡名 tooltip 或稳定 metadata。
-5. 响应 origin 只描述公开的原行动；可发动伏策身份仍只对 responder 可见。
-6. UI 遮挡只提供热座物理隐私，不能代替 `scgs_v04` 的观看者脱敏。
+Player0 与 Player1 的 cursor 独立。未完成渲染前不得 ACK；重读同一批次时替换当前日志而不是重复追加。`Covered` 与 `Resolving` 都不显示或 ACK viewer 事件；揭示后只读取对应 viewer 的脱敏事件。快照始终是状态真值，事件只用于日志和表现。
 
 ## revision 与失败恢复
 
-- 所有候选、支付预览和提交命令都绑定 `Snapshot.Revision`。
-- revision 变化或 `StaleRevision` 会丢弃旧选择并重新执行“快照 → 合法行动 → 可选查询”；不会自动重试旧命令。
-- engine 规则拒绝不会被当作异常，UI 显示 `EngineCodeZhCnFormatter` 的中文原因；未知 code 显示数值。
-- native/协议异常进入 `Faulted`，敏感 UI 先清空；恢复路径必须释放旧 session。
+- 所有候选、支付预览和提交命令绑定 `Snapshot.Revision`。
+- revision 变化或 `StaleRevision` 会丢弃旧选择并重新执行“快照 → 合法行动 → 可选查询”，不会重放旧 intent。
+- engine 规则拒绝不是异常；回到刷新后的旧 viewer 状态并显示中文原因。
+- native/协议异常进入 `Faulted`，私密 UI 先清空；恢复路径释放旧 session。
 
-## 发布前仍需人工完成
+## 发布前人工硬门
 
-自动 smoke 可以覆盖状态遍历和导出启动，但不能替代以下硬门：物理 Apple Silicon Mac 整局/重开，以及两名真人在目标桌面构建上的遮挡交接整局。
+自动 signal smoke 可以覆盖状态遍历和导出启动，但不能替代物理 Apple Silicon Mac 整局/重开，也不能替代两名真人对每次公共结算、完全遮挡、设备交接和主动揭示的观察。

@@ -10,6 +10,9 @@ public sealed partial class CardDetailPanel : PanelContainer
     private Label _title = null!;
     private RichTextLabel _rules = null!;
 
+    internal bool HasSensitiveContentForSmoke =>
+        !string.IsNullOrEmpty(_title.Text) || !string.IsNullOrEmpty(_rules.Text);
+
     public override void _Ready()
     {
         _title = GetNode<Label>("%CardDetailTitle");

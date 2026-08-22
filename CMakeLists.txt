@@ -8,7 +8,7 @@ include(CMakePackageConfigHelpers)
 
 option(SCGS_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
 option(SCGS_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
-option(SCGS_ENABLE_LEGACY_YGO2_TESTS "Enable the frozen YGOPro2 overlay/protocol Python tests" ON)
+option(SCGS_ENABLE_LEGACY_YGO2_TESTS "Enable the Python contract-test group, including frozen YGOPro2 compatibility" ON)
 option(SCGS_MSVC_STATIC_RUNTIME "Link MSVC targets against the static runtime (/MT or /MTd)" ON)
 
 # The exported Windows client DLL must not require a separately installed
@@ -216,6 +216,11 @@ if(SCGS_ENABLE_LEGACY_YGO2_TESTS)
     add_test(
         NAME scgs_gate3b_report_contract
         COMMAND ${Python3_EXECUTABLE} -m unittest scripts.tests.test_validate_gate3b_report
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+        NAME scgs_gate3c_report_contract
+        COMMAND ${Python3_EXECUTABLE} -m unittest scripts.tests.test_validate_gate3c_report
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
 endif()

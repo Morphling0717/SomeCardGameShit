@@ -11,6 +11,9 @@ public sealed partial class EventLogPanel : PanelContainer
     private readonly Queue<string> _entries = new();
     private RichTextLabel _log = null!;
 
+    internal bool HasSensitiveContentForSmoke =>
+        _entries.Count != 0 || !string.IsNullOrEmpty(_log.Text);
+
     public override void _Ready()
     {
         _log = GetNode<RichTextLabel>("%EventLogText");

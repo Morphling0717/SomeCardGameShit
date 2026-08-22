@@ -15,6 +15,11 @@ public sealed partial class MulliganPanel : PanelContainer
 
     public event Action? ReviewAcknowledged;
 
+    internal bool HasSensitiveContentForSmoke =>
+        !string.IsNullOrEmpty(_summary.Text) ||
+        !string.IsNullOrEmpty(_review.Text) ||
+        !_confirmButton.Disabled || !_acknowledgeButton.Disabled;
+
     public override void _Ready()
     {
         _summary = GetNode<Label>("%MulliganSummary");
@@ -61,5 +66,23 @@ public sealed partial class MulliganPanel : PanelContainer
         _confirmButton.Disabled = true;
         _acknowledgeButton.Disabled = true;
         Visible = false;
+    }
+
+    internal void RequestConfirmForSmoke()
+    {
+        if (!Visible || _confirmButton.Disabled)
+        {
+            throw new InvalidOperationException("The mulligan confirm button is unavailable.");
+        }
+        _confirmButton.EmitSignal(Button.SignalName.Pressed);
+    }
+
+    internal void RequestReviewAcknowledgeForSmoke()
+    {
+        if (!Visible || _acknowledgeButton.Disabled)
+        {
+            throw new InvalidOperationException("The mulligan review button is unavailable.");
+        }
+        _acknowledgeButton.EmitSignal(Button.SignalName.Pressed);
     }
 }

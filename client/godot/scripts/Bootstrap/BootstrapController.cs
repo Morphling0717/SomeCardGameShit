@@ -31,6 +31,9 @@ public sealed partial class BootstrapController : Control
     private bool _ciSmoke;
     private bool _ciRunStarted;
     private bool _ciTerminalSignaled;
+    private bool _ciSurrenderPhaseStarted;
+    private Gate3CSmokeOutcome? _ciNaturalOutcome;
+    private int _ciDisposedAfterRestart;
     private MatchSetup? _activeSetup;
     private bool _activeDeterministic;
 
@@ -47,7 +50,7 @@ public sealed partial class BootstrapController : Control
         }
         catch (Exception exception)
         {
-            GD.PushError($"Gate 3B startup option validation failed: {exception}");
+            GD.PushError($"Gate 3C startup option validation failed: {exception}");
             if (_ciSmoke)
             {
                 FailCiSmoke($"启动参数无效：{exception.Message}");
@@ -77,7 +80,7 @@ public sealed partial class BootstrapController : Control
         }
         catch (Exception exception)
         {
-            GD.PushError($"Gate 3B native preflight failed: {exception}");
+            GD.PushError($"Gate 3C native preflight failed: {exception}");
             if (_ciSmoke)
             {
                 FailCiSmoke($"原生引擎预检失败：{exception.Message}");
@@ -171,7 +174,7 @@ public sealed partial class BootstrapController : Control
             _match.FirstSnapshotPresented += deterministic ? OnCiSnapshotPresented : OnFirstSnapshotPresented;
             ReplaceScreen(_match);
 
-            // Gate 3B keeps the deterministic mulligan privacy order:
+            // Gate 3C keeps the deterministic mulligan privacy order:
             // player 0 is covered first. Begin() must not call GetView.
             _match.Begin(_session, PlayerId.Player0);
             if (_match.SnapshotRequestCount != 0 || !_match.IsPrivacyCoverVisible)
@@ -211,7 +214,7 @@ public sealed partial class BootstrapController : Control
 
     private static void OnFirstSnapshotPresented(MatchView view)
     {
-        GD.Print($"Gate 3B first snapshot: viewer={view.Viewer}, phase={view.Phase}, revision={view.Revision}");
+        GD.Print($"Gate 3C first snapshot: viewer={view.Viewer}, phase={view.Phase}, revision={view.Revision}");
     }
 
     private void OnCiSnapshotPresented(MatchView view)
@@ -252,13 +255,7 @@ public sealed partial class BootstrapController : Control
                 throw new InvalidOperationException("Rendered labels do not match the structured DTO snapshot.");
             }
 
-            if (_ciScreenshotPath is { } screenshotPath)
-            {
-                CaptureCiScreenshotAndContinue(view, screenshotPath);
-                return;
-            }
-
-            BeginCiFullMatch(view);
+            ContinueCiFromFirstSnapshot(view);
         }
         catch (Exception exception)
         {
@@ -266,50 +263,27 @@ public sealed partial class BootstrapController : Control
         }
     }
 
-    private async void CaptureCiScreenshotAndContinue(MatchView view, string screenshotPath)
+    private void ContinueCiFromFirstSnapshot(MatchView view)
     {
-        try
+        if (_ciNaturalOutcome is null)
         {
-            if (string.Equals(DisplayServer.GetName(), "headless", StringComparison.OrdinalIgnoreCase))
-            {
-                throw new InvalidOperationException(
-                    "--ci-screenshot requires a display-backed renderer; the headless texture is unavailable.");
-            }
-
-            string? directory = Path.GetDirectoryName(screenshotPath);
-            if (!string.IsNullOrEmpty(directory))
-            {
-                Directory.CreateDirectory(directory);
-            }
-
-            // FramePostDraw is not guaranteed by a dummy/headless renderer.
-            // Two process-frame boundaries keep screenshot mode bounded while
-            // still allowing the first snapshot to reach the viewport texture.
-            await NextProcessFrameAsync();
-            await NextProcessFrameAsync();
-            Image image = GetViewport().GetTexture().GetImage();
-            Error result = image.SavePng(screenshotPath);
-            if (result != Error.Ok)
-            {
-                throw new IOException($"Godot could not save the CI screenshot ({result}).");
-            }
-
-            GD.Print(
-                $"SCGS_GODOT_CI_SCREENSHOT_OK path={screenshotPath} " +
-                $"size={image.GetWidth()}x{image.GetHeight()}");
             BeginCiFullMatch(view);
+            return;
         }
-        catch (Exception exception)
+
+        if (_ciSurrenderPhaseStarted)
         {
-            FailCiSmoke(exception.Message);
+            throw new InvalidOperationException("The Gate 3C surrender phase was started more than once.");
         }
+        _ciSurrenderPhaseStarted = true;
+        RunCiSurrenderPhase(view);
     }
 
     private void BeginCiFullMatch(MatchView firstView)
     {
         if (_ciRunStarted)
         {
-            throw new InvalidOperationException("The Gate 3B full-match smoke was started more than once.");
+            throw new InvalidOperationException("The Gate 3C full-match smoke was started more than once.");
         }
 
         _ciRunStarted = true;
@@ -321,9 +295,12 @@ public sealed partial class BootstrapController : Control
         try
         {
             MatchScreen match = _match ??
-                throw new InvalidOperationException("The Gate 3B match screen is unavailable.");
-            var runner = new Gate3BFullMatchSmoke(match, NextProcessFrameAsync);
-            Gate3BSmokeOutcome outcome = await runner.RunAsync();
+                throw new InvalidOperationException("The Gate 3C match screen is unavailable.");
+            var runner = new Gate3CFullMatchSmoke(
+                match,
+                NextProcessFrameAsync,
+                _ciScreenshotPath);
+            Gate3CSmokeOutcome outcome = await runner.RunAsync();
             if (outcome.FinalView.RandomSeed != firstView.RandomSeed ||
                 outcome.FinalView.FirstPlayer != firstView.FirstPlayer ||
                 outcome.FinalView.Result == GameResult.Ongoing ||
@@ -333,8 +310,69 @@ public sealed partial class BootstrapController : Control
                     "The terminal smoke outcome does not match the deterministic first snapshot.");
             }
 
-            WriteCiReport(outcome);
-            CompleteCiSmoke(outcome);
+            _ciNaturalOutcome = outcome;
+            MatchScreen completedMatch = match;
+            completedMatch.RestartThroughResultSignalForCi();
+            await NextProcessFrameAsync();
+            _ciDisposedAfterRestart = completedMatch.CiDisposedSessionCount;
+            if (_ciDisposedAfterRestart < 1 || ReferenceEquals(_match, completedMatch))
+            {
+                throw new InvalidOperationException(
+                    "The result-overlay restart signal did not replace and dispose the first match.");
+            }
+        }
+        catch (Exception exception)
+        {
+            FailCiSmoke(exception.Message);
+        }
+    }
+
+    private async void RunCiSurrenderPhase(MatchView firstView)
+    {
+        try
+        {
+            Gate3CSmokeOutcome natural = _ciNaturalOutcome ??
+                throw new InvalidOperationException("The natural terminal outcome is unavailable.");
+            MatchScreen match = _match ??
+                throw new InvalidOperationException("The restarted Gate 3C match screen is unavailable.");
+            if (firstView.RandomSeed != natural.FinalView.RandomSeed ||
+                firstView.FirstPlayer != natural.FinalView.FirstPlayer ||
+                firstView.Phase != MatchPhase.Mulligan)
+            {
+                throw new InvalidOperationException(
+                    "The signal-restarted match does not preserve deterministic setup.");
+            }
+
+            var runner = new Gate3CSurrenderSmoke(match, NextProcessFrameAsync);
+            Gate3CSurrenderOutcome surrender = await runner.RunAsync();
+            ActionKind[] actionKinds = natural.ActionKinds
+                .Append(ActionKind.Surrender)
+                .Distinct()
+                .OrderBy(action => (uint)action)
+                .ToArray();
+            var combined = natural with
+            {
+                FinalView = surrender.FinalView,
+                Steps = natural.Steps + surrender.Steps,
+                ActionKinds = actionKinds,
+                Covers = natural.Covers + surrender.Covers,
+                Reveals = natural.Reveals + surrender.Reveals,
+                PrematureViewerCalls = natural.PrematureViewerCalls + surrender.PrematureViewerCalls,
+                DisposedSessions = _ciDisposedAfterRestart + surrender.DisposedSessions,
+                ResolvingPublicFrames = Math.Min(
+                    natural.ResolvingPublicFrames,
+                    surrender.ResolvingPublicFrames),
+                ResolvingPrivateLeaks = natural.ResolvingPrivateLeaks + surrender.ResolvingPrivateLeaks,
+                Restarts = 1,
+                SurrenderTerminals = 1,
+            };
+            if (combined.DisposedSessions < 2 || combined.ActionKinds.Count != 11)
+            {
+                throw new InvalidOperationException(
+                    "The restart/surrender phase did not extend full-match coverage.");
+            }
+            WriteCiReport(combined);
+            CompleteCiSmoke(combined);
         }
         catch (Exception exception)
         {
@@ -347,7 +385,7 @@ public sealed partial class BootstrapController : Control
         await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
     }
 
-    private void WriteCiReport(Gate3BSmokeOutcome outcome)
+    private void WriteCiReport(Gate3CSmokeOutcome outcome)
     {
         if (_ciReportPath is not { } reportPath)
         {
@@ -362,7 +400,7 @@ public sealed partial class BootstrapController : Control
             Directory.CreateDirectory(directory);
         }
 
-        var report = new Gate3BSmokeReport
+        var report = new Gate3CSmokeReport
         {
             Seed = outcome.FinalView.RandomSeed,
             Player0Deck = setup.Player0Deck,
@@ -377,6 +415,13 @@ public sealed partial class BootstrapController : Control
             Covers = outcome.Covers,
             Reveals = outcome.Reveals,
             PrematureViewCalls = outcome.PrematureViewerCalls,
+            SignalE2e = outcome.SignalE2e,
+            ClickDragCanonicalParity = outcome.ClickDragCanonicalParity,
+            SelectionCommitWithoutConfirmation = outcome.SelectionCommitWithoutConfirmation,
+            ResolvingPublicFrames = outcome.ResolvingPublicFrames,
+            ResolvingPrivateLeaks = outcome.ResolvingPrivateLeaks,
+            Restarts = outcome.Restarts,
+            SurrenderTerminals = outcome.SurrenderTerminals,
             Result = checked((int)(uint)outcome.FinalView.Result),
             DisposedSessions = outcome.DisposedSessions,
         };
@@ -399,7 +444,7 @@ public sealed partial class BootstrapController : Control
         }
     }
 
-    private void CompleteCiSmoke(Gate3BSmokeOutcome outcome)
+    private void CompleteCiSmoke(Gate3CSmokeOutcome outcome)
     {
         if (_ciTerminalSignaled)
         {
@@ -509,10 +554,13 @@ public sealed partial class BootstrapController : Control
         GetTree().Quit(1);
     }
 
-    private sealed record Gate3BSmokeReport
+    private sealed record Gate3CSmokeReport
     {
         [JsonPropertyName("schema_version")]
-        public int SchemaVersion { get; init; } = 1;
+        public int SchemaVersion { get; init; } = 2;
+
+        [JsonPropertyName("gate")]
+        public string Gate { get; init; } = "3C";
 
         [JsonPropertyName("scenario")]
         public string Scenario { get; init; } = "full-match";
@@ -546,6 +594,27 @@ public sealed partial class BootstrapController : Control
 
         [JsonPropertyName("premature_view_calls")]
         public required int PrematureViewCalls { get; init; }
+
+        [JsonPropertyName("signal_e2e")]
+        public required bool SignalE2e { get; init; }
+
+        [JsonPropertyName("click_drag_canonical_parity")]
+        public required bool ClickDragCanonicalParity { get; init; }
+
+        [JsonPropertyName("selection_commit_without_confirmation")]
+        public required bool SelectionCommitWithoutConfirmation { get; init; }
+
+        [JsonPropertyName("resolving_public_frames")]
+        public required int ResolvingPublicFrames { get; init; }
+
+        [JsonPropertyName("resolving_private_leaks")]
+        public required int ResolvingPrivateLeaks { get; init; }
+
+        [JsonPropertyName("restarts")]
+        public required int Restarts { get; init; }
+
+        [JsonPropertyName("surrender_terminals")]
+        public required int SurrenderTerminals { get; init; }
 
         [JsonPropertyName("result")]
         public required int Result { get; init; }

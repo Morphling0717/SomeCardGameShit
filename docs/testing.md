@@ -33,19 +33,21 @@
 
 ### C# ABI 消费边界
 
-纯托管测试必须覆盖 14 个签名与冻结枚举、optional JSON omission、未知字段兼容、结构性枚举拒绝、未知事件/行动降级、未知 keyword bits 保留、严格 UTF-8、两段缓冲增长/NUL/短写/上限、TLS last-error、native/engine 错误分层、SafeHandle 单次销毁、两个 viewer cursor、Windows/macOS 已知原生库布局，以及揭示前零次 viewer 调用。`Scgs.Hotseat` 还要覆盖调度替换手牌 review、两阶段遮挡提交、渐进候选、支付一致性、响应换手、stale revision、渲染后 ACK 和 dispose。Godot 项目同时构建 Debug（编辑器/当前工程 smoke）与 Release（发布编译基线），两者都必须零警告。
+纯托管测试必须覆盖 14 个签名与冻结枚举、optional JSON omission、未知字段兼容、结构性枚举拒绝、未知事件/行动降级、未知 keyword bits 保留、严格 UTF-8、两段缓冲增长/NUL/短写/上限、TLS last-error、native/engine 错误分层、SafeHandle 单次销毁、两个 viewer cursor、Windows/macOS 已知原生库布局，以及揭示前零次 viewer 调用。`Scgs.Hotseat` 还要覆盖调度替换手牌 review、来源/动作/目标/格位/组件/预支步骤、逐步回退、点击与拖拽的规范命令收敛、支付一致性、`Resolving` 公共投影、响应换手、stale revision、渲染后 ACK 和 dispose。Godot 项目同时构建 Debug（编辑器/当前工程 smoke）与 Release（发布编译基线），两者都必须零警告。
 
 同提交动态库集成测试必须完成 ABI 检查、create/start、双 viewer 快照、全部查询 wrapper、事件脱敏、revision 和 dispose；固定牌组/先手矩阵还要自然完成整局并聚合成功提交全部 11 个 `ActionKind`。测试不能读取 `PlayerState`，也不能用模拟 DTO 代替这项集成验证。
 
 ### Godot 与桌面导出
 
-Godot headless 验证项目 import、无警告 C# build、场景/节点路径、原生加载和完整热座状态机。CI smoke 固定 seed、强制 Player0、关闭洗牌；它先验证首张 DTO 快照和揭示前零 viewer 调用，再经调度 review、正常行动、伏策发动/不过、交接遮挡和事件 ACK 自然完成终局。结构化报告必须通过严格字段白名单，并覆盖非投降 `ActionKind` 0–9、至少一次回合交接、每次命令的结算遮挡、零提前 viewer 调用和 session 释放；成功标记必须恰好出现一次。
+Godot headless 验证项目 import、无警告 C# build、场景/节点路径、原生加载和完整热座状态机。CI smoke 固定 seed、强制 Player0、关闭洗牌；它必须通过真实控件 signal 经调度 review、直接出牌/攻击/进化/部署、伏策发动/不过、交接遮挡和事件 ACK 自然完成第一局，再从结果页真实重开并以投降结束第二局，而不是向控制器注入最终 `LegalAction`。Gate 3C 报告使用 schema version 2 严格字段白名单，覆盖 `ActionKind` 0–10，并强制 `signal_e2e=true`、点击/拖拽命令一致、最后必要选择后无通用确认、每次 `Resolving` 公共投影最少两个完整帧、零私密泄露、零提前 viewer 调用、至少一次重开/投降终局和至少两次 session 释放；成功标记必须恰好出现一次。
 
-Windows/macOS job 还必须实际导出并启动产物；只在编辑器运行不算通过。Windows 审计 DLL 与 EXE 同目录、x86-64 和静态 CRT；macOS 审计 arm64、`Contents/Frameworks`、ad-hoc codesign 与执行权限。压缩后必须解包、重新审计并再次启动。每次 full-match smoke 的外部上限为 180 秒，日志不得含 C# exception 或 Godot error。
+schema version 2 的字段只能是：`schema_version`、`gate`、`scenario`、`seed`、`player0_deck`、`player1_deck`、`first_player`、`steps`、`turns`、`action_kinds`、`covers`、`reveals`、`premature_view_calls`、`signal_e2e`、`click_drag_canonical_parity`、`selection_commit_without_confirmation`、`resolving_public_frames`、`resolving_private_leaks`、`restarts`、`surrender_terminals`、`result`、`disposed_sessions`。`resolving_public_frames` 是所有命令中观察到的完整公共投影帧数最小值，不是累计帧数；因此 `>=2` 证明没有单条命令绕过绘制屏障。
+
+Windows/macOS job 还必须实际导出并启动产物；只在编辑器运行不算通过。Windows 审计 DLL 与 EXE 同目录、x86-64 和静态 CRT；macOS 审计 arm64、`Contents/Frameworks`、ad-hoc codesign 与执行权限。两者的 `BUILD_INFO.txt` 都必须精确标识 Gate 3C、锁定工具链和当前 CI checkout commit。压缩后必须解包、重新审计并再次启动。每次 full-match smoke 的外部上限为 180 秒，日志不得含 C# exception 或 Godot error。
 
 ### legacy 兼容性
 
-`scgs_wire_frozen_golden` 固定验证 v1 消息长度、字节序、消息 ID 和金标字节。Python overlay/协议契约测试由 `SCGS_ENABLE_LEGACY_YGO2_TESTS` 控制，默认开启；开启时 CMake 必须找到 Python 3.10+，不能静默只注册部分 CTest。
+`scgs_wire_frozen_golden` 固定验证 v1 消息长度、字节序、消息 ID 和金标字节。历史命名的 `SCGS_ENABLE_LEGACY_YGO2_TESTS` 当前控制整组 Python CTest：legacy overlay/协议、原生/Godot 制品审计、子进程超时以及 Gate 3B/3C 报告契约。它默认开启；开启时 CMake 必须找到 Python 3.10+，不能静默只注册部分测试。关闭会跳过整组 Python 契约，因此不能用于客户端 Gate 验收。
 
 legacy 测试通过只证明历史兼容层仍可解析，不代表 YGOPro2/Unity 是现行客户端或已经实机可用。
 

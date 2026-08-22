@@ -3,6 +3,8 @@
 > 用途：交给下一任 coding agent。接手后先 `git clone` 本仓库并 `git log`，以 **GitHub 当前 main + docs/rules-v0.4.md + 自动测试** 为真值，不要根据聊天脑补。
 >
 > 仓库：`Morphling0717/SomeCardGameShit`（GPL-3.0-or-later）
+>
+> **详细执行计划：** [`docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md`](GODOT-HOTSEAT-DEVELOPMENT-PLAN.md)。该文件包含源码审查发现的问题、Gate、C ABI、Godot UI、CI、工单依赖与实机验收标准；实际开发以它作为本文第 6 节的展开版。
 
 ---
 

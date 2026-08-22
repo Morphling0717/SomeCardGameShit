@@ -7,6 +7,13 @@ namespace Scgs.Client;
 
 internal static class ScgsJson
 {
+    private static readonly HashSet<string> SafeHiddenEventTexts =
+    [
+        "opponent drew a card",
+        "opponent set a trap",
+        "opponent completed mulligan",
+    ];
+
     internal static readonly JsonSerializerOptions Options = new()
     {
         AllowTrailingCommas = false,
@@ -233,6 +240,11 @@ internal static class ScgsJson
                 (gameEvent.Card.HasValue || gameEvent.DefinitionId.HasValue))
             {
                 throw new ScgsProtocolException("A hidden event leaked a card identifier.");
+            }
+
+            if (gameEvent.HiddenCard && !SafeHiddenEventTexts.Contains(gameEvent.Text))
+            {
+                throw new ScgsProtocolException("A hidden event contained unsafe text.");
             }
         }
 

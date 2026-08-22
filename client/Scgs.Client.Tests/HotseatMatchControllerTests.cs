@@ -395,9 +395,10 @@ public sealed class HotseatMatchControllerTests
 
             controller.SelectLegalAction(endTurn);
             Assert.IsTrue(controller.ConfirmSelection());
-            controller.CancelSelection();
-            Assert.AreEqual(HotseatUiMode.Action, controller.State.Mode);
-            Assert.AreSame(endTurn, controller.State.SelectedAction);
+            Assert.ThrowsExactly<InvalidOperationException>(() => controller.CancelSelection());
+            Assert.AreEqual(HotseatUiMode.Covered, controller.State.Mode);
+            Assert.IsNull(controller.State.Snapshot);
+            Assert.IsNull(controller.State.Viewer);
             Assert.AreEqual(1, session.SubmittedCommands.Count);
         }
     }

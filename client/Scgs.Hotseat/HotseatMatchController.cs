@@ -228,14 +228,10 @@ public sealed class HotseatMatchController : IDisposable
             throw new InvalidOperationException("A command is currently being submitted.");
         }
 
-        if (preparedCommand is not null)
+        if (preparedCommand is not null || State.IsCovered)
         {
-            preparedCommand = null;
-            HotseatUiState restored = stateBeforePreparation ??
-                throw new InvalidOperationException("The prepared command has no prior UI state.");
-            stateBeforePreparation = null;
-            SetState(restored);
-            return;
+            throw new InvalidOperationException(
+                "A prepared command cannot be cancelled after the privacy cover is shown.");
         }
 
         switch (State.Mode)

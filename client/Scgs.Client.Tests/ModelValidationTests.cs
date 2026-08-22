@@ -81,6 +81,15 @@ public sealed class ModelValidationTests
             """;
         Assert.ThrowsExactly<ScgsProtocolException>(() =>
             ScgsJson.DeserializeEvents(leakedEvent, PlayerId.Player0, 0));
+
+        const string leakedText = """
+            {"schema_version":1,"revision":2,"last_sequence":1,"events":[
+              {"sequence":1,"type":3,"player":1,"value":0,"secondary_value":0,
+               "hidden_card":true,"text":"opponent drew Secret Prototype instance 77"}
+            ]}
+            """;
+        Assert.ThrowsExactly<ScgsProtocolException>(() =>
+            ScgsJson.DeserializeEvents(leakedText, PlayerId.Player0, 0));
     }
 
     [TestMethod]

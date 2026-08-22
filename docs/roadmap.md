@@ -36,14 +36,14 @@
 
 勾选状态应由最终实现和测试结果更新，不以计划文字代替验收。
 
-## Gate 2：版本化 C ABI — 当前分支
+## Gate 2：版本化 C ABI — 已完成
 
-- [ ] 设计不暴露 C++ STL/异常/类布局的版本化 ABI
-- [ ] 版本化 JSON、调用方所有的两段式缓冲区、错误码和 UTF-8 验证
-- [ ] C ABI 与直接 C++ 行为对照测试
-- [ ] C11 consumer、动态加载与导出表审计
-- [ ] Windows DLL、Linux so 与 macOS ARM64 dylib 安装/打包
-- [ ] MSVC、GCC、Clang sanitizer 与 macOS ARM64 CI
+- [x] 设计不暴露 C++ STL/异常/类布局的版本化 ABI
+- [x] 版本化 JSON、调用方所有的两段式缓冲区、错误码和 UTF-8 验证
+- [x] C ABI 与直接 C++ 行为对照测试
+- [x] C11 consumer、动态加载与导出表审计
+- [x] Windows DLL、Linux so 与 macOS ARM64 dylib 安装/打包
+- [x] MSVC、GCC、Clang sanitizer 与 macOS ARM64 CI
 
 Gate 2 采用 64 位 token handle 与 schema 1 UTF-8 JSON，不直接展平含 string/vector/optional 的 C++ DTO。规范见 [`native-api-v04.md`](native-api-v04.md)。
 

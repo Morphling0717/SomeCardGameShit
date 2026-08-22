@@ -41,7 +41,7 @@ jobs:
         run: python scripts/audit_native_artifact.py --library build/stage-gcc/lib/libscgs_v04.so --architecture x86_64
       - name: Check patch whitespace
         run: git diff --check
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: scgs-native-v04-linux-x86_64-gcc
           path: build/stage-gcc
@@ -82,7 +82,7 @@ jobs:
         run: python scripts/audit_native_artifact.py --library build/stage-asan/lib/libscgs_v04.so --architecture x86_64
       - name: Check patch whitespace
         run: git diff --check
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: scgs-native-v04-linux-x86_64-clang-asan-ubsan
           path: build/stage-asan
@@ -127,7 +127,7 @@ jobs:
         run: python scripts/audit_native_artifact.py --library build/stage-msvc/bin/scgs_v04.dll --architecture x86_64
       - name: Check patch whitespace
         run: git diff --check
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: scgs-native-v04-windows-x86_64-msvc
           path: build/stage-msvc
@@ -164,7 +164,7 @@ jobs:
         run: python scripts/audit_native_artifact.py --library build/stage-macos/lib/libscgs_v04.dylib --architecture arm64
       - name: Check patch whitespace
         run: git diff --check
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: scgs-native-v04-macos-arm64-appleclang
           path: build/stage-macos

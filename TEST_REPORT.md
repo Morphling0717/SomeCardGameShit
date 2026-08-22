@@ -1,20 +1,24 @@
-# Gate 0+1 测试报告
+# Gate 0+1+2 测试报告
 
 **日期：** 2026-08-22
 
-**分支：** `codex/godot-hotseat-gate1`
+**分支：** `codex/godot-hotseat-gate2`
 
-**基线：** `main@cfdf695d70eeabcc6de9b094c94041364fb1335f`
+**项目基线：** `main@cfdf695d70eeabcc6de9b094c94041364fb1335f`
 
-**被测实现提交：** `a952c5282eca4adcb6325d2fc027ca21c0568d4e`
+**Gate 2 前置基线：** `f048d11ded5d2bd2579156d8101ff38b2de2b263`
 
-**范围：** Godot 客户端化前置 Gate 0+1；不包含 C ABI、Godot 场景/UI 或正式美术。
+**最终被测实现：** `189239d827dafe34e0caa493a8bb7a55bd31a4d8`
+
+**Gate 2 提交：** `389db85`（C ABI 与测试）、`1f44edf`（规范与交接文档）、`189239d`（sanitizer 链接与 ELF 导出收口）。
+
+**范围：** 在 Gate 0+1 引擎加固之上交付版本化 `scgs_v04` C ABI、schema 1 UTF-8 JSON、C11/动态加载/直接 C++ 对照测试，以及 Windows、Linux、macOS ARM64 安装制品。本轮不包含 Godot 工程、C# P/Invoke、场景或 UI。
 
 ## 结论
 
-本次工作树在本机 MSVC Release 与 Debug 下均完成构建，两个配置的 CTest 都是 **6/6**。Release 规则压力测试覆盖 **2,048 seeds**，legacy v1 wire 金标和两组 Python legacy 契约测试均通过。失败命令原子性、revision、观看者快照/事件隐私及无界面固定牌组整局代理均由新增客户端 API 契约测试覆盖。
+最终实现已在本机 MSVC Release 与 Debug 下完成构建，两个配置的 CTest 均为 **9/9**。Release 规则压力测试覆盖 **2,048 seeds**；原生 ABI 契约测试完成 **98,793 assertions**，并包含 direct C++/ABI 同 seed 整局逐步对照。安装后的 CMake package 可由独立 C11 consumer 查找、链接和执行，DLL 导出审计确认架构为 x86-64 且仅有规范规定的 14 个 C 符号。
 
-本分支按要求**未推送**，因此本次 commit 的 GitHub Actions **未运行，不能声称 CI 已绿**。本机未安装 GCC、Clang、Godot 4.7.2 .NET 或 .NET SDK 10.0.400；GCC Release 与 Clang ASan/UBSan 只完成了 CI 配置，尚待分支获准推送后验证。`global.json` 与文档中的 Godot/.NET 版本锁定不等于本机运行验证。
+[GitHub Actions run 32565543772](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32565543772) 在最终实现提交上 **4/4 jobs 全绿**：GCC Release、Clang ASan/UBSan、MSVC Release、macOS ARM64 Release；每个 job 均执行构建、完整 CTest、安装、外部 package consumer、动态库架构/导出审计并上传安装制品。
 
 ## 执行环境
 
@@ -22,95 +26,119 @@
 OS: Windows 11, 10.0.26200.0, AMD64
 Generator: Visual Studio 17 2022, x64
 MSVC: 19.44.35228.0
-CMake: 3.31.6-msvc6（项目最低要求 3.25）
+CMake: 3.31.6（项目最低要求 3.25）
+Clang/clang-cl: 22.1.8
 Python: 3.10.11
 Git: 2.54.0.windows.1
 ```
 
-## 实际命令
+远端矩阵由 GitHub-hosted `ubuntu-latest`、`windows-latest` 与 `macos-15` 执行，Python 固定为 3.12.8。`macos-15` job 显式指定 `CMAKE_OSX_ARCHITECTURES=arm64`。
 
-以下 PowerShell 命令在仓库根目录执行；`$cmake` 与 `$ctest` 指向 Visual Studio Build Tools 自带的 CMake 3.31.6：
+## 本地实际命令
+
+以下 PowerShell 命令在仓库根目录执行：
 
 ```powershell
-$cmake = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe"
-$ctest = "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\ctest.exe"
+$cmake = "C:\Users\ASUS\AppData\Local\Programs\cmake-3.31.6-windows-x86_64\bin\cmake.exe"
+$ctest = "C:\Users\ASUS\AppData\Local\Programs\cmake-3.31.6-windows-x86_64\bin\ctest.exe"
 
-& $cmake -S . -B build/final-msvc -G "Visual Studio 17 2022" -A x64 `
-  -DSCGS_WARNINGS_AS_ERRORS=ON -DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON
-& $cmake --build build/final-msvc --config Release --parallel
-& $ctest --test-dir build/final-msvc -C Release --output-on-failure
+& $cmake -S . -B build/gate2-final-msvc -A x64 `
+  -DSCGS_WARNINGS_AS_ERRORS=ON `
+  -DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON
 
-& $cmake --build build/final-msvc --config Debug --parallel
-& $ctest --test-dir build/final-msvc -C Debug --output-on-failure
-
-& .\build\final-msvc\Release\scgs_tests.exe
-& .\build\final-msvc\Release\scgs_client_api_tests.exe
-& .\build\final-msvc\Release\scgs_wire_tests.exe
-& .\build\final-msvc\Release\scgs_demo.exe --verify
-
+& $cmake --build build/gate2-final-msvc --config Release --parallel 2
 $env:SCGS_SMOKE_SEEDS = "2048"
-& .\build\final-msvc\Release\scgs_tests.exe
+& $ctest --test-dir build/gate2-final-msvc -C Release --output-on-failure
+
+& $cmake --build build/gate2-final-msvc --config Debug --parallel 2
+$env:SCGS_SMOKE_SEEDS = "256"
+& $ctest --test-dir build/gate2-final-msvc -C Debug --output-on-failure
+
+& .\build\gate2-final-msvc\Release\scgs_tests.exe
+& .\build\gate2-final-msvc\Release\scgs_client_api_tests.exe
+& .\build\gate2-final-msvc\Release\scgs_wire_tests.exe
+& .\build\gate2-final-msvc\Release\scgs_native_api_tests.exe
+& .\build\gate2-final-msvc\Release\scgs_demo.exe --verify
+
+& $cmake --install build/gate2-final-msvc --config Release `
+  --prefix build/stage-gate2-final-msvc
+& $cmake -S scripts/native-package-smoke `
+  -B build/package-smoke-gate2-final -A x64 `
+  -DCMAKE_PREFIX_PATH="$PWD/build/stage-gate2-final-msvc"
+& $cmake --build build/package-smoke-gate2-final --config Release --parallel 2
+$env:PATH = "$PWD\build\stage-gate2-final-msvc\bin;$env:PATH"
+& .\build\package-smoke-gate2-final\Release\scgs_native_v04_package_smoke.exe
 
 & "C:\Users\ASUS\AppData\Local\Programs\Python\Python310\python.exe" `
+  scripts/audit_native_artifact.py `
+  --library build/stage-gate2-final-msvc/bin/scgs_v04.dll `
+  --architecture x86_64
+& "C:\Users\ASUS\AppData\Local\Programs\Python\Python310\python.exe" `
   -m unittest -v tools.tests.test_apply_ygo2_overlay tools.tests.test_protocol_contract
-
-& $cmake -S . -B build/final-no-legacy -G "Visual Studio 17 2022" -A x64 `
-  -DSCGS_WARNINGS_AS_ERRORS=ON -DSCGS_ENABLE_LEGACY_YGO2_TESTS=OFF
 
 git diff --check
 git diff --cached --check
 ```
 
-## 结果
+Clang 22.1.8 + Ninja 的独立 Release 配置（关闭 legacy Python 测试）另行完成 **7/7 CTest**。Linux sanitizer 的真实 `clang`/`clang++`、ASan/UBSan 和外部 package consumer 由最终 CI job 验证。
+
+## 本地结果
 
 | 验证项 | 结果 |
 |---|---|
-| MSVC Release `/W4 /WX` 构建 | 通过 |
-| MSVC Release CTest | 6/6 通过 |
-| MSVC Debug `/W4 /WX` 构建 | 通过 |
-| MSVC Debug CTest | 6/6 通过 |
-| 规则回归（默认 32 seeds） | 30 cases，543 assertions，0 failures |
-| 规则 Release 压力（2,048 seeds） | 30 cases，8,607 assertions，0 failures |
-| 客户端 API 契约 | 397 assertions，0 failures |
+| MSVC Release `/W4 /WX` 构建与 CTest | 9/9 通过；2,048 seeds |
+| MSVC Debug `/W4 /WX` 构建与 CTest | 9/9 通过；256 seeds |
+| Clang 22.1.8 + Ninja Release | 7/7 通过；legacy 显式关闭 |
+| 规则回归/压力 | 30 cases，8,607 assertions，0 failures |
+| 客户端安全 API 契约 | 397 assertions，0 failures |
 | legacy v1 wire 金标 | 31 assertions，0 failures |
+| native ABI 契约 | 98,793 assertions，0 failures |
+| C11 header/link consumer | 通过；公共头重复 include 通过 |
+| 运行时动态加载 | 14 个规定导出全部可解析并调用 |
+| 安装后 CMake package consumer | `find_package(scgs_native_v04 1.0 CONFIG REQUIRED)`、链接、启动、快照、销毁均通过 |
+| DLL 审计 | PE x86-64；精确 14 个 `scgs_v04_*` 导出；无 C++ 符号 |
 | legacy Python | 10 tests，全部通过 |
 | 记录场景 `scgs_demo --verify` | `verified: true`，不变量成立 |
-| legacy Python 测试关闭配置 | 配置成功；证明开关可显式关闭 |
 | `git diff --check` / staged check | 通过 |
 
-CTest 的 6 个目标为：
+CTest 的 9 个目标为：
 
 1. `scgs_unit_tests`
 2. `scgs_client_api_contract`
 3. `scgs_documented_scenario`
 4. `scgs_wire_frozen_golden`
-5. `scgs_ygo2_overlay_patcher`
-6. `scgs_protocol_contract`
+5. `scgs_native_api_c_contract`
+6. `scgs_native_api_contract`
+7. `scgs_native_api_dynamic_load`
+8. `scgs_ygo2_overlay_patcher`
+9. `scgs_protocol_contract`
 
-## 关键覆盖
+## 远端 CI 与制品
 
-- 结束回合清理/PP 清零事件顺序；法术响应、反制不过、真正的反制 → 响应 → 原行动 LIFO。
-- 声明前完整目标校验；响应中目标失效只跳过依赖效果，已支付成本不回滚，其余效果继续。
-- 致命攻击、疲劳、投降、致死多效果伏策与异常开局都只产生一个 `MatchEnded`，终局后冻结。
-- 组件 donor 原位置部署；非法 `PlayerId` 和非法目标枚举无副作用。
-- 进化解锁前不充能；先手解锁 2、后手解锁 3；解锁后充能封顶 4。
-- 强制/随机先手、实际 seed 与开局事件元数据；同一工具链同 seed 的先手与洗牌顺序一致。
-- 观看者快照隐藏敌方手牌身份和背面伏策身份；调度替换抽牌、抽牌和设伏事件按观看者脱敏；设伏牌翻开后晚读历史仍不泄露。
-- 两名观看者的事件游标互不消费；成功命令 revision 只加一，错误/过期命令不改变状态、事件或 revision。
-- 无界面代理只走“快照 → 查询 → 命令 → 事件”，完成现有固定牌组整局。
+| Job | 配置 | 压力 seeds | 结果与制品 |
+|---|---|---:|---|
+| `linux-gcc` | GCC Release | 2,048 | 通过；`scgs-native-v04-linux-x86_64-gcc` |
+| `linux-clang-sanitizers` | Clang Debug + ASan/UBSan | 256 | 通过；`scgs-native-v04-linux-x86_64-clang-asan-ubsan` |
+| `windows-msvc` | MSVC Release x86-64 | 2,048 | 通过；`scgs-native-v04-windows-x86_64-msvc` |
+| `macos-arm64` | AppleClang Release ARM64 | 2,048 | 通过；`scgs-native-v04-macos-arm64-appleclang` |
 
-## Legacy wire 冻结
+首轮 Gate 2 run `32565185410` 的 Windows/macOS 已通过，但 Linux 暴露出 C consumer sanitizer 链接驱动与 ELF 隐式 C++ 导出问题。提交 `189239d` 改用 C++ linker driver 承载 sanitizer runtime，并用 ELF version script 将导出面收紧为精确 14 个 C 符号；上述最终 run 随后四项全绿。审计规则未因失败而放宽。
 
-协议实现与金标测试文件未修改，金标字节仍通过。当前投影语义是：
+## Gate 2 关键覆盖
 
-- PlayerState flags bit 1：`deploy_used_this_turn`；
-- UnitState flags bit 3：`deployed_from_standby && entered_this_turn`；
-- 每名玩家当前有 3 个策略位，但 legacy v1 字节布局、消息 ID、字段顺序、长度和字节序不变。
+- C11 头文件不暴露 STL、异常或 C++ 类布局；ABI 版本、schema、固定宽度参数、调用约定与 14 个导出被冻结。
+- 所有 JSON 输入执行 1 MiB 上限与 UTF-8 校验；输出采用调用方所有的两段式缓冲区，所需长度包含尾随 NUL，缓冲区不足时不部分写入。
+- 64 位 token handle 不复用；未知/已销毁 handle、空指针、非法 enum、错误 schema、错误阶段与过期 revision 均返回稳定 native error，异常不越过 C 边界。
+- `start` 使用候选状态提交，失败不改变现有比赛；失败查询/命令不改变状态、事件或 revision，成功命令只增加一次 revision。
+- direct `Game` 与 ABI 在同 seed 整局的每一步比较双 viewer 快照、全部合法行动、支付预览、选中动作结果、revision 和脱敏事件，直至终局。
+- `ActionKind` 0~10 均至少成功提交一次；定向覆盖预支、燃耗、法术、进化、组件部署、设伏、响应跳过/发动、攻击和投降。
+- ABI-only 无界面代理完成固定牌组整局，不读取 `PlayerState`；双观看者事件游标互不消费，敌方手牌、背面伏策及隐藏事件不泄露身份。
+- Windows PE、Linux ELF 与 macOS Mach-O 均审计目标架构与精确导出；安装树可由独立 C consumer 使用版本化 CMake package 消费。
 
-## 尚未验证
+## 保持冻结与本轮边界
 
-- GitHub Actions：分支未推送，所以没有本次远端运行。
-- GCC Release：本机无 GCC；CI 已配置 Release 与 2,048 seeds。
-- Clang ASan/UBSan：本机无 Clang；CI 已配置 sanitizer 与 256 seeds。
-- Godot/.NET 客户端：本轮不创建客户端工程，且本机没有锁定版本的工具链。
-- `std::shuffle` 跨不同标准库的逐字重现：本轮不承诺；仅验证同工具链、同 seed 可复现。
+- legacy v1 wire 的消息 ID、字段顺序、长度、字节序和金标字节未改变；Python legacy 测试仍默认开启且不得静默少跑。
+- 本轮只交付 native boundary，不创建 Godot/C# 客户端；Godot 4.7.2 .NET 与 .NET SDK 10.0.400 留给 Gate 3。
+- schema 1 仅承诺当前两副固定牌组的 Alpha 闭环；消费者须忽略未知输出字段，但未来 schema 的跨版本兼容仍需独立测试。
+- 不承诺 `std::shuffle` 跨不同标准库逐字一致；实际 seed 与先手信息已进入快照/事件。
+- Web 明确不支持。

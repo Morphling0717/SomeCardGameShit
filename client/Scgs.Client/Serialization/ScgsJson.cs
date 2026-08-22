@@ -527,6 +527,19 @@ internal static class ScgsJson
     {
         RequireInboundDefined(reaction.Window, "reaction.window");
         RequireInboundPlayer(reaction.Responder, "reaction.responder");
+        if (reaction.Pending)
+        {
+            ValidateReactionOrigin(
+                reaction.Origin ??
+                    throw new ScgsProtocolException(
+                        "A pending reaction is missing its origin."));
+        }
+        else if (reaction.Origin is not null)
+        {
+            throw new ScgsProtocolException(
+                "A non-pending reaction unexpectedly contains an origin.");
+        }
+
         RequireArray(reaction.EligibleTraps, "reaction.eligible_traps");
         foreach (CardView trap in reaction.EligibleTraps)
         {
@@ -546,6 +559,17 @@ internal static class ScgsJson
         {
             throw new ScgsProtocolException(
                 "The responder reaction context omitted eligible trap identities.");
+        }
+    }
+
+    private static void ValidateReactionOrigin(ReactionOrigin origin)
+    {
+        // ActionKind is deliberately forward-compatible on native output. A future
+        // origin can still be shown generically even when this client cannot submit it.
+        RequireInboundPlayer(origin.Player, "reaction.origin.player");
+        if (origin.Target is not null)
+        {
+            ValidateTarget(origin.Target, inbound: true);
         }
     }
 

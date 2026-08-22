@@ -111,6 +111,12 @@
       },
       "scgs.client": {
         "type": "Project"
+      },
+      "scgs.hotseat": {
+        "type": "Project",
+        "dependencies": {
+          "Scgs.Client": "[1.0.0, )"
+        }
       }
     }
   }

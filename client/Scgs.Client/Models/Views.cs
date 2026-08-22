@@ -203,6 +203,8 @@ public sealed class ReactionContext
 
     public required ulong Subject { get; init; }
 
+    public ReactionOrigin? Origin { get; init; }
+
     public required ulong Depth { get; init; }
 
     public required ulong EligibleCount { get; init; }
@@ -210,6 +212,17 @@ public sealed class ReactionContext
     public required CardView[] EligibleTraps { get; init; }
 
     public required ulong Revision { get; init; }
+}
+
+public sealed class ReactionOrigin
+{
+    public required ActionKind Action { get; init; }
+
+    public required PlayerId Player { get; init; }
+
+    public required ulong Source { get; init; }
+
+    public Target? Target { get; init; }
 }
 
 public sealed class MatchView

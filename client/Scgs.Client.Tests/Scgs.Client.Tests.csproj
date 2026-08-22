@@ -12,6 +12,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Scgs.Client\Scgs.Client.csproj" />
+    <ProjectReference Include="..\Scgs.Hotseat\Scgs.Hotseat.csproj" />
     <Compile Include="..\godot\scripts\Match\ViewerRevealGate.cs"
              Link="GodotContracts\ViewerRevealGate.cs" />
     <Compile Include="..\godot\scripts\Native\NativeLibraryLayout.cs"

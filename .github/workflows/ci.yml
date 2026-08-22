@@ -134,6 +134,7 @@ jobs:
           cache: true
           cache-dependency-path: |
             client/Scgs.Client/packages.lock.json
+            client/Scgs.Hotseat/packages.lock.json
             client/Scgs.Client.Tests/packages.lock.json
             client/godot/packages.lock.json
       - name: Cache Godot .NET editor and export templates
@@ -303,6 +304,7 @@ jobs:
           cache: true
           cache-dependency-path: |
             client/Scgs.Client/packages.lock.json
+            client/Scgs.Hotseat/packages.lock.json
             client/Scgs.Client.Tests/packages.lock.json
             client/godot/packages.lock.json
       - name: Cache Godot .NET editor and export templates

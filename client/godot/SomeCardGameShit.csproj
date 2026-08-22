@@ -13,5 +13,6 @@
 
   <ItemGroup>
     <ProjectReference Include="../Scgs.Client/Scgs.Client.csproj" />
+    <ProjectReference Include="../Scgs.Hotseat/Scgs.Hotseat.csproj" />
   </ItemGroup>
 </Project>

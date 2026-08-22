@@ -18,45 +18,45 @@ Gate 3B 的历史通过不能证明 Gate 3C 的交互或公共投影安全；Gat
 
 ### 选择与命令
 
-- [ ] `HotseatUiMode.Resolving` 与 `Covered` 分离；选择公开 `HotseatSelectionStep` 和 `HotseatInteractionContext`；
-- [ ] 来源、动作、目标、格位、组件与预支只过滤同 revision 的引擎 `LegalAction`，不拼第二套命令；
-- [ ] 点击与拖拽进入同一 intent，最终得到逐字段相等的 `GameCommandRequest`；
-- [ ] 第一次点击来源不提交；单一动作直接进入下一选择，多动作才显示来源旁上下文按钮；
-- [ ] 最后一个必要目标/格位/组件选择后立即准备命令，不出现通用确认页；
-- [ ] 无目标动作要求明确动作按钮；调度整批确认、投降二次确认、结束回合直接执行；
-- [ ] `StepBackSelection` 逐个撤销显式步骤，自动补全不占历史；完整取消才清空来源；
-- [ ] 无效拖放不调用 native，不改变 revision、事件或游标；
-- [ ] 支付提示完全来自 `PreviewPayment`，预支/燃耗/容量/裂痕变化醒目但不追加确认。
+- [x] `HotseatUiMode.Resolving` 与 `Covered` 分离；选择公开 `HotseatSelectionStep` 和 `HotseatInteractionContext`；
+- [x] 来源、动作、目标、格位、组件与预支只过滤同 revision 的引擎 `LegalAction`，不拼第二套命令；
+- [x] 点击与拖拽进入同一 intent，最终得到逐字段相等的 `GameCommandRequest`；
+- [x] 第一次点击来源不提交；单一动作直接进入下一选择，多动作才显示来源旁上下文按钮；
+- [x] 最后一个必要目标/格位/组件选择后立即准备命令，不出现通用确认页；
+- [x] 无目标动作要求明确动作按钮；调度整批确认、投降二次确认、结束回合直接执行；
+- [x] `StepBackSelection` 逐个撤销显式步骤，自动补全不占历史；完整取消才清空来源；
+- [x] 无效拖放不调用 native，不改变 revision、事件或游标；
+- [x] 支付提示完全来自 `PreviewPayment`，预支/燃耗/容量/裂痕变化醒目但不追加确认。
 
 ### 战场输入与反馈
 
-- [ ] 手牌、场上单位/策略、战备、主战者与空位可直接点击或拖拽，高亮不只依赖颜色；
-- [ ] 攻击显示目标连线，放置显示幽灵牌，部署显示组件及成本；
-- [ ] 右栏只承载可折叠详情/日志，不再列出主行动流程；
-- [ ] 悬停显示详情，右键固定详情或在空白处回退，Esc 与键盘确认路径可用；
-- [ ] 响应以居中上下文层显示公开 origin、合法伏策/目标与“不过”。
+- [x] 手牌、场上单位/策略、战备、主战者与空位可直接点击或拖拽，高亮不只依赖颜色；
+- [x] 攻击显示目标连线，放置显示幽灵牌，部署显示组件及成本；
+- [x] 右栏只承载可折叠详情/日志，不再列出主行动流程；
+- [x] 悬停显示详情，右键固定详情或在空白处回退，Esc 与键盘确认路径可用；
+- [x] 响应以居中上下文层显示公开 origin、合法伏策/目标与“不过”。
 
 ### Resolving 与热座隐私
 
-- [ ] 命令准备后先绘制至少两个完整帧的 `HotseatPublicBoardView`，期间输入、ACK、重复提交和旧 revision 回调全部锁死；
-- [ ] 公共投影中双方手牌只有数量，所有背面伏策匿名，且没有详情、日志、tooltip、metadata、候选或私密回调；
-- [ ] `Resolving` 内 `Snapshot`、`Viewer`、`LegalActions` 与 `PendingEvents` 为空，不保留 viewer DTO/节点引用；
-- [ ] 同一操作者继续时才刷新原 viewer；操作者变化立即完全遮挡，新 viewer 主动揭示前调用为零；
-- [ ] engine 拒绝回到刷新后的原 viewer 状态，native/协议故障先清私密状态再进入受控错误页。
+- [x] 命令准备后先绘制至少两个完整帧的 `HotseatPublicBoardView`，期间输入、ACK、重复提交和旧 revision 回调全部锁死；
+- [x] 公共投影中双方手牌只有数量，所有背面伏策匿名，且没有详情、日志、tooltip、metadata、候选或私密回调；
+- [x] `Resolving` 内 `Snapshot`、`Viewer`、`LegalActions` 与 `PendingEvents` 为空，不保留 viewer DTO/节点引用；
+- [x] 同一操作者继续时才刷新原 viewer；操作者变化立即完全遮挡，新 viewer 主动揭示前调用为零；
+- [x] engine 拒绝回到刷新后的原 viewer 状态，native/协议故障先清私密状态再进入受控错误页。
 
-## 最终提交自动化
+## 被测实现自动化
 
-以下项目在最终提交有真实输出后才能勾选：
+以下项目依据实现提交 `087d53a` 的本地输出与远端 run `32592594368` 勾选；包含本报告的文档尖端仍须由同一工作流再次全绿：
 
-- [ ] GCC Release、Clang ASan/UBSan、MSVC Release 与 AppleClang ARM64 四项原生矩阵全绿；
-- [ ] 2,048-seed Release、256-seed sanitizer、legacy wire/Python、精确 14 导出和 `git diff --check` 通过；
-- [ ] managed 测试覆盖每种动作的选择步骤、自动补全、逐步回退、规范命令收敛、支付与公共投影隐私；
-- [ ] Godot 通过真实控件 signal 覆盖调度、出牌、攻击、进化、部署、伏策发动/不过、结束回合、投降、终局和重开；
-- [ ] 点击/拖拽路径产生相同规范命令；最后必要选择后无通用确认；
-- [ ] 恶意私密 DTO 不能泄露到 `Resolving` 的截图、节点 metadata、tooltip 或回调；
-- [ ] Gate 3C schema v2 报告严格通过：`action_kinds` 为 0～10、`gate="3C"`、三项直接交互布尔为 true、`resolving_public_frames>=2`、两类泄露计数为 0、`restarts>=1`、`surrender_terminals>=1`、`disposed_sessions>=2`；
-- [ ] 当前工程、Windows/macOS 导出及 ZIP 解包后启动各只输出一次 `SCGS_GODOT_CI_SMOKE_OK`；
-- [ ] artifact 使用 `SomeCardGameShit-gate3c-windows-x86_64` 与 `SomeCardGameShit-gate3c-macos-arm64`，架构、native 布局、许可证和摘要已记录。
+- [x] GCC Release、Clang ASan/UBSan、MSVC Release 与 AppleClang ARM64 四项原生矩阵全绿；
+- [x] 2,048-seed Release、256-seed sanitizer、legacy wire/Python、精确 14 导出和 `git diff --check` 通过；
+- [x] managed 测试覆盖每种动作的选择步骤、自动补全、逐步回退、规范命令收敛、支付与公共投影隐私；
+- [x] Godot 通过真实控件 signal 覆盖调度、出牌、攻击、进化、部署、伏策发动/不过、结束回合、投降、终局和重开；
+- [x] 点击/拖拽路径产生相同规范命令；最后必要选择后无通用确认；
+- [x] 恶意私密 DTO 不能泄露到 `Resolving` 的截图、节点 metadata、tooltip 或回调；
+- [x] Gate 3C schema v2 报告严格通过：`action_kinds` 为 0～10、`gate="3C"`、三项直接交互布尔为 true、`resolving_public_frames>=2`、两类泄露计数为 0、`restarts>=1`、`surrender_terminals>=1`、`disposed_sessions>=2`；
+- [x] 当前工程、Windows/macOS 导出及 ZIP 解包后启动各只输出一次 `SCGS_GODOT_CI_SMOKE_OK`；
+- [x] artifact 使用 `SomeCardGameShit-gate3c-windows-x86_64` 与 `SomeCardGameShit-gate3c-macos-arm64`，架构、native 布局、许可证和摘要已记录。
 
 ## 视觉与人工验收
 

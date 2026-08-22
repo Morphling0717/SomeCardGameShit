@@ -1,0 +1,21 @@
+<Project Sdk="MSTest.Sdk/4.3.3">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
+    <Deterministic>true</Deterministic>
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Scgs.Client\Scgs.Client.csproj" />
+    <Compile Include="..\godot\scripts\Match\ViewerRevealGate.cs"
+             Link="GodotContracts\ViewerRevealGate.cs" />
+    <Compile Include="..\godot\scripts\Native\NativeLibraryLayout.cs"
+             Link="GodotContracts\NativeLibraryLayout.cs" />
+  </ItemGroup>
+
+</Project>

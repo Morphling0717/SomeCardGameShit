@@ -92,6 +92,9 @@ jobs:
     runs-on: windows-latest
     env:
       SCGS_SMOKE_SEEDS: "2048"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      NUGET_XMLDOC_MODE: skip
     steps:
       - uses: actions/checkout@v7
       - uses: actions/setup-python@v6
@@ -125,8 +128,112 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Audit native artifact
         run: python scripts/audit_native_artifact.py --library build/stage-msvc/bin/scgs_v04.dll --architecture x86_64
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: |
+            client/Scgs.Client/packages.lock.json
+            client/Scgs.Client.Tests/packages.lock.json
+            client/godot/packages.lock.json
+      - name: Cache Godot .NET editor and export templates
+        uses: actions/cache@v5
+        with:
+          path: |
+            build/godot-toolchain/windows
+            ~/AppData/Roaming/Godot/export_templates/4.7.2.stable.mono
+          key: godot-mono-4.7.2-windows-x86_64-v1
+      - name: Install verified Godot 4.7.2 .NET toolchain
+        id: godot
+        shell: pwsh
+        run: ./scripts/ci/install_godot_windows.ps1 -GithubOutput $env:GITHUB_OUTPUT
+      - name: Stage current-commit native library for Godot
+        run: >-
+          python scripts/stage_godot_native.py
+          --library build/stage-msvc/bin/scgs_v04.dll
+          --destination-root client/godot/native
+          --target windows-x86_64
+      - name: Locked managed restore, build, and tests
+        env:
+          SCGS_NATIVE_LIBRARY: ${{ github.workspace }}/build/stage-msvc/bin/scgs_v04.dll
+          SCGS_V04_NATIVE_PATH: ${{ github.workspace }}/build/stage-msvc/bin/scgs_v04.dll
+        run: python scripts/ci/run_managed_gate3.py
+      - name: Godot headless import
+        env:
+          GODOT4: ${{ steps.godot.outputs.godot }}
+        shell: pwsh
+        run: >-
+          python scripts/ci/run_with_timeout.py
+          --timeout 180
+          --forbid-output "SCRIPT ERROR:"
+          --forbid-output "ERROR:"
+          -- "$env:GODOT4" --headless --editor
+          --path client/godot --quit-after 2
+      - name: Godot current-project native smoke
+        env:
+          GODOT4: ${{ steps.godot.outputs.godot }}
+        shell: pwsh
+        run: |
+          $native = (Resolve-Path "build/stage-msvc/bin/scgs_v04.dll").Path
+          python scripts/ci/run_with_timeout.py `
+            --timeout 30 `
+            --expect-output SCGS_GODOT_CI_SMOKE_OK `
+            --forbid-output "SCRIPT ERROR:" `
+            --forbid-output "ERROR:" `
+            -- "$env:GODOT4" --headless --path client/godot -- `
+            --ci-smoke "--native-library=$native"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Export and finalize Windows client
+        env:
+          GODOT4: ${{ steps.godot.outputs.godot }}
+        shell: pwsh
+        run: |
+          $exportDirectory = Join-Path "${{ github.workspace }}" "artifacts/godot/windows-x86_64"
+          $export = Join-Path $exportDirectory "SomeCardGameShit.exe"
+          New-Item -ItemType Directory -Path $exportDirectory -Force | Out-Null
+          python scripts/ci/run_with_timeout.py `
+            --timeout 600 `
+            --forbid-output "SCRIPT ERROR:" `
+            --forbid-output "ERROR:" `
+            -- "$env:GODOT4" --headless --path client/godot `
+            --export-release "Windows x86-64" "$export"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/ci/finalize_godot_export.py `
+            --platform windows-x86_64 `
+            --export "$export" `
+            --native-library build/stage-msvc/bin/scgs_v04.dll
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Audit and launch exported Windows client
+        shell: pwsh
+        run: |
+          $exportDirectory = Join-Path "${{ github.workspace }}" "artifacts/godot/windows-x86_64"
+          $export = Join-Path $exportDirectory "SomeCardGameShit.exe"
+          python scripts/audit_godot_export.py --platform windows-x86_64 --export "$export"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/ci/run_with_timeout.py `
+            --timeout 30 `
+            --cwd "$exportDirectory" `
+            --expect-output SCGS_GODOT_CI_SMOKE_OK `
+            --forbid-output "SCRIPT ERROR:" `
+            --forbid-output "ERROR:" `
+            -- "$export" --headless -- --ci-smoke
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package Windows client
+        shell: pwsh
+        run: |
+          $packageDirectory = Join-Path "${{ github.workspace }}" "artifacts/packages"
+          New-Item -ItemType Directory -Path $packageDirectory -Force | Out-Null
+          Compress-Archive `
+            -Path "artifacts/godot/windows-x86_64/*" `
+            -DestinationPath "$packageDirectory/SomeCardGameShit-gate3a-windows-x86_64.zip" `
+            -CompressionLevel Optimal
       - name: Check patch whitespace
         run: git diff --check
+      - uses: actions/upload-artifact@v7
+        with:
+          name: SomeCardGameShit-gate3a-windows-x86_64
+          path: artifacts/packages/SomeCardGameShit-gate3a-windows-x86_64.zip
+          if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
           name: scgs-native-v04-windows-x86_64-msvc
@@ -137,8 +244,13 @@ jobs:
     runs-on: macos-15
     env:
       SCGS_SMOKE_SEEDS: "2048"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      NUGET_XMLDOC_MODE: skip
     steps:
       - uses: actions/checkout@v7
+      - name: Verify Apple Silicon host
+        run: test "$(uname -m)" = arm64
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12.8"
@@ -162,8 +274,102 @@ jobs:
           ./build/package-smoke-macos/scgs_native_v04_package_smoke
       - name: Audit native artifact
         run: python scripts/audit_native_artifact.py --library build/stage-macos/lib/libscgs_v04.dylib --architecture arm64
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: |
+            client/Scgs.Client/packages.lock.json
+            client/Scgs.Client.Tests/packages.lock.json
+            client/godot/packages.lock.json
+      - name: Cache Godot .NET editor and export templates
+        uses: actions/cache@v5
+        with:
+          path: |
+            build/godot-toolchain/macos
+            ~/Library/Application Support/Godot/export_templates/4.7.2.stable.mono
+          key: godot-mono-4.7.2-macos-arm64-v1
+      - name: Install verified Godot 4.7.2 .NET toolchain
+        id: godot
+        run: bash scripts/ci/install_godot_macos.sh
+      - name: Stage current-commit native library for Godot
+        run: >-
+          python scripts/stage_godot_native.py
+          --library build/stage-macos/lib/libscgs_v04.dylib
+          --destination-root client/godot/native
+          --target macos-arm64
+      - name: Locked managed restore, build, and tests
+        env:
+          SCGS_NATIVE_LIBRARY: ${{ github.workspace }}/build/stage-macos/lib/libscgs_v04.dylib
+          SCGS_V04_NATIVE_PATH: ${{ github.workspace }}/build/stage-macos/lib/libscgs_v04.dylib
+        run: python scripts/ci/run_managed_gate3.py
+      - name: Godot headless import
+        env:
+          GODOT4: ${{ steps.godot.outputs.godot }}
+        run: >-
+          python scripts/ci/run_with_timeout.py
+          --timeout 180
+          --forbid-output "SCRIPT ERROR:"
+          --forbid-output "ERROR:"
+          -- "$GODOT4" --headless --editor
+          --path client/godot --quit-after 2
+      - name: Godot current-project native smoke
+        env:
+          GODOT4: ${{ steps.godot.outputs.godot }}
+        run: |
+          native="$(cd build/stage-macos/lib && pwd)/libscgs_v04.dylib"
+          python scripts/ci/run_with_timeout.py \
+            --timeout 30 \
+            --expect-output SCGS_GODOT_CI_SMOKE_OK \
+            --forbid-output 'SCRIPT ERROR:' \
+            --forbid-output 'ERROR:' \
+            -- "$GODOT4" --headless --path client/godot -- \
+            --ci-smoke "--native-library=${native}"
+      - name: Export, finalize, and sign macOS client
+        env:
+          GODOT4: ${{ steps.godot.outputs.godot }}
+        run: |
+          export_directory="${GITHUB_WORKSPACE}/artifacts/godot/macos-arm64"
+          app="${export_directory}/SomeCardGameShit.app"
+          mkdir -p "$export_directory"
+          python scripts/ci/run_with_timeout.py \
+            --timeout 600 \
+            --forbid-output "SCRIPT ERROR:" \
+            --forbid-output "ERROR:" \
+            -- "$GODOT4" --headless --path client/godot \
+            --export-release "macOS Apple Silicon" "$app"
+          python scripts/ci/finalize_godot_export.py \
+            --platform macos-arm64 \
+            --export "$app" \
+            --native-library build/stage-macos/lib/libscgs_v04.dylib
+          codesign --force --sign - "$app/Contents/Frameworks/libscgs_v04.dylib"
+          codesign --force --deep --sign - "$app"
+      - name: Audit and launch exported macOS client
+        run: |
+          export_directory="${GITHUB_WORKSPACE}/artifacts/godot/macos-arm64"
+          app="${export_directory}/SomeCardGameShit.app"
+          executable="$app/Contents/MacOS/SomeCardGameShit"
+          python scripts/audit_godot_export.py --platform macos-arm64 --export "$app"
+          python scripts/ci/run_with_timeout.py \
+            --timeout 30 \
+            --cwd "$export_directory" \
+            --expect-output SCGS_GODOT_CI_SMOKE_OK \
+            --forbid-output 'SCRIPT ERROR:' \
+            --forbid-output 'ERROR:' \
+            -- "$executable" --headless -- --ci-smoke
+      - name: Package macOS client
+        run: |
+          mkdir -p artifacts/packages
+          ditto -c -k --sequesterRsrc --keepParent \
+            artifacts/godot/macos-arm64/SomeCardGameShit.app \
+            artifacts/packages/SomeCardGameShit-gate3a-macos-arm64.app.zip
       - name: Check patch whitespace
         run: git diff --check
+      - uses: actions/upload-artifact@v7
+        with:
+          name: SomeCardGameShit-gate3a-macos-arm64
+          path: artifacts/packages/SomeCardGameShit-gate3a-macos-arm64.app.zip
+          if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
           name: scgs-native-v04-macos-arm64-appleclang

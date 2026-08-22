@@ -18,7 +18,9 @@ MatchView / LegalAction / Preview       expected_revision
                     │
        scgs_v04 C11 + UTF-8 JSON（Gate 2）
                     │
-        Godot 4.7.2 .NET（Gate 3，后续）
+       Scgs.Client 纯托管边界（Gate 3A）
+                    │
+        Godot 4.7.2 .NET 桌面层（Gate 3A）
 ```
 
 客户端不能直接读取 `PlayerState`、自行扣费或复算目标。它只能读取安全快照和查询结果，提交带 revision 的命令，再按观看者读取脱敏事件。legacy YGOPro2/Unity 代码不在现行调用链中。
@@ -30,6 +32,14 @@ MatchView / LegalAction / Preview       expected_revision
 ABI version、JSON schema version 与项目包版本相互独立。native/transport 错误和规则 `ErrorCode` 分离；规则枚举由显式映射冻结，不依赖 C++ enum 的底层值。动态库不返回需要跨 CRT 释放的内存，同一 handle 第一版只承诺顺序调用。详见 [`native-api-v04.md`](native-api-v04.md)。
 
 Native 适配层只序列化 Gate 1 的安全 DTO，并且只经 `make_view`、查询、统一命令和 `read_events` 访问对局；它不得先读取 `PlayerState` 或原始事件再做删字段式脱敏。
+
+## C# 与 Godot 边界
+
+`Scgs.Client` 是不依赖 Godot 的纯托管层，同时生成 `net8.0` 与 `net10.0`。它以 `LibraryImport` + `cdecl` 绑定全部 14 个 ABI 导出，用 `SafeHandle` 管理 64 位 token，并统一处理绝对路径加载、两段式缓冲区、严格 UTF-8、schema 1 JSON 和 native/engine 错误分层。Godot 工程目标为 `net8.0`，只依赖 `IScgsGameSession`，不直接调用 P/Invoke。
+
+所有 native 调用在 Godot 主线程顺序执行。动态库只从显式绝对路径加载：编辑器使用 `client/godot/native/<target>` 暂存目录，Windows 导出将 DLL 放在 EXE 同目录，macOS 导出将 dylib 放在 `.app/Contents/Frameworks`。详细约束见 [`godot-client-architecture.md`](godot-client-architecture.md)。
+
+Gate 3A 通过完全不透明的交接遮挡保护热座观看者：创建/启动后先遮挡，用户主动揭示后才第一次读取 viewer 0 快照。遮挡不能替代引擎脱敏，换人时也不得预取下一 viewer 的快照或事件。
 
 ## 规则域
 

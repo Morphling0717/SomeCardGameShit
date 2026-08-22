@@ -9,6 +9,15 @@ include(CMakePackageConfigHelpers)
 option(SCGS_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
 option(SCGS_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(SCGS_ENABLE_LEGACY_YGO2_TESTS "Enable the frozen YGOPro2 overlay/protocol Python tests" ON)
+option(SCGS_MSVC_STATIC_RUNTIME "Link MSVC targets against the static runtime (/MT or /MTd)" ON)
+
+# The exported Windows client DLL must not require a separately installed
+# Visual C++ redistributable.  Set the runtime before creating any targets so
+# the choice is initialized consistently for the engine, ABI library, and
+# native test consumers.
+if(MSVC AND SCGS_MSVC_STATIC_RUNTIME)
+    set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+endif()
 
 # Keep the native JSON serializer identical on every builder.
 # nlohmann/json is header-only; its tests and install rules are not part of ours.
@@ -187,6 +196,16 @@ if(SCGS_ENABLE_LEGACY_YGO2_TESTS)
     add_test(
         NAME scgs_protocol_contract
         COMMAND ${Python3_EXECUTABLE} -m unittest tools.tests.test_protocol_contract
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+        NAME scgs_native_artifact_audit_contract
+        COMMAND ${Python3_EXECUTABLE} -m unittest scripts.tests.test_audit_native_artifact
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+        NAME scgs_godot_export_audit_contract
+        COMMAND ${Python3_EXECUTABLE} -m unittest scripts.tests.test_audit_godot_export
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
 endif()

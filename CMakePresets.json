@@ -15,6 +15,7 @@
         "CMAKE_BUILD_TYPE": "Debug",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "SCGS_WARNINGS_AS_ERRORS": "ON",
+        "SCGS_MSVC_STATIC_RUNTIME": "ON",
         "SCGS_ENABLE_LEGACY_YGO2_TESTS": "ON"
       }
     },
@@ -26,6 +27,7 @@
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "SCGS_WARNINGS_AS_ERRORS": "ON",
+        "SCGS_MSVC_STATIC_RUNTIME": "ON",
         "SCGS_ENABLE_LEGACY_YGO2_TESTS": "ON"
       }
     },
@@ -40,6 +42,7 @@
         "CMAKE_CXX_COMPILER": "clang++",
         "SCGS_WARNINGS_AS_ERRORS": "ON",
         "SCGS_ENABLE_SANITIZERS": "ON",
+        "SCGS_MSVC_STATIC_RUNTIME": "ON",
         "SCGS_ENABLE_LEGACY_YGO2_TESTS": "ON"
       }
     }

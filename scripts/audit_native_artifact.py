@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit the Gate 2 native library architecture and exported C surface."""
+"""Audit the native library architecture, exports, and runtime dependencies."""
 
 from __future__ import annotations
 
@@ -28,6 +28,22 @@ EXPECTED_EXPORTS = {
 }
 
 
+def _is_dynamic_msvc_runtime(name: str) -> bool:
+    upper_name = name.upper()
+    return upper_name.startswith(("MSVCP140", "VCRUNTIME140"))
+
+
+def _validate_windows_runtime_imports(imports: set[str]) -> None:
+    dynamic_msvc_runtime = sorted(
+        name for name in imports if _is_dynamic_msvc_runtime(name)
+    )
+    if dynamic_msvc_runtime:
+        raise AuditError(
+            "Windows library depends on the dynamic MSVC runtime: "
+            f"{dynamic_msvc_runtime}"
+        )
+
+
 class AuditError(RuntimeError):
     pass
 
@@ -47,7 +63,7 @@ def _read_c_string(data: bytes, offset: int) -> str:
     return data[offset:end].decode("ascii")
 
 
-def _audit_pe(data: bytes) -> tuple[set[str], set[str]]:
+def _audit_pe(data: bytes) -> tuple[set[str], set[str], set[str]]:
     if len(data) < 0x40 or data[:2] != b"MZ":
         raise AuditError("invalid PE header")
     pe_offset = _u32(data, 0x3C)
@@ -74,6 +90,8 @@ def _audit_pe(data: bytes) -> tuple[set[str], set[str]]:
     export_rva = _u32(data, data_directories)
     if export_rva == 0:
         raise AuditError("PE library has no export directory")
+    import_rva = _u32(data, data_directories + 8)
+    import_size = _u32(data, data_directories + 12)
 
     sections = optional + optional_size
 
@@ -95,7 +113,25 @@ def _audit_pe(data: bytes) -> tuple[set[str], set[str]]:
         _read_c_string(data, rva_to_offset(_u32(data, names_offset + index * 4)))
         for index in range(name_count)
     }
-    return {architectures[machine]}, exports
+
+    imports: set[str] = set()
+    if import_rva != 0:
+        import_offset = rva_to_offset(import_rva)
+        descriptor_limit = import_offset + import_size if import_size else len(data)
+        descriptor = import_offset
+        while descriptor + 20 <= min(descriptor_limit, len(data)):
+            fields = struct.unpack_from("<IIIII", data, descriptor)
+            if fields == (0, 0, 0, 0, 0):
+                break
+            name_rva = fields[3]
+            if name_rva == 0:
+                raise AuditError("PE import descriptor has no library name")
+            imports.add(_read_c_string(data, rva_to_offset(name_rva)))
+            descriptor += 20
+        else:
+            raise AuditError("unterminated PE import directory")
+
+    return {architectures[machine]}, exports, imports
 
 
 def _audit_elf(data: bytes, library: Path) -> tuple[set[str], set[str]]:
@@ -160,8 +196,9 @@ def audit(library: Path, expected_architecture: str) -> None:
     if not library.is_file():
         raise AuditError(f"native library does not exist: {library}")
     data = library.read_bytes()
+    imports: set[str] = set()
     if data.startswith(b"MZ"):
-        architectures, exports = _audit_pe(data)
+        architectures, exports, imports = _audit_pe(data)
     elif data.startswith(b"\x7fELF"):
         architectures, exports = _audit_elf(data, library)
     else:
@@ -184,9 +221,14 @@ def audit(library: Path, expected_architecture: str) -> None:
     if mangled:
         raise AuditError(f"C++ symbols escaped the library: {mangled[:10]}")
 
+    if data.startswith(b"MZ"):
+        _validate_windows_runtime_imports(imports)
+
+    runtime_summary = ", no dynamic MSVC runtime" if data.startswith(b"MZ") else ""
     print(
         f"audited {library}: architecture={expected_architecture}, "
         f"scgs_exports={len(gate_exports)}, no exported C++ symbols"
+        f"{runtime_summary}"
     )
 
 

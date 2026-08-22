@@ -1,0 +1,129 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/UI/MainMenuScreen.cs" id="1_script"]
+
+[node name="MainMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.035, 0.055, 0.09, 1)
+mouse_filter = 2
+
+[node name="Center" type="CenterContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Card" type="PanelContainer" parent="Center"]
+custom_minimum_size = Vector2(860, 640)
+layout_mode = 2
+
+[node name="Margin" type="MarginContainer" parent="Center/Card"]
+layout_mode = 2
+theme_override_constants/margin_left = 64
+theme_override_constants/margin_top = 54
+theme_override_constants/margin_right = 64
+theme_override_constants/margin_bottom = 46
+
+[node name="Content" type="VBoxContainer" parent="Center/Card/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 24
+
+[node name="Title" type="Label" parent="Center/Card/Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.46, 0.86, 0.81, 1)
+theme_override_font_sizes/font_size = 46
+text = "SomeCardGameShit"
+horizontal_alignment = 1
+
+[node name="Subtitle" type="Label" parent="Center/Card/Margin/Content"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 24
+text = "Godot 热座 Alpha · Gate 3A"
+horizontal_alignment = 1
+
+[node name="Divider" type="HSeparator" parent="Center/Card/Margin/Content"]
+layout_mode = 2
+
+[node name="Instructions" type="Label" parent="Center/Card/Margin/Content"]
+layout_mode = 2
+text = "选择两名玩家的固定测试牌组。先后手由引擎随机决定。"
+horizontal_alignment = 1
+
+[node name="Player0Row" type="HBoxContainer" parent="Center/Card/Margin/Content"]
+layout_mode = 2
+theme_override_constants/separation = 28
+
+[node name="Player0Label" type="Label" parent="Center/Card/Margin/Content/Player0Row"]
+custom_minimum_size = Vector2(190, 58)
+layout_mode = 2
+text = "玩家 0 牌组"
+vertical_alignment = 1
+
+[node name="Player0Deck" type="OptionButton" parent="Center/Card/Margin/Content/Player0Row"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 58)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Player1Row" type="HBoxContainer" parent="Center/Card/Margin/Content"]
+layout_mode = 2
+theme_override_constants/separation = 28
+
+[node name="Player1Label" type="Label" parent="Center/Card/Margin/Content/Player1Row"]
+custom_minimum_size = Vector2(190, 58)
+layout_mode = 2
+text = "玩家 1 牌组"
+vertical_alignment = 1
+
+[node name="Player1Deck" type="OptionButton" parent="Center/Card/Margin/Content/Player1Row"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 58)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="PrivacyHint" type="Label" parent="Center/Card/Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.66, 0.72, 0.76, 1)
+theme_override_font_sizes/font_size = 19
+text = "比赛开始后先进入不透明交接页；只有当前玩家确认后才读取其快照。"
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="StartButton" type="Button" parent="Center/Card/Margin/Content"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 72)
+layout_mode = 2
+theme_override_font_sizes/font_size = 26
+text = "创建热座比赛"
+
+[node name="ErrorLabel" type="Label" parent="Center/Card/Margin/Content"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.42, 0.42, 1)
+theme_override_font_sizes/font_size = 18
+horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="Footer" type="Label" parent="Center/Card/Margin/Content"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.48, 0.54, 0.6, 1)
+theme_override_font_sizes/font_size = 17
+text = "本阶段只展示第一张真实引擎快照，不在 C# 中复算规则。"
+horizontal_alignment = 1

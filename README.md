@@ -2,12 +2,14 @@
 
 原创 1v1 数字卡牌游戏实验项目。C++20 规则引擎是唯一规则真值；正式客户端路线锁定为 **Godot 4.7.2 .NET** 的桌面单机热座版本。
 
-当前分支完成客户端开发前的 **Gate 0+1 加固**和 **Gate 2 原生接口**：在观看者安全快照、合法行动查询、统一命令与脱敏事件之上，提供纯 C11、版本化、JSON 载荷的 `scgs_v04` 动态库。它仍不包含 Godot 场景、正式 UI 或美术。
+当前分支在 **Gate 0+1 加固**和 **Gate 2 原生接口**之上实现 **Gate 3A 桌面骨架**：纯托管 C# 边界消费 `scgs_v04`，Godot 工程完成牌组选择、热座隐私遮挡和第一张真实观看者快照。它还不是可完整操作的对局，也不包含正式美术。
 
 - 规则真值：[`docs/rules-v0.4.md`](docs/rules-v0.4.md)
 - Godot 热座开发计划：[`docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md`](docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md)
 - 当前交接：[`docs/DSH-HANDOFF-v0.4-ui.md`](docs/DSH-HANDOFF-v0.4-ui.md)
 - 原生 API 契约：[`docs/native-api-v04.md`](docs/native-api-v04.md)
+- Godot 客户端架构：[`docs/godot-client-architecture.md`](docs/godot-client-architecture.md)
+- UI 状态图与隐私：[`docs/ui-state-map.md`](docs/ui-state-map.md)
 - 架构：[`docs/architecture.md`](docs/architecture.md)
 - 实测记录：[`TEST_REPORT.md`](TEST_REPORT.md)
 
@@ -37,6 +39,8 @@ C ABI 不暴露 C++ 类、STL、异常或跨 CRT 内存。动态载荷使用调�
 
 Alpha 只承诺现有两副固定牌组的闭环。主战技 UI、普通主动能力、人工同时触发排序和固定牌组未使用关键词延后；同一玩家的同时触发暂按确定性场地顺序处理。
 
+Gate 3A 的界面停在 Mulligan 第一张只读快照。调度提交、行动、响应换手、结果和完整一局属于 Gate 3B，不能从本轮 smoke 结果推断为已完成。
+
 ## 工具链
 
 本地构建需要：
@@ -47,7 +51,7 @@ Alpha 只承诺现有两副固定牌组的闭环。主战技 UI、普通主动�
 - Ninja（使用仓库预设时）；
 - Python 3.10 或更高（默认开启的 legacy YGOPro2 Python 回归测试需要）。
 
-后续客户端精确锁定 Godot **4.7.2 .NET** 和 .NET SDK **10.0.400**；详见 [`docs/toolchain.md`](docs/toolchain.md) 与根目录 `global.json`。正式目标是 Windows x86-64 和 macOS Apple Silicon，**不支持 Web**。
+客户端精确锁定 Godot **4.7.2 .NET** 和 .NET SDK **10.0.400**；详见 [`docs/toolchain.md`](docs/toolchain.md) 与根目录 `global.json`。正式目标是 Windows x86-64 和 macOS Apple Silicon，**不支持 Web**。
 
 ## 构建与测试
 
@@ -91,11 +95,22 @@ cmake --install build/release --prefix build/stage
 
 Windows 可运行 `scripts/test.ps1`。准确命令、测试数量、断言数量和未验证项以 [`TEST_REPORT.md`](TEST_REPORT.md) 的本次实测为准。
 
+纯托管客户端与 Godot 工程使用锁定 SDK：
+
+```bash
+dotnet restore client/Scgs.Client.Tests/Scgs.Client.Tests.csproj --locked-mode
+dotnet build client/Scgs.Client.Tests/Scgs.Client.Tests.csproj -c Release --no-restore
+dotnet test --project client/Scgs.Client.Tests/Scgs.Client.Tests.csproj --configuration Release --no-restore --minimum-expected-tests 1
+dotnet build client/godot/SomeCardGameShit.csproj -c Release
+```
+
+Godot 编辑器和导出包必须使用同一提交构建、审计并暂存的原生库；不要把 DLL/dylib 提交到 Git。具体路径、headless smoke 和导出说明见 [`client/godot/README.md`](client/godot/README.md)。
+
 ## 目录
 
 ```text
 engine/          C++20 权威规则引擎、客户端安全 API、C ABI 与测试
-client/          客户端目录；现有 YGOPro2 内容仅为历史参考
+client/          Scgs.Client、Godot 桌面客户端；YGOPro2 内容仅为历史参考
 docs/            规则、架构、路线图、协议和交接文档
 scripts/         构建与压力测试脚本
 tools/           legacy overlay/协议契约工具

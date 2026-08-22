@@ -1,5 +1,6 @@
 /build/
 /out/
+/artifacts/
 /.idea/
 /.vscode/
 *.user
@@ -7,9 +8,16 @@
 *.tmp
 *.log
 .DS_Store
-Client/
 Core/
 /vendor/
+/client/**/bin/
+/client/**/obj/
+/client/godot/.godot/
+/client/godot/.mono/
+/client/godot/export/
+/client/godot/exports/
+/client/godot/native/windows-x86_64/*.dll
+/client/godot/native/macos-arm64/*.dylib
 client/YGOPro2Overlay/Library/
 client/YGOPro2Overlay/Temp/
 client/YGOPro2Overlay/Obj/

@@ -2,7 +2,7 @@
 
 原创 1v1 数字卡牌游戏实验项目。C++20 规则引擎是唯一规则真值；正式客户端路线锁定为 **Godot 4.7.2 .NET** 的桌面单机热座版本。
 
-当前分支在 **Gate 0+1 加固**和 **Gate 2 原生接口**之上实现 **Gate 3A 桌面骨架**：纯托管 C# 边界消费 `scgs_v04`，Godot 工程完成牌组选择、热座隐私遮挡和第一张真实观看者快照。它还不是可完整操作的对局，也不包含正式美术。
+当前分支在 **Gate 0+1 加固**、**Gate 2 原生接口**和 **Gate 3A 桌面骨架**之上实现 **Gate 3B 完整热座 Alpha 源码闭环**：纯托管 C# 边界消费 `scgs_v04`，`Scgs.Hotseat` 编排安全换手，Godot 工程可完成双方调度、行动、响应、终局与重开。界面仍使用授权字体和原创几何占位，不包含正式美术。
 
 - 规则真值：[`docs/rules-v0.4.md`](docs/rules-v0.4.md)
 - Godot 热座开发计划：[`docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md`](docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md)
@@ -39,7 +39,7 @@ C ABI 不暴露 C++ 类、STL、异常或跨 CRT 内存。动态载荷使用调�
 
 Alpha 只承诺现有两副固定牌组的闭环。主战技 UI、普通主动能力、人工同时触发排序和固定牌组未使用关键词延后；同一玩家的同时触发暂按确定性场地顺序处理。
 
-Gate 3A 的界面停在 Mulligan 第一张只读快照。调度提交、行动、响应换手、结果和完整一局属于 Gate 3B，不能从本轮 smoke 结果推断为已完成。
+Gate 3B 的确定性 Godot smoke 会从 Mulligan 经真实合法行动与热座遮挡完成自然终局；实际测试数量、导出与 CI 状态只以 [`TEST_REPORT.md`](TEST_REPORT.md) 为准。物理 Apple Silicon 和两名真人热座整局仍是发布标签前硬门，自动 smoke 不能替代它们。
 
 ## 工具链
 
@@ -110,7 +110,7 @@ Godot 编辑器和导出包必须使用同一提交构建、审计并暂存的�
 
 ```text
 engine/          C++20 权威规则引擎、客户端安全 API、C ABI 与测试
-client/          Scgs.Client、Godot 桌面客户端；YGOPro2 内容仅为历史参考
+client/          Scgs.Client、Scgs.Hotseat、Godot 桌面客户端；YGOPro2 内容仅为历史参考
 docs/            规则、架构、路线图、协议和交接文档
 scripts/         构建与压力测试脚本
 tools/           legacy overlay/协议契约工具

@@ -76,6 +76,6 @@ internal static class NativeLibraryLocator
     {
         "Windows" => GodotDesktopTarget.WindowsX64,
         "macOS" => GodotDesktopTarget.MacOsArm64,
-        string platform => throw new PlatformNotSupportedException($"Gate 3A 不支持平台 {platform}。"),
+        string platform => throw new PlatformNotSupportedException($"Gate 3B 不支持平台 {platform}。"),
     };
 }

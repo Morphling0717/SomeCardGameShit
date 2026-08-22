@@ -33,15 +33,15 @@
 
 ### C# ABI 消费边界
 
-纯托管测试必须覆盖 14 个签名与冻结枚举、optional JSON omission、未知字段兼容、结构性枚举拒绝、未知事件/行动降级、未知 keyword bits 保留、严格 UTF-8、两段缓冲增长/NUL/短写/上限、TLS last-error、native/engine 错误分层、SafeHandle 单次销毁、两个 viewer cursor、Windows/macOS 已知原生库布局，以及揭示前零次 `GetView`。Godot 项目同时构建 Debug（编辑器/当前工程 smoke）与 Release（发布编译基线），两者都必须零警告。
+纯托管测试必须覆盖 14 个签名与冻结枚举、optional JSON omission、未知字段兼容、结构性枚举拒绝、未知事件/行动降级、未知 keyword bits 保留、严格 UTF-8、两段缓冲增长/NUL/短写/上限、TLS last-error、native/engine 错误分层、SafeHandle 单次销毁、两个 viewer cursor、Windows/macOS 已知原生库布局，以及揭示前零次 viewer 调用。`Scgs.Hotseat` 还要覆盖调度替换手牌 review、两阶段遮挡提交、渐进候选、支付一致性、响应换手、stale revision、渲染后 ACK 和 dispose。Godot 项目同时构建 Debug（编辑器/当前工程 smoke）与 Release（发布编译基线），两者都必须零警告。
 
-同提交动态库集成测试至少完成 ABI 检查、create/start、双 viewer 快照、全部查询 wrapper、一次合法调度提交、事件脱敏、revision 和 dispose。测试不能读取 `PlayerState`，也不能用模拟 DTO 代替这项集成验证。
+同提交动态库集成测试必须完成 ABI 检查、create/start、双 viewer 快照、全部查询 wrapper、事件脱敏、revision 和 dispose；固定牌组/先手矩阵还要自然完成整局并聚合成功提交全部 11 个 `ActionKind`。测试不能读取 `PlayerState`，也不能用模拟 DTO 代替这项集成验证。
 
 ### Godot 与桌面导出
 
-Godot headless 验证项目 import、无警告 C# build、四个首轮场景、节点路径、原生加载和第一张真实快照。遮挡测试要求用户揭示前 `GetView` 调用次数为零。CI smoke 固定 seed、强制 Player0、关闭洗牌，并验证场景 Label 来自 DTO 后输出唯一成功标记。
+Godot headless 验证项目 import、无警告 C# build、场景/节点路径、原生加载和完整热座状态机。CI smoke 固定 seed、强制 Player0、关闭洗牌；它先验证首张 DTO 快照和揭示前零 viewer 调用，再经调度 review、正常行动、伏策发动/不过、交接遮挡和事件 ACK 自然完成终局。结构化报告必须通过严格字段白名单，并覆盖非投降 `ActionKind` 0–9、至少一次回合交接、每次命令的结算遮挡、零提前 viewer 调用和 session 释放；成功标记必须恰好出现一次。
 
-Windows/macOS job 还必须实际导出并启动产物；只在编辑器运行不算通过。Windows 审计 DLL 与 EXE 同目录、x86-64 和静态 CRT；macOS 审计 arm64、`Contents/Frameworks`、ad-hoc codesign 与执行权限。两者 30 秒内退出，日志不得含 C# exception 或 Godot error。
+Windows/macOS job 还必须实际导出并启动产物；只在编辑器运行不算通过。Windows 审计 DLL 与 EXE 同目录、x86-64 和静态 CRT；macOS 审计 arm64、`Contents/Frameworks`、ad-hoc codesign 与执行权限。压缩后必须解包、重新审计并再次启动。每次 full-match smoke 的外部上限为 180 秒，日志不得含 C# exception 或 Godot error。
 
 ### legacy 兼容性
 

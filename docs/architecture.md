@@ -19,8 +19,10 @@ MatchView / LegalAction / Preview       expected_revision
        scgs_v04 C11 + UTF-8 JSON（Gate 2）
                     │
        Scgs.Client 纯托管边界（Gate 3A）
-                    │
-        Godot 4.7.2 .NET 桌面层（Gate 3A）
+                     │
+      Scgs.Hotseat 热座编排（Gate 3B）
+                     │
+        Godot 4.7.2 .NET 桌面层（Gate 3B）
 ```
 
 客户端不能直接读取 `PlayerState`、自行扣费或复算目标。它只能读取安全快照和查询结果，提交带 revision 的命令，再按观看者读取脱敏事件。legacy YGOPro2/Unity 代码不在现行调用链中。
@@ -35,11 +37,11 @@ Native 适配层只序列化 Gate 1 的安全 DTO，并且只经 `make_view`、�
 
 ## C# 与 Godot 边界
 
-`Scgs.Client` 是不依赖 Godot 的纯托管层，同时生成 `net8.0` 与 `net10.0`。它以 `LibraryImport` + `cdecl` 绑定全部 14 个 ABI 导出，用 `SafeHandle` 管理 64 位 token，并统一处理绝对路径加载、两段式缓冲区、严格 UTF-8、schema 1 JSON 和 native/engine 错误分层。Godot 工程目标为 `net8.0`；Match/观看者 UI 只依赖 `IScgsGameSession`，`BootstrapController` 作为组合根创建具体会话，场景代码不直接调用 P/Invoke。
+`Scgs.Client` 是不依赖 Godot 的纯托管层，同时生成 `net8.0` 与 `net10.0`。它以 `LibraryImport` + `cdecl` 绑定全部 14 个 ABI 导出，用 `SafeHandle` 管理 64 位 token，并统一处理绝对路径加载、两段式缓冲区、严格 UTF-8、schema 1 JSON 和 native/engine 错误分层。`Scgs.Hotseat` 同样生成两个 TFM，只依赖 `IScgsGameSession`，负责同 revision 合法候选、支付确认、双 viewer 事件游标、两阶段遮挡提交和操作者路由。Godot 工程目标为 `net8.0`；`BootstrapController` 是组合根，场景代码不直接调用 P/Invoke 或复算规则。
 
 所有 native 调用在 Godot 主线程顺序执行。动态库只从显式绝对路径加载：编辑器使用 `client/godot/native/<target>` 暂存目录，Windows 导出将 DLL 放在 EXE 同目录，macOS 导出将 dylib 放在 `.app/Contents/Frameworks`。详细约束见 [`godot-client-architecture.md`](godot-client-architecture.md)。
 
-Gate 3A 通过完全不透明的交接遮挡保护热座观看者：创建/启动后先遮挡，用户主动揭示后才第一次读取 viewer 0 快照。遮挡不能替代引擎脱敏，换人时也不得预取下一 viewer 的快照或事件。
+Gate 3B 通过完全不透明的交接遮挡保护热座观看者：创建/启动后先遮挡，用户主动揭示后才读取对应 viewer；确认命令先清空敏感 UI 并进入 `Covered(ResolvingCommand)`，跨完整绘制帧后才提交。事件批次也只有在相同 viewer/sequence 的日志完成绘制后才 ACK。遮挡不能替代引擎脱敏，换人时不得预取下一 viewer 的快照、查询或事件。
 
 ## 规则域
 

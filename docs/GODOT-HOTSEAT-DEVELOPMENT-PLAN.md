@@ -10,7 +10,7 @@
 **目标平台：** macOS Apple Silicon、Windows x86-64  
 **M1-G 总目标：** 从完整无界面引擎推进到人类可以完整打一局的单机热座版本
 
-> 当前交付在 Gate 0+1 之上实施 Gate 2：版本化 `scgs_v04` C ABI、JSON schema、三平台动态库与对照测试；仍不创建 Godot UI、不支持 Web、不修改 legacy v1 wire 字节、不合并或打标签。功能分支按授权推送以运行 CI。
+> 当前交付已在 Gate 0+1 之上完成 Gate 2：版本化 `scgs_v04` C ABI、JSON schema、三种 OS 动态库与对照测试；最终实测见 [`../TEST_REPORT.md`](../TEST_REPORT.md)。本 Gate 未创建 Godot UI、不支持 Web、未修改 legacy v1 wire 字节，也未合并或打标签。
 
 ---
 
@@ -603,7 +603,7 @@ UTF-8/JSON、全部两段式缓冲区、动态符号加载、安装后消费、�
 ### 退出标准
 
 C ABI 与直接 C++ 调用在每一步得到相同语义；Windows DLL、Linux so、macOS ARM64 dylib
-均能安装、动态加载并通过导出表审计，四平台 CI 全绿。Gate 2 完成前不创建 Godot 工程。
+均能安装、动态加载并通过导出表审计，三种 OS、四个 job 的 CI 已全绿；本 Gate 未创建 Godot 工程。
 
 ---
 
@@ -1144,7 +1144,7 @@ ci: build and export Godot desktop clients
 
 ## 十四、正式开工顺序
 
-Gate 0+1 已完成 1～10；Gate 2 完成 11～12 及其四平台 CI 后，下一轮从第 13 项开始。
+Gate 0+1 已完成 1～10；Gate 2 已完成 11～12 及三种 OS、四个 job 的 CI；下一轮从第 13 项开始。
 以下保留 M1-G 的完整依赖顺序，不表示后续 Godot/UI 已在当前分支实现：
 
 1. 基于 `main@cfdf695` 创建 `codex/godot-hotseat-gate1`；

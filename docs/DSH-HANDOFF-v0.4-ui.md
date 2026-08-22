@@ -7,12 +7,12 @@
 - 仓库：`Morphling0717/SomeCardGameShit`
 - 起始基线：`main@cfdf695d70eeabcc6de9b094c94041364fb1335f`
 - Gate 1 提交基线：`codex/godot-hotseat-gate1@f048d11`
-- Gate 2 实现分支：`codex/godot-hotseat-gate2`
+- Gate 2 实现分支：`codex/godot-hotseat-gate2@189239d`
 - 规则真值：[`rules-v0.4.md`](rules-v0.4.md)，用户最新明确决定优先于旧文档歧义
 - 详细路线：[`GODOT-HOTSEAT-DEVELOPMENT-PLAN.md`](GODOT-HOTSEAT-DEVELOPMENT-PLAN.md)
 - 构建与实测：[`../TEST_REPORT.md`](../TEST_REPORT.md)
 
-当前交付在 Gate 0+1 的文档/状态机/安全 C++ API 上完成 Gate 2：`scgs_v04` 纯 C11 ABI、版本化 UTF-8 JSON、Windows/Linux/macOS 动态库、安装包与对照测试。不创建 Godot 场景、不增加正式美术或表现 JSON；不修改 legacy v1 wire 字节。功能分支已获准推送验证，但不合并或打标签。
+当前交付在 Gate 0+1 的文档/状态机/安全 C++ API 上完成 Gate 2：`scgs_v04` 纯 C11 ABI、版本化 UTF-8 JSON、Windows/Linux/macOS 动态库、安装包与对照测试。不创建 Godot 场景、不增加正式美术或表现 JSON；不修改 legacy v1 wire 字节。功能分支已推送并验证，但未合并或打标签。
 
 ## 1. 不可推翻的架构决定
 
@@ -123,4 +123,4 @@ Alpha 只承诺两副现有固定牌组。以下延后：
 
 ## 8. 下一步
 
-确认 Gate 2 的最终提交、三平台产物和四平台 CI 后，再单独进入 Gate 3：安装锁定的 .NET SDK 10.0.400 与 Godot 4.7.2 .NET，创建最小工程，并通过 P/Invoke 读取第一张真实快照。C# 不复制规则、不解析内部 `PlayerState`，也不得绕过 `scgs_v04` 直接链接 C++ 类/STL。正式 UI 仍从最小原生加载 smoke 之后开始。
+Gate 2 最终被测实现 `189239d`、三种 OS 的安装制品与四个 CI job 已确认；下一轮单独进入 Gate 3：安装锁定的 .NET SDK 10.0.400 与 Godot 4.7.2 .NET，创建最小工程，并通过 P/Invoke 读取第一张真实快照。C# 不复制规则、不解析内部 `PlayerState`，也不得绕过 `scgs_v04` 直接链接 C++ 类/STL。正式 UI 仍从最小原生加载 smoke 之后开始。

@@ -128,7 +128,7 @@ CTest 的 9 个目标为：
 
 - C11 头文件不暴露 STL、异常或 C++ 类布局；ABI 版本、schema、固定宽度参数、调用约定与 14 个导出被冻结。
 - 所有 JSON 输入执行 1 MiB 上限与 UTF-8 校验；输出采用调用方所有的两段式缓冲区，所需长度包含尾随 NUL，缓冲区不足时不部分写入。
-- 64 位 token handle 不复用；未知/已销毁 handle、空指针、非法 enum、错误 schema、错误阶段与过期 revision 均返回稳定 native error，异常不越过 C 边界。
+- 64 位 token handle 不复用；空/过期 handle、非法 UTF-8/JSON/enum/schema 返回稳定 native code；错误阶段与过期 revision 在 native 调用成功时返回稳定 engine code。两类失败均无副作用，异常不越过 C 边界。
 - `start` 使用候选状态提交，失败不改变现有比赛；失败查询/命令不改变状态、事件或 revision，成功命令只增加一次 revision。
 - direct `Game` 与 ABI 在同 seed 整局的每一步比较双 viewer 快照、全部合法行动、支付预览、选中动作结果、revision 和脱敏事件，直至终局。
 - `ActionKind` 0~10 均至少成功提交一次；定向覆盖预支、燃耗、法术、进化、组件部署、设伏、响应跳过/发动、攻击和投降。

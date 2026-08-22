@@ -43,7 +43,7 @@
 - [x] C ABI 与直接 C++ 行为对照测试
 - [x] C11 consumer、动态加载与导出表审计
 - [x] Windows DLL、Linux so 与 macOS ARM64 dylib 安装/打包
-- [x] MSVC、GCC、Clang sanitizer 与 macOS ARM64 CI
+- [x] GCC Release、Clang ASan/UBSan、MSVC Release 与 macOS ARM64 Release 四个 CI job
 
 Gate 2 采用 64 位 token handle 与 schema 1 UTF-8 JSON，不直接展平含 string/vector/optional 的 C++ DTO。规范见 [`native-api-v04.md`](native-api-v04.md)。
 

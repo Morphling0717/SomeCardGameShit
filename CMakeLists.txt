@@ -208,6 +208,16 @@ if(SCGS_ENABLE_LEGACY_YGO2_TESTS)
         COMMAND ${Python3_EXECUTABLE} -m unittest scripts.tests.test_audit_godot_export
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
+    add_test(
+        NAME scgs_subprocess_timeout_contract
+        COMMAND ${Python3_EXECUTABLE} -m unittest scripts.tests.test_run_with_timeout
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+        NAME scgs_gate3b_report_contract
+        COMMAND ${Python3_EXECUTABLE} -m unittest scripts.tests.test_validate_gate3b_report
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
 endif()
 
 install(

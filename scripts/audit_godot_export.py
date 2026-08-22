@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit a finalized Gate 3A Windows or macOS Godot export."""
+"""Audit a finalized Gate 3B Windows or macOS Godot export."""
 
 from __future__ import annotations
 
@@ -98,6 +98,8 @@ def _audit_licenses(directory: Path) -> None:
         if marker not in path.read_text(encoding="utf-8"):
             raise ExportAuditError(f"packaged notice has unexpected content: {path}")
     build_info = (directory / "BUILD_INFO.txt").read_text(encoding="utf-8")
+    if "SomeCardGameShit Gate 3B" not in build_info:
+        raise ExportAuditError("packaged build info does not identify Gate 3B")
     if "dotnet_runtime=8.0.30" not in build_info:
         raise ExportAuditError("packaged build info has an unexpected .NET runtime")
 

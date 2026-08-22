@@ -178,6 +178,7 @@ jobs:
           python scripts/ci/run_with_timeout.py `
             --timeout 30 `
             --expect-output SCGS_GODOT_CI_SMOKE_OK `
+            --expect-output-count 1 `
             --forbid-output "SCRIPT ERROR:" `
             --forbid-output "ERROR:" `
             -- "$env:GODOT4" --headless --path client/godot -- `
@@ -214,6 +215,7 @@ jobs:
             --timeout 30 `
             --cwd "$exportDirectory" `
             --expect-output SCGS_GODOT_CI_SMOKE_OK `
+            --expect-output-count 1 `
             --forbid-output "SCRIPT ERROR:" `
             --forbid-output "ERROR:" `
             -- "$export" --headless -- --ci-smoke
@@ -225,14 +227,35 @@ jobs:
           New-Item -ItemType Directory -Path $packageDirectory -Force | Out-Null
           Compress-Archive `
             -Path "artifacts/godot/windows-x86_64/*" `
-            -DestinationPath "$packageDirectory/SomeCardGameShit-gate3a-windows-x86_64.zip" `
+            -DestinationPath "$packageDirectory/SomeCardGameShit-gate3b-windows-x86_64.zip" `
             -CompressionLevel Optimal
+      - name: Round-trip audit and launch packaged Windows client
+        shell: pwsh
+        run: |
+          $package = Join-Path "${{ github.workspace }}" "artifacts/packages/SomeCardGameShit-gate3b-windows-x86_64.zip"
+          $roundTrip = Join-Path "${{ github.workspace }}" "artifacts/roundtrip/windows-x86_64"
+          New-Item -ItemType Directory -Path $roundTrip -Force | Out-Null
+          Expand-Archive -LiteralPath $package -DestinationPath $roundTrip -Force
+          $export = Join-Path $roundTrip "SomeCardGameShit.exe"
+          python scripts/audit_godot_export.py --platform windows-x86_64 --export "$export"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/ci/run_with_timeout.py `
+            --timeout 60 `
+            --cwd "$roundTrip" `
+            --expect-output SCGS_GODOT_CI_SMOKE_OK `
+            --expect-output-count 1 `
+            --forbid-output "SCRIPT ERROR:" `
+            --forbid-output "ERROR:" `
+            --forbid-output "Unhandled exception" `
+            -- "$export" --headless -- --ci-smoke
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant() | ForEach-Object { "package_sha256=$_" }
       - name: Check patch whitespace
         run: git diff --check
       - uses: actions/upload-artifact@v7
         with:
-          name: SomeCardGameShit-gate3a-windows-x86_64
-          path: artifacts/packages/SomeCardGameShit-gate3a-windows-x86_64.zip
+          name: SomeCardGameShit-gate3b-windows-x86_64
+          path: artifacts/packages/SomeCardGameShit-gate3b-windows-x86_64.zip
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
@@ -326,6 +349,7 @@ jobs:
           python scripts/ci/run_with_timeout.py \
             --timeout 30 \
             --expect-output SCGS_GODOT_CI_SMOKE_OK \
+            --expect-output-count 1 \
             --forbid-output 'SCRIPT ERROR:' \
             --forbid-output 'ERROR:' \
             -- "$GODOT4" --headless --path client/godot -- \
@@ -359,6 +383,7 @@ jobs:
             --timeout 30 \
             --cwd "$export_directory" \
             --expect-output SCGS_GODOT_CI_SMOKE_OK \
+            --expect-output-count 1 \
             --forbid-output 'SCRIPT ERROR:' \
             --forbid-output 'ERROR:' \
             -- "$executable" --headless -- --ci-smoke
@@ -367,13 +392,32 @@ jobs:
           mkdir -p artifacts/packages
           ditto -c -k --sequesterRsrc --keepParent \
             artifacts/godot/macos-arm64/SomeCardGameShit.app \
-            artifacts/packages/SomeCardGameShit-gate3a-macos-arm64.app.zip
+            artifacts/packages/SomeCardGameShit-gate3b-macos-arm64.app.zip
+      - name: Round-trip audit and launch packaged macOS client
+        run: |
+          package="${GITHUB_WORKSPACE}/artifacts/packages/SomeCardGameShit-gate3b-macos-arm64.app.zip"
+          round_trip="${GITHUB_WORKSPACE}/artifacts/roundtrip/macos-arm64"
+          mkdir -p "$round_trip"
+          ditto -x -k "$package" "$round_trip"
+          app="$round_trip/SomeCardGameShit.app"
+          executable="$app/Contents/MacOS/SomeCardGameShit"
+          python scripts/audit_godot_export.py --platform macos-arm64 --export "$app"
+          python scripts/ci/run_with_timeout.py \
+            --timeout 60 \
+            --cwd "$round_trip" \
+            --expect-output SCGS_GODOT_CI_SMOKE_OK \
+            --expect-output-count 1 \
+            --forbid-output 'SCRIPT ERROR:' \
+            --forbid-output 'ERROR:' \
+            --forbid-output 'Unhandled exception' \
+            -- "$executable" --headless -- --ci-smoke
+          shasum -a 256 "$package" | awk '{print "package_sha256=" $1}'
       - name: Check patch whitespace
         run: git diff --check
       - uses: actions/upload-artifact@v7
         with:
-          name: SomeCardGameShit-gate3a-macos-arm64
-          path: artifacts/packages/SomeCardGameShit-gate3a-macos-arm64.app.zip
+          name: SomeCardGameShit-gate3b-macos-arm64
+          path: artifacts/packages/SomeCardGameShit-gate3b-macos-arm64.app.zip
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:

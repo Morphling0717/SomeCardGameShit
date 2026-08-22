@@ -42,6 +42,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=float, required=True)
     parser.add_argument("--cwd", type=Path)
     parser.add_argument("--expect-output")
+    parser.add_argument("--expect-output-count", type=int)
     parser.add_argument("--forbid-output", action="append", default=[])
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args()
@@ -53,6 +54,11 @@ def main() -> int:
         parser.error("a command is required after --")
     if args.timeout <= 0:
         parser.error("--timeout must be positive")
+    if args.expect_output_count is not None:
+        if not args.expect_output:
+            parser.error("--expect-output-count requires --expect-output")
+        if args.expect_output_count < 0:
+            parser.error("--expect-output-count must not be negative")
 
     cwd = args.cwd.resolve(strict=True) if args.cwd else None
     creation_flags = (
@@ -95,6 +101,16 @@ def main() -> int:
             file=sys.stderr,
         )
         return 1
+    if args.expect_output_count is not None:
+        actual_count = output.count(args.expect_output)
+        if actual_count != args.expect_output_count:
+            print(
+                "required output marker count mismatch: "
+                f"expected {args.expect_output_count}, found {actual_count}: "
+                f"{args.expect_output}",
+                file=sys.stderr,
+            )
+            return 1
     return 0
 
 

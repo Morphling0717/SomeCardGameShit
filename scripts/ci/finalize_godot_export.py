@@ -79,7 +79,7 @@ def main() -> int:
 
     build_info = license_directory / "BUILD_INFO.txt"
     build_info.write_text(
-        "SomeCardGameShit Gate 3A\n"
+        "SomeCardGameShit Gate 3B\n"
         f"commit={os.environ.get('GITHUB_SHA', 'local')}\n"
         "godot=4.7.2.stable.mono\n"
         "dotnet_sdk=10.0.400\n"

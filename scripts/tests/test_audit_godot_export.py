@@ -244,7 +244,11 @@ class GodotExportAuditTests(unittest.TestCase):
             for filename, marker in LICENSE_MARKERS.items():
                 content = marker
                 if filename == "BUILD_INFO.txt":
-                    content += "\ndotnet_runtime=8.0.30"
+                    content = (
+                        "SomeCardGameShit Gate 3B\n"
+                        f"{marker}\n"
+                        "dotnet_runtime=8.0.30"
+                    )
                 (directory / filename).write_text(content, encoding="utf-8")
             _audit_licenses(directory)
 

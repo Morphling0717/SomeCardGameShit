@@ -1494,8 +1494,16 @@ void take_smoke_action(Game& game, int& call_counter) {
 }
 
 void test_invariants_and_smoke_matches(TestContext& context) {
+#ifdef _WIN32
+    char* seed_buffer = nullptr;
+    std::size_t seed_length = 0;
+    const errno_t seed_error = _dupenv_s(&seed_buffer, &seed_length, "SCGS_SMOKE_SEEDS");
+    const int seeds = seed_error == 0 && seed_buffer != nullptr ? std::atoi(seed_buffer) : 32;
+    std::free(seed_buffer);
+#else
     const char* seed_env = std::getenv("SCGS_SMOKE_SEEDS");
     const int seeds = seed_env != nullptr ? std::atoi(seed_env) : 32;
+#endif
     for (int seed = 0; seed < seeds; ++seed) {
         for (int first = 0; first < 2; ++first) {
             GameConfig config;

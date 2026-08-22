@@ -36,6 +36,7 @@
       "binaryDir": "${sourceDir}/build/asan",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "clang",
         "CMAKE_CXX_COMPILER": "clang++",
         "SCGS_WARNINGS_AS_ERRORS": "ON",
         "SCGS_ENABLE_SANITIZERS": "ON",

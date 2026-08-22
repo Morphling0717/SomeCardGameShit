@@ -11,23 +11,48 @@ permissions:
 jobs:
   linux-gcc:
     runs-on: ubuntu-latest
+    env:
+      CC: gcc
+      CXX: g++
+      SCGS_SMOKE_SEEDS: "2048"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12.8"
       - name: Configure
-        run: cmake -S . -B build/ci-gcc -G Ninja -DCMAKE_BUILD_TYPE=Release -DSCGS_WARNINGS_AS_ERRORS=ON -DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON
+        run: >-
+          cmake -S . -B build/ci-gcc -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DSCGS_WARNINGS_AS_ERRORS=ON
+          -DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON
       - name: Build
         run: cmake --build build/ci-gcc --parallel 2
       - name: Test
-        run: SCGS_SMOKE_SEEDS=2048 ctest --test-dir build/ci-gcc --output-on-failure
+        run: ctest --test-dir build/ci-gcc --output-on-failure
+      - name: Stage install
+        run: cmake --install build/ci-gcc --prefix "${GITHUB_WORKSPACE}/build/stage-gcc"
+      - name: Verify installed CMake package
+        run: |
+          cmake -S scripts/native-package-smoke -B build/package-smoke-gcc -G Ninja -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/build/stage-gcc"
+          cmake --build build/package-smoke-gcc --parallel 2
+          ./build/package-smoke-gcc/scgs_native_v04_package_smoke
+      - name: Audit native artifact
+        run: python scripts/audit_native_artifact.py --library build/stage-gcc/lib/libscgs_v04.so --architecture x86_64
+      - name: Check patch whitespace
+        run: git diff --check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scgs-native-v04-linux-x86_64-gcc
+          path: build/stage-gcc
+          if-no-files-found: error
 
   linux-clang-sanitizers:
     runs-on: ubuntu-latest
     env:
       CC: clang
       CXX: clang++
+      SCGS_SMOKE_SEEDS: "256"
       ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
       UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
     steps:
@@ -36,21 +61,47 @@ jobs:
         with:
           python-version: "3.12.8"
       - name: Configure
-        run: cmake -S . -B build/ci-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DSCGS_WARNINGS_AS_ERRORS=ON -DSCGS_ENABLE_SANITIZERS=ON -DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON
+        run: >-
+          cmake -S . -B build/ci-asan -G Ninja
+          -DCMAKE_BUILD_TYPE=Debug
+          -DSCGS_WARNINGS_AS_ERRORS=ON
+          -DSCGS_ENABLE_SANITIZERS=ON
+          -DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON
       - name: Build
         run: cmake --build build/ci-asan --parallel 2
       - name: Test
-        run: SCGS_SMOKE_SEEDS=256 ctest --test-dir build/ci-asan --output-on-failure
+        run: ctest --test-dir build/ci-asan --output-on-failure
+      - name: Stage install
+        run: cmake --install build/ci-asan --prefix "${GITHUB_WORKSPACE}/build/stage-asan"
+      - name: Verify installed CMake package
+        run: |
+          cmake -S scripts/native-package-smoke -B build/package-smoke-asan -G Ninja -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/build/stage-asan" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          cmake --build build/package-smoke-asan --parallel 2
+          ./build/package-smoke-asan/scgs_native_v04_package_smoke
+      - name: Audit native artifact
+        run: python scripts/audit_native_artifact.py --library build/stage-asan/lib/libscgs_v04.so --architecture x86_64
+      - name: Check patch whitespace
+        run: git diff --check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scgs-native-v04-linux-x86_64-clang-asan-ubsan
+          path: build/stage-asan
+          if-no-files-found: error
 
   windows-msvc:
     runs-on: windows-latest
+    env:
+      SCGS_SMOKE_SEEDS: "2048"
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12.8"
       - name: Configure
-        run: cmake -S . -B build/ci-msvc -A x64 -DSCGS_WARNINGS_AS_ERRORS=ON -DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON
+        run: >-
+          cmake -S . -B build/ci-msvc -A x64
+          -DSCGS_WARNINGS_AS_ERRORS=ON
+          -DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON
       - name: Build
         shell: pwsh
         run: |
@@ -62,3 +113,59 @@ jobs:
           exit $exit
       - name: Test
         run: ctest --test-dir build/ci-msvc -C Release --output-on-failure
+      - name: Stage install
+        run: cmake --install build/ci-msvc --config Release --prefix "${{ github.workspace }}/build/stage-msvc"
+      - name: Verify installed CMake package
+        shell: pwsh
+        run: |
+          cmake -S scripts/native-package-smoke -B build/package-smoke-msvc -A x64 -DCMAKE_PREFIX_PATH="${{ github.workspace }}/build/stage-msvc"
+          cmake --build build/package-smoke-msvc --config Release --parallel 2
+          $env:PATH = "${{ github.workspace }}\build\stage-msvc\bin;$env:PATH"
+          & "build/package-smoke-msvc/Release/scgs_native_v04_package_smoke.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Audit native artifact
+        run: python scripts/audit_native_artifact.py --library build/stage-msvc/bin/scgs_v04.dll --architecture x86_64
+      - name: Check patch whitespace
+        run: git diff --check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scgs-native-v04-windows-x86_64-msvc
+          path: build/stage-msvc
+          if-no-files-found: error
+
+  macos-arm64:
+    runs-on: macos-15
+    env:
+      SCGS_SMOKE_SEEDS: "2048"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12.8"
+      - name: Configure
+        run: >-
+          cmake -S . -B build/ci-macos -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_OSX_ARCHITECTURES=arm64
+          -DSCGS_WARNINGS_AS_ERRORS=ON
+          -DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON
+      - name: Build
+        run: cmake --build build/ci-macos --parallel 2
+      - name: Test
+        run: ctest --test-dir build/ci-macos --output-on-failure
+      - name: Stage install
+        run: cmake --install build/ci-macos --prefix "${GITHUB_WORKSPACE}/build/stage-macos"
+      - name: Verify installed CMake package
+        run: |
+          cmake -S scripts/native-package-smoke -B build/package-smoke-macos -G Ninja -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/build/stage-macos"
+          cmake --build build/package-smoke-macos --parallel 2
+          ./build/package-smoke-macos/scgs_native_v04_package_smoke
+      - name: Audit native artifact
+        run: python scripts/audit_native_artifact.py --library build/stage-macos/lib/libscgs_v04.dylib --architecture arm64
+      - name: Check patch whitespace
+        run: git diff --check
+      - uses: actions/upload-artifact@v4
+        with:
+          name: scgs-native-v04-macos-arm64-appleclang
+          path: build/stage-macos
+          if-no-files-found: error

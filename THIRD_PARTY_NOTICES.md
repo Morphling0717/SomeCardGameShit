@@ -2,6 +2,16 @@
 
 This repository's original source code is licensed under GPL-3.0-or-later.
 
+## JSON for Modern C++
+
+- Upstream: `nlohmann/json`
+- Version: 3.12.0
+- License: MIT
+- Retrieved by CMake from the upstream release archive with a pinned SHA-256;
+  not committed to this repository.
+- The complete license is installed as `nlohmann-json-LICENSE.MIT` beside this
+  notice in Gate 2 native packages.
+
 ## YGOProUnity_V2
 
 - Upstream: `lllyasviel/YGOProUnity_V2`

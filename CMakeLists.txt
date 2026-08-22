@@ -1,101 +1,165 @@
 cmake_minimum_required(VERSION 3.25)
 
-project(SomeCardGameShit VERSION 0.1.0 LANGUAGES CXX)
+project(SomeCardGameShit VERSION 0.1.0 LANGUAGES C CXX)
+
+include(FetchContent)
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
 
 option(SCGS_WARNINGS_AS_ERRORS "Treat compiler warnings as errors" ON)
 option(SCGS_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(SCGS_ENABLE_LEGACY_YGO2_TESTS "Enable the frozen YGOPro2 overlay/protocol Python tests" ON)
 
-add_library(scgs_engine
+# Keep the native JSON serializer identical on every builder.
+# nlohmann/json is header-only; its tests and install rules are not part of ours.
+set(JSON_BuildTests OFF CACHE INTERNAL "Disable nlohmann/json tests")
+set(JSON_Install OFF CACHE INTERNAL "Disable nlohmann/json install rules")
+FetchContent_Declare(
+    nlohmann_json
+    URL https://github.com/nlohmann/json/releases/download/v3.12.0/json.tar.xz
+    URL_HASH SHA256=42f6e95cad6ec532fd372391373363b62a14af6d771056dbfc86160e6dfff7aa
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE
+)
+FetchContent_MakeAvailable(nlohmann_json)
+
+function(scgs_apply_project_options target)
+    if(MSVC)
+        # Sources and card names are UTF-8. /permissive- is C++-only.
+        target_compile_options(${target} PRIVATE
+            /W4
+            /utf-8
+            $<$<COMPILE_LANGUAGE:CXX>:/permissive->
+        )
+        target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS)
+        if(SCGS_WARNINGS_AS_ERRORS)
+            target_compile_options(${target} PRIVATE /WX)
+        endif()
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+        if(SCGS_WARNINGS_AS_ERRORS)
+            target_compile_options(${target} PRIVATE -Werror)
+        endif()
+    endif()
+
+    if(SCGS_ENABLE_SANITIZERS)
+        if(MSVC)
+            message(FATAL_ERROR "SCGS_ENABLE_SANITIZERS is currently supported only with GCC or Clang")
+        endif()
+        target_compile_options(${target} PRIVATE
+            -fsanitize=address,undefined
+            -fno-omit-frame-pointer
+        )
+        target_link_options(${target} PRIVATE
+            -fsanitize=address,undefined
+            -fno-omit-frame-pointer
+        )
+    endif()
+endfunction()
+
+add_library(scgs_engine STATIC
     engine/src/catalog.cpp
     engine/src/client_api.cpp
     engine/src/game.cpp
     engine/src/protocol.cpp
 )
-
 add_library(scgs::engine ALIAS scgs_engine)
 
 target_include_directories(scgs_engine
     PUBLIC
         $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/engine/include>
-        $<INSTALL_INTERFACE:include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
-
 target_compile_features(scgs_engine PUBLIC cxx_std_20)
+set_target_properties(scgs_engine PROPERTIES
+    POSITION_INDEPENDENT_CODE ON
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES
+)
+scgs_apply_project_options(scgs_engine)
 
-if(MSVC)
-    # /utf-8: sources (card names, comments) are UTF-8; without it MSVC misreads
-    # them under the system codepage and C4819 becomes an error under /WX.
-    # _CRT_SECURE_NO_WARNINGS: std::getenv triggers C4996 under MSVC, which /WX
-    # escalates to an error (historically broke the windows-msvc CI job).
-    target_compile_options(scgs_engine PRIVATE /W4 /permissive- /utf-8)
-    target_compile_definitions(scgs_engine PRIVATE _CRT_SECURE_NO_WARNINGS)
-    if(SCGS_WARNINGS_AS_ERRORS)
-        target_compile_options(scgs_engine PRIVATE /WX)
-    endif()
-else()
-    target_compile_options(scgs_engine PRIVATE -Wall -Wextra -Wpedantic)
-    if(SCGS_WARNINGS_AS_ERRORS)
-        target_compile_options(scgs_engine PRIVATE -Werror)
-    endif()
-endif()
+add_library(scgs_native_v04 SHARED engine/src/native_api_v04.cpp)
+add_library(scgs::native_v04 ALIAS scgs_native_v04)
+
+target_include_directories(scgs_native_v04
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/engine/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+target_compile_features(scgs_native_v04 PRIVATE cxx_std_20)
+target_compile_definitions(scgs_native_v04 PRIVATE SCGS_V04_BUILDING_LIBRARY=1)
+target_compile_definitions(scgs_native_v04 INTERFACE SCGS_V04_USING_LIBRARY=1)
+target_link_libraries(scgs_native_v04
+    PRIVATE
+        scgs::engine
+        nlohmann_json::nlohmann_json
+)
+set_target_properties(scgs_native_v04 PROPERTIES
+    OUTPUT_NAME scgs_v04
+    EXPORT_NAME native_v04
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES
+    VERSION 1.0.0
+    SOVERSION 1
+)
+scgs_apply_project_options(scgs_native_v04)
 
 add_executable(scgs_demo engine/apps/scgs_demo.cpp)
 target_link_libraries(scgs_demo PRIVATE scgs::engine)
+scgs_apply_project_options(scgs_demo)
 
 add_executable(scgs_tests engine/tests/test_main.cpp)
 target_link_libraries(scgs_tests PRIVATE scgs::engine)
+scgs_apply_project_options(scgs_tests)
 
 add_executable(scgs_client_api_tests engine/tests/test_client_api.cpp)
 target_link_libraries(scgs_client_api_tests PRIVATE scgs::engine)
+scgs_apply_project_options(scgs_client_api_tests)
 
 # Legacy v1 wire freeze regression (golden bytes + bridge projection).
 add_executable(scgs_wire_tests engine/tests/test_wire.cpp)
 target_link_libraries(scgs_wire_tests PRIVATE scgs::engine)
+scgs_apply_project_options(scgs_wire_tests)
 
-if(MSVC)
-    target_compile_options(scgs_demo PRIVATE /W4 /permissive- /utf-8)
-    target_compile_options(scgs_tests PRIVATE /W4 /permissive- /utf-8)
-    target_compile_options(scgs_client_api_tests PRIVATE /W4 /permissive- /utf-8)
-    target_compile_options(scgs_wire_tests PRIVATE /W4 /permissive- /utf-8)
-    target_compile_definitions(scgs_demo PRIVATE _CRT_SECURE_NO_WARNINGS)
-    target_compile_definitions(scgs_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
-    target_compile_definitions(scgs_client_api_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
-    target_compile_definitions(scgs_wire_tests PRIVATE _CRT_SECURE_NO_WARNINGS)
-    if(SCGS_WARNINGS_AS_ERRORS)
-        target_compile_options(scgs_demo PRIVATE /WX)
-        target_compile_options(scgs_tests PRIVATE /WX)
-        target_compile_options(scgs_client_api_tests PRIVATE /WX)
-        target_compile_options(scgs_wire_tests PRIVATE /WX)
-    endif()
-else()
-    target_compile_options(scgs_demo PRIVATE -Wall -Wextra -Wpedantic)
-    target_compile_options(scgs_tests PRIVATE -Wall -Wextra -Wpedantic)
-    target_compile_options(scgs_client_api_tests PRIVATE -Wall -Wextra -Wpedantic)
-    target_compile_options(scgs_wire_tests PRIVATE -Wall -Wextra -Wpedantic)
-    if(SCGS_WARNINGS_AS_ERRORS)
-        target_compile_options(scgs_demo PRIVATE -Werror)
-        target_compile_options(scgs_tests PRIVATE -Werror)
-        target_compile_options(scgs_client_api_tests PRIVATE -Werror)
-        target_compile_options(scgs_wire_tests PRIVATE -Werror)
-    endif()
-endif()
+# Gate 2 ABI tests: C header/link contract, JSON parity, and a true runtime
+# loader that does not link to the native target.
+add_executable(scgs_native_api_c_tests engine/tests/test_native_api_v04_c.c)
+target_compile_features(scgs_native_api_c_tests PRIVATE c_std_11)
+set_target_properties(scgs_native_api_c_tests PROPERTIES
+    C_STANDARD 11
+    C_STANDARD_REQUIRED YES
+    C_EXTENSIONS NO
+)
+target_link_libraries(scgs_native_api_c_tests PRIVATE scgs::native_v04)
+scgs_apply_project_options(scgs_native_api_c_tests)
 
-if(SCGS_ENABLE_SANITIZERS)
-    if(MSVC)
-        message(FATAL_ERROR "SCGS_ENABLE_SANITIZERS is currently supported only with GCC or Clang")
-    endif()
-    foreach(target scgs_engine scgs_demo scgs_tests scgs_client_api_tests scgs_wire_tests)
-        target_compile_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
-        target_link_options(${target} PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
-    endforeach()
-endif()
+add_executable(scgs_native_api_tests engine/tests/test_native_api_v04.cpp)
+target_compile_features(scgs_native_api_tests PRIVATE cxx_std_20)
+target_link_libraries(scgs_native_api_tests
+    PRIVATE
+        scgs::engine
+        scgs::native_v04
+        nlohmann_json::nlohmann_json
+)
+scgs_apply_project_options(scgs_native_api_tests)
+
+add_executable(scgs_native_api_dynamic_tests engine/tests/test_native_api_v04_dynamic.cpp)
+target_compile_features(scgs_native_api_dynamic_tests PRIVATE cxx_std_20)
+target_include_directories(scgs_native_api_dynamic_tests PRIVATE engine/include)
+target_link_libraries(scgs_native_api_dynamic_tests PRIVATE ${CMAKE_DL_LIBS})
+add_dependencies(scgs_native_api_dynamic_tests scgs_native_v04)
+scgs_apply_project_options(scgs_native_api_dynamic_tests)
 
 enable_testing()
 add_test(NAME scgs_unit_tests COMMAND scgs_tests)
 add_test(NAME scgs_client_api_contract COMMAND scgs_client_api_tests)
 add_test(NAME scgs_documented_scenario COMMAND scgs_demo --verify)
 add_test(NAME scgs_wire_frozen_golden COMMAND scgs_wire_tests)
+add_test(NAME scgs_native_api_c_contract COMMAND scgs_native_api_c_tests)
+add_test(NAME scgs_native_api_contract COMMAND scgs_native_api_tests)
+add_test(
+    NAME scgs_native_api_dynamic_load
+    COMMAND scgs_native_api_dynamic_tests $<TARGET_FILE:scgs_native_v04>
+)
 
 if(SCGS_ENABLE_LEGACY_YGO2_TESTS)
     find_package(Python3 3.10 REQUIRED COMPONENTS Interpreter)
@@ -110,3 +174,50 @@ if(SCGS_ENABLE_LEGACY_YGO2_TESTS)
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
 endif()
+
+install(
+    TARGETS scgs_native_v04
+    EXPORT scgs_native_v04Targets
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+install(
+    FILES engine/include/scgs/native_api_v04.h
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/scgs
+)
+install(
+    FILES
+        LICENSE
+        THIRD_PARTY_NOTICES.md
+        docs/native-api-v04.md
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/scgs_native_v04
+)
+install(
+    FILES ${nlohmann_json_SOURCE_DIR}/LICENSE.MIT
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/scgs_native_v04
+    RENAME nlohmann-json-LICENSE.MIT
+)
+install(
+    EXPORT scgs_native_v04Targets
+    FILE scgs_native_v04Targets.cmake
+    NAMESPACE scgs::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/scgs_native_v04
+)
+
+configure_package_config_file(
+    cmake/scgs_native_v04Config.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/scgs_native_v04Config.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/scgs_native_v04
+)
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/scgs_native_v04ConfigVersion.cmake
+    VERSION 1.0.0
+    COMPATIBILITY SameMajorVersion
+)
+install(
+    FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/scgs_native_v04Config.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/scgs_native_v04ConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/scgs_native_v04
+)

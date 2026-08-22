@@ -101,6 +101,17 @@ set_target_properties(scgs_native_v04 PROPERTIES
     VERSION 1.0.0
     SOVERSION 1
 )
+if(UNIX AND NOT APPLE)
+    set(scgs_native_v04_export_map
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/scgs_v04.exports.map"
+    )
+    target_link_options(scgs_native_v04 PRIVATE
+        "-Wl,--version-script=${scgs_native_v04_export_map}"
+    )
+    set_property(TARGET scgs_native_v04 APPEND PROPERTY
+        LINK_DEPENDS "${scgs_native_v04_export_map}"
+    )
+endif()
 scgs_apply_project_options(scgs_native_v04)
 
 add_executable(scgs_demo engine/apps/scgs_demo.cpp)
@@ -130,6 +141,11 @@ set_target_properties(scgs_native_api_c_tests PROPERTIES
     C_EXTENSIONS NO
 )
 target_link_libraries(scgs_native_api_c_tests PRIVATE scgs::native_v04)
+if(SCGS_ENABLE_SANITIZERS)
+    # The source remains C11, but Clang's C++ sanitizer runtime is required by
+    # the C++ shared library when this executable is linked under ASan/UBSan.
+    set_property(TARGET scgs_native_api_c_tests PROPERTY LINKER_LANGUAGE CXX)
+endif()
 scgs_apply_project_options(scgs_native_api_c_tests)
 
 add_executable(scgs_native_api_tests engine/tests/test_native_api_v04.cpp)

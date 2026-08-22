@@ -16,8 +16,8 @@ jobs:
       CXX: g++
       SCGS_SMOKE_SEEDS: "2048"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12.8"
       - name: Configure
@@ -56,8 +56,8 @@ jobs:
       ASAN_OPTIONS: detect_leaks=1:halt_on_error=1
       UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12.8"
       - name: Configure
@@ -75,7 +75,7 @@ jobs:
         run: cmake --install build/ci-asan --prefix "${GITHUB_WORKSPACE}/build/stage-asan"
       - name: Verify installed CMake package
         run: |
-          cmake -S scripts/native-package-smoke -B build/package-smoke-asan -G Ninja -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/build/stage-asan" -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          cmake -S scripts/native-package-smoke -B build/package-smoke-asan -G Ninja -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/build/stage-asan" -DSCGS_NATIVE_SMOKE_USE_CXX_LINKER=ON -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
           cmake --build build/package-smoke-asan --parallel 2
           ./build/package-smoke-asan/scgs_native_v04_package_smoke
       - name: Audit native artifact
@@ -93,8 +93,8 @@ jobs:
     env:
       SCGS_SMOKE_SEEDS: "2048"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12.8"
       - name: Configure
@@ -138,8 +138,8 @@ jobs:
     env:
       SCGS_SMOKE_SEEDS: "2048"
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12.8"
       - name: Configure

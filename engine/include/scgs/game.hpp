@@ -260,6 +260,19 @@ public:
     [[nodiscard]] std::optional<InstanceId> find_in_standby(PlayerId player, CardId card_id) const;
 
 private:
+    struct PaymentProjection {
+        Status status;
+        int current_pp_after = 0;
+        int pp_capacity_after = 0;
+        int cracks_after = 0;
+        int evolution_energy_after = 0;
+        int base_cost = 0;
+        int burn_cost = 0;
+        int advance_cost = 0;
+        bool used_advance = false;
+        bool consumes_advance = false;
+    };
+
     struct PendingAttack {
         PlayerId player = PlayerId::Player0;
         InstanceId attacker = 0;
@@ -319,6 +332,16 @@ private:
         const std::vector<EffectTrigger>& triggers,
         PlayerId actor,
         std::optional<Target> target) const;
+
+    // Pure cost projection shared by execution and PaymentPreview. It never
+    // resolves effects or inspects reaction eligibility.
+    [[nodiscard]] PaymentProjection project_payment(
+        PlayerId player,
+        int base_cost,
+        int burn_cost,
+        bool allow_advance,
+        bool use_advance,
+        int evolution_energy_cost = 0) const;
 
     // Pay card cost, handling advance and burn.  Returns whether advance was used.
     [[nodiscard]] Status pay_card_cost(

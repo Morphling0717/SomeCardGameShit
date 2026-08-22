@@ -1024,6 +1024,17 @@ Json serialize_legal_action(const scgs::LegalAction& value) {
     return result;
 }
 
+Json serialize_reaction_origin(const scgs::ReactionOrigin& value) {
+    Json result = Json::object();
+    result["action"] = map_action(value.action);
+    result["player"] = map_player(value.player);
+    result["source"] = value.source;
+    if (value.target.has_value()) {
+        result["target"] = serialize_target(*value.target);
+    }
+    return result;
+}
+
 Json serialize_reaction(const scgs::ReactionContext& value) {
     Json result = Json::object();
     result["pending"] = value.pending;
@@ -1034,6 +1045,9 @@ Json serialize_reaction(const scgs::ReactionContext& value) {
     result["eligible_count"] = static_cast<std::uint64_t>(value.eligible_count);
     result["eligible_traps"] = serialize_card_list(value.eligible_traps);
     result["revision"] = value.revision;
+    if (value.origin.has_value()) {
+        result["origin"] = serialize_reaction_origin(*value.origin);
+    }
     return result;
 }
 

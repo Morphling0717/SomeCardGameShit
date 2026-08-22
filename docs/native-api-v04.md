@@ -270,6 +270,11 @@ sequence，无结果时保持调用方传入的 `after_sequence`。API 不保存
 
 `PaymentPreview`：
 
+`PaymentPreview` 严格表示命令提交时支付的成本投影，而不是完整命令结算后的状态。
+`*_after` 只包含印刷 PP、预支、燃耗、部署 PP 与主动进化能量成本；不包含卡牌效果、
+战斗、回合切换或响应结算造成的资源变化。没有成本的行动保持 after 与 before 相同。
+这样预览不会因为对方背面伏策是否匹配当前行动而产生可观察差异。
+
 | 字段 | 类型 | 必需 |
 |---|---|---|
 | `status` | `Status` | 是 |
@@ -297,6 +302,11 @@ sequence，无结果时保持调用方传入的 `after_sequence`。API 不保存
 | `eligible_count` | u64 | 是 | 合法伏策数量；两名 viewer 都可见 |
 | `eligible_traps` | `Card[]` | 是 | 仅 responder viewer 可见完整身份；其他 viewer 为空数组 |
 | `revision` | u64 | 是 | 生成上下文时的状态 revision |
+| `origin` | `ReactionOrigin` | optional | pending 时必有；公开描述被挂起的原行动，非 pending 时省略 |
+
+`ReactionOrigin` 固定含 ActionKind `action`、Player `player` 和 u64 `source`；原行动有目标时
+还含与命令相同结构的 optional `target`。`subject` 为兼容既有消费者保留的窗口摘要；新客户端
+应使用 `origin` 渲染发动者、来源和完整目标。
 
 `GameEventView`：
 

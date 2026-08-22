@@ -523,64 +523,6 @@ Status validate_command(
     return dispatch_command(candidate, command);
 }
 
-PaymentPreview preview_payment(
-    const Game& game,
-    const GameCommand& command,
-    const std::uint64_t current_revision) {
-    PaymentPreview preview;
-    if (!scgs::is_valid_player(command.player)) {
-        preview.status = Status::error(ErrorCode::InvalidPlayer, "player id is outside the supported range");
-        return preview;
-    }
-
-    const PlayerState& before = game.player(command.player);
-    preview.current_pp_before = before.current_pp;
-    preview.current_pp_after = before.current_pp;
-    preview.pp_capacity_before = before.pp_capacity;
-    preview.pp_capacity_after = before.pp_capacity;
-    preview.cracks_before = before.cracks;
-    preview.cracks_after = before.cracks;
-    preview.evolution_energy_before = before.evolution_points;
-    preview.evolution_energy_after = before.evolution_points;
-
-    if (command.expected_revision != current_revision) {
-        preview.status = Status::error(ErrorCode::StaleRevision, "command was created for an older game revision");
-        return preview;
-    }
-
-    Game candidate = game;
-    preview.status = dispatch_command(candidate, command);
-    if (!preview.status) {
-        return preview;
-    }
-
-    const bool pays_printed_cost = command.action == ActionKind::PlayUnit ||
-                                   command.action == ActionKind::CastSpell ||
-                                   command.action == ActionKind::PlayTactic;
-    if (pays_printed_cost || command.action == ActionKind::Deploy) {
-        const CardDefinition& definition = game.definition(command.source);
-        if (command.action == ActionKind::Deploy && definition.deployment.has_value()) {
-            preview.base_cost = definition.deployment->pp_cost;
-        } else if (pays_printed_cost) {
-            preview.base_cost = definition.cost;
-            preview.burn_cost = definition.additional_cost.burn_pp_capacity;
-        }
-    }
-    const PlayerState& after = candidate.player(command.player);
-    preview.current_pp_after = after.current_pp;
-    preview.pp_capacity_after = after.pp_capacity;
-    preview.cracks_after = after.cracks;
-    preview.evolution_energy_after = after.evolution_points;
-    const bool supports_advance = command.action == ActionKind::PlayUnit ||
-                                  command.action == ActionKind::CastSpell ||
-                                  command.action == ActionKind::PlayTactic;
-    if (supports_advance && command.use_advance) {
-        preview.advance_cost = std::max(0, preview.base_cost - before.current_pp);
-    }
-    preview.used_advance = preview.advance_cost > 0;
-    return preview;
-}
-
 std::vector<LegalAction> list_legal_actions(
     const Game& game,
     const ActionQuery& query,
@@ -592,7 +534,7 @@ std::vector<LegalAction> list_legal_actions(
             return;
         }
         LegalAction action;
-        action.payment = preview_payment(game, command, current_revision);
+        action.payment = game.preview_payment(command);
         action.command = std::move(command);
         actions.push_back(std::move(action));
     });
@@ -757,7 +699,89 @@ std::vector<InstanceId> Game::list_valid_donors(const ActionQuery& query) const 
 }
 
 PaymentPreview Game::preview_payment(const GameCommand& command) const {
-    return client_api_detail::preview_payment(*this, command, revision_);
+    PaymentPreview preview;
+    if (!is_valid_player(command.player)) {
+        preview.status = Status::error(
+            ErrorCode::InvalidPlayer, "player id is outside the supported range");
+        return preview;
+    }
+
+    const PlayerState& before = player(command.player);
+    preview.current_pp_before = before.current_pp;
+    preview.current_pp_after = before.current_pp;
+    preview.pp_capacity_before = before.pp_capacity;
+    preview.pp_capacity_after = before.pp_capacity;
+    preview.cracks_before = before.cracks;
+    preview.cracks_after = before.cracks;
+    preview.evolution_energy_before = before.evolution_points;
+    preview.evolution_energy_after = before.evolution_points;
+
+    preview.status = client_api_detail::validate_command(*this, command, revision_);
+    if (!preview.status) {
+        return preview;
+    }
+
+    PaymentProjection projection;
+    switch (command.action) {
+        case ActionKind::PlayUnit:
+        case ActionKind::CastSpell:
+        case ActionKind::PlayTactic: {
+            const CardDefinition& card = definition(command.source);
+            projection = project_payment(
+                command.player,
+                card.cost,
+                card.additional_cost.burn_pp_capacity,
+                /*allow_advance=*/true,
+                command.use_advance);
+            break;
+        }
+        case ActionKind::Deploy: {
+            const CardDefinition& card = definition(command.source);
+            projection = project_payment(
+                command.player,
+                card.deployment->pp_cost,
+                /*burn_cost=*/0,
+                /*allow_advance=*/false,
+                /*use_advance=*/false);
+            break;
+        }
+        case ActionKind::Evolve:
+            projection = project_payment(
+                command.player,
+                /*base_cost=*/0,
+                /*burn_cost=*/0,
+                /*allow_advance=*/false,
+                /*use_advance=*/false,
+                /*evolution_energy_cost=*/2);
+            break;
+        case ActionKind::Mulligan:
+        case ActionKind::Attack:
+        case ActionKind::ActivateTrap:
+        case ActionKind::PassReaction:
+        case ActionKind::EndTurn:
+        case ActionKind::Surrender:
+            projection = project_payment(
+                command.player,
+                /*base_cost=*/0,
+                /*burn_cost=*/0,
+                /*allow_advance=*/false,
+                /*use_advance=*/false);
+            break;
+    }
+
+    if (!projection.status) {
+        preview.status = projection.status;
+        return preview;
+    }
+    preview.current_pp_after = projection.current_pp_after;
+    preview.pp_capacity_after = projection.pp_capacity_after;
+    preview.cracks_after = projection.cracks_after;
+    preview.evolution_energy_after = projection.evolution_energy_after;
+    preview.base_cost = projection.base_cost;
+    preview.burn_cost = projection.burn_cost;
+    preview.advance_cost = projection.advance_cost;
+    preview.used_advance = projection.used_advance;
+    return preview;
 }
 
 ReactionContext Game::get_reaction_context(const PlayerId viewer) const {
@@ -768,6 +792,32 @@ ReactionContext Game::get_reaction_context(const PlayerId viewer) const {
     if (!response_stack_.empty()) {
         context.responder = response_stack_.back().responder;
         context.subject = response_stack_.back().subject;
+
+        const SuspendedAction& suspended = response_stack_.front().suspended;
+        ReactionOrigin origin;
+        origin.player = suspended.player;
+        origin.source = suspended.card;
+        origin.target = suspended.target;
+        switch (suspended.kind) {
+            case SuspendedAction::Kind::Spell:
+                origin.action = ActionKind::CastSpell;
+                context.origin = std::move(origin);
+                break;
+            case SuspendedAction::Kind::EntryEffect:
+                origin.action = instances_.at(suspended.card).deployed_from_standby
+                                    ? ActionKind::Deploy
+                                    : ActionKind::PlayUnit;
+                context.origin = std::move(origin);
+                break;
+            case SuspendedAction::Kind::Attack:
+                origin.action = ActionKind::Attack;
+                origin.source = suspended.attack.attacker;
+                origin.target = suspended.attack.target;
+                context.origin = std::move(origin);
+                break;
+            case SuspendedAction::Kind::None:
+                break;
+        }
     }
     return context;
 }

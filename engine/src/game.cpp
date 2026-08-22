@@ -187,6 +187,73 @@ Status Game::surrender(const PlayerId player_id) {
     return Status::ok();
 }
 
+Game::PaymentProjection Game::project_payment(
+    const PlayerId player_id,
+    const int base_cost,
+    const int burn_cost,
+    const bool allow_advance,
+    const bool use_advance,
+    const int evolution_energy_cost) const {
+    PaymentProjection projection;
+    if (!is_valid_player(player_id)) {
+        projection.status = Status::error(
+            ErrorCode::InvalidPlayer, "player id is outside the supported range");
+        return projection;
+    }
+
+    const PlayerState& state = players_[to_index(player_id)];
+    projection.current_pp_after = state.current_pp;
+    projection.pp_capacity_after = state.pp_capacity;
+    projection.cracks_after = state.cracks;
+    projection.evolution_energy_after = state.evolution_points;
+    projection.base_cost = base_cost;
+    projection.burn_cost = burn_cost;
+
+    if (evolution_energy_cost > state.evolution_points) {
+        projection.status = Status::error(
+            ErrorCode::NoEvolutionPoints, "not enough evolution energy");
+        return projection;
+    }
+
+    const int advance_needed = std::max(0, base_cost - state.current_pp);
+    if (advance_needed > 0 && (!allow_advance || !use_advance)) {
+        projection.status = Status::error(
+            ErrorCode::InsufficientPP,
+            allow_advance ? "not enough PP; use advance to pay the rest"
+                          : "not enough PP for this payment");
+        return projection;
+    }
+
+    const bool will_advance = allow_advance && use_advance && advance_needed > 0;
+    if (will_advance && state.advance_used_this_turn) {
+        projection.status = Status::error(
+            ErrorCode::AdvanceAlreadyUsed, "advance (动用未来) already used this turn");
+        return projection;
+    }
+    if (burn_cost > 0 && !will_advance && state.advance_used_this_turn) {
+        projection.status = Status::error(
+            ErrorCode::AdvanceAlreadyUsed, "burn counts as advance; already used this turn");
+        return projection;
+    }
+
+    const int total_capacity_loss = (will_advance ? advance_needed : 0) + burn_cost;
+    if (state.pp_capacity - total_capacity_loss < 0) {
+        projection.status = Status::error(
+            ErrorCode::AdvanceWouldExceedCap, "PP capacity would fall below zero");
+        return projection;
+    }
+
+    projection.current_pp_after = std::max(0, state.current_pp - base_cost);
+    projection.pp_capacity_after = state.pp_capacity - total_capacity_loss;
+    projection.cracks_after = state.cracks + total_capacity_loss;
+    projection.evolution_energy_after = state.evolution_points - evolution_energy_cost;
+    projection.advance_cost = will_advance ? advance_needed : 0;
+    projection.used_advance = will_advance;
+    projection.consumes_advance = total_capacity_loss > 0;
+    projection.status = Status::ok();
+    return projection;
+}
+
 // Pay the total cost of a card (base cost + burn), applying advance if requested.
 // v0.4 §9/§10/§12: advance reduces pp_capacity by the deficit; burn always
 // reduces capacity; both generate cracks and share the once-per-turn 动用未来.
@@ -195,43 +262,26 @@ Status Game::pay_card_cost(
     const CardDefinition& def,
     const bool use_advance,
     bool& out_advanced) {
+    const PaymentProjection projection = project_payment(
+        player_id,
+        def.cost,
+        def.additional_cost.burn_pp_capacity,
+        /*allow_advance=*/true,
+        use_advance);
+    if (!projection.status) {
+        return projection.status;
+    }
+
     PlayerState& state = players_[to_index(player_id)];
-    const int base_cost = def.cost;
-    const int burn = def.additional_cost.burn_pp_capacity;
-
-    const int advance_needed = std::max(0, base_cost - state.current_pp);
-    const bool will_advance = use_advance && advance_needed > 0;
-
-    if (advance_needed > 0 && !use_advance) {
-        return Status::error(ErrorCode::InsufficientPP, "not enough PP; use advance to pay the rest");
-    }
-    if (will_advance && state.advance_used_this_turn) {
-        return Status::error(ErrorCode::AdvanceAlreadyUsed, "advance (动用未来) already used this turn");
-    }
-    if (burn > 0 && !will_advance && state.advance_used_this_turn) {
-        return Status::error(ErrorCode::AdvanceAlreadyUsed, "burn counts as advance; already used this turn");
-    }
-
-    // v0.4 §10.5: capacity must not drop below 0.
-    const int total_capacity_loss = advance_needed + burn;
-    if (state.pp_capacity - total_capacity_loss < 0) {
-        return Status::error(ErrorCode::AdvanceWouldExceedCap, "PP capacity would fall below zero");
-    }
-
-    // v0.4 §9 step 1: pay all remaining current PP first.
-    state.current_pp -= base_cost - advance_needed;
-    if (state.current_pp < 0) {
-        state.current_pp = 0;
-    }
-
-    if (total_capacity_loss > 0) {
-        state.pp_capacity -= total_capacity_loss;
-        state.cracks += total_capacity_loss; // v0.4 §14: cracks equal the capacity loss
+    state.current_pp = projection.current_pp_after;
+    if (projection.consumes_advance) {
+        state.pp_capacity = projection.pp_capacity_after;
+        state.cracks = projection.cracks_after;
         state.advance_used_this_turn = true;
         emit(EventType::CracksChanged, player_id, 0, state.cracks, state.pp_capacity);
     }
 
-    out_advanced = will_advance;
+    out_advanced = projection.used_advance;
     emit(EventType::PPChanged, player_id, 0, state.current_pp, state.pp_capacity);
     return Status::ok();
 }
@@ -476,7 +526,15 @@ Status Game::deploy(
         return Status::error(ErrorCode::DeployConditionNotMet, "deployment condition is not satisfied");
     }
     // v0.4 §10.8/§25: deployment never uses advance.
-    if (state.current_pp < spec.pp_cost) {
+    const PaymentProjection payment = project_payment(
+        player_id,
+        spec.pp_cost,
+        /*burn_cost=*/0,
+        /*allow_advance=*/false,
+        /*use_advance=*/false);
+    if (!payment.status) {
+        // Preserve the deployment-specific public error text while sharing the
+        // actual affordability projection with previews and execution.
         return Status::error(ErrorCode::InsufficientPP, "not enough PP for the deployment");
     }
 
@@ -525,7 +583,7 @@ Status Game::deploy(
     }
 
     // Commit: pay PP, archive the donor (its printed component is granted).
-    state.current_pp -= spec.pp_cost;
+    state.current_pp = payment.current_pp_after;
     emit(EventType::PPChanged, player_id, 0, state.current_pp, state.pp_capacity);
 
     ComponentSpec granted;
@@ -625,7 +683,15 @@ Status Game::evolve(
         return Status::error(ErrorCode::EvolutionAlreadyUsed, "an evolution was already used this turn");
     }
     // v0.4 §22: active evolution costs 2 evolution energy.
-    if (state.evolution_points < 2) {
+    const PaymentProjection payment = project_payment(
+        player_id,
+        /*base_cost=*/0,
+        /*burn_cost=*/0,
+        /*allow_advance=*/false,
+        /*use_advance=*/false,
+        /*evolution_energy_cost=*/2);
+    if (!payment.status) {
+        // Preserve the existing evolution-specific public error text.
         return Status::error(ErrorCode::NoEvolutionPoints, "need at least 2 evolution points");
     }
     const Status target_status = validate_effect_targets(
@@ -647,7 +713,7 @@ Status Game::evolve(
     }
     unit.evolved = true;
     unit.temporary_rush = true; // v0.4 §22: may attack enemy units this turn
-    state.evolution_points -= 2;
+    state.evolution_points = payment.evolution_energy_after;
     state.evolution_used_this_turn = true;
     emit(EventType::UnitEvolved, player_id, unit_id, static_cast<int>(unit.evolved), state.evolution_points);
 

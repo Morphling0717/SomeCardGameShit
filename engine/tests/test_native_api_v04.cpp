@@ -698,6 +698,7 @@ void test_all_output_buffer_contracts(TestContext& context) {
     const BufferResult reaction = exercise_buffer_contract(context, reaction_call);
     expect_envelope(context, reaction.json, "reaction", revision);
     EXPECT(context, reaction.json["reaction"].is_object());
+    EXPECT(context, !reaction.json["reaction"].contains("origin"));
 
     const BufferResult events = read_events(context, handle, 0U, 0U, true);
     expect_envelope(context, events.json, "events", revision);
@@ -964,6 +965,36 @@ void compare_view_with_direct(
             context,
             native_view["reaction"]["eligible_traps"][index],
             direct_view.reaction.eligible_traps[index]);
+    }
+    EXPECT(context,
+           native_view["reaction"].contains("origin") ==
+               direct_view.reaction.origin.has_value());
+    if (direct_view.reaction.origin.has_value()) {
+        const Json& native_origin = native_view["reaction"]["origin"];
+        const scgs::ReactionOrigin& direct_origin = *direct_view.reaction.origin;
+        EXPECT(context,
+               native_origin["action"] ==
+                   static_cast<std::uint32_t>(direct_origin.action));
+        EXPECT(context,
+               native_origin["player"] ==
+                   static_cast<std::uint32_t>(direct_origin.player));
+        EXPECT(context, native_origin["source"] == direct_origin.source);
+        EXPECT(context,
+               native_origin.contains("target") == direct_origin.target.has_value());
+        if (direct_origin.target.has_value()) {
+            EXPECT(context,
+                   native_origin["target"]["kind"] ==
+                       static_cast<std::uint32_t>(direct_origin.target->kind));
+            EXPECT(context,
+                   native_origin["target"]["player"] ==
+                       static_cast<std::uint32_t>(direct_origin.target->player));
+            EXPECT(context,
+                   native_origin["target"].contains("unit") ==
+                       (direct_origin.target->kind == scgs::Target::Kind::Unit));
+            if (direct_origin.target->kind == scgs::Target::Kind::Unit) {
+                EXPECT(context, native_origin["target"]["unit"] == direct_origin.target->unit);
+            }
+        }
     }
 }
 
@@ -1248,6 +1279,43 @@ void test_full_match_direct_semantic_parity(TestContext& context) {
 }
 
 bool expect_hidden_tactics(TestContext& context, const Json& view, std::uint32_t viewer);
+
+void test_cost_only_payment_preview(TestContext& context) {
+    scgs_v04_handle handle = create_game(context, fixed_config(0xC0570A1U, 1U, false));
+    start_game(context, handle);
+    complete_empty_mulligans(context, handle);
+
+    const BufferResult before = get_view(context, handle, 0U);
+    const std::uint64_t revision = before.json.value("revision", 0U);
+    const Json& player = before.json["view"]["players"][0];
+    const BufferResult actions = list_actions(context, handle, query_for(0U, revision));
+    const std::optional<Json> end_turn = find_command(actions.json["actions"], 9U);
+    EXPECT(context, end_turn.has_value());
+    if (end_turn.has_value()) {
+        const BufferResult payment = preview_command(context, handle, *end_turn);
+        const Json& projected = payment.json["payment"];
+        EXPECT(context, projected["status"].value("engine_code", 99U) == 0U);
+        EXPECT(context, projected["current_pp_before"] == player["current_pp"]);
+        EXPECT(context, projected["current_pp_after"] == player["current_pp"]);
+        EXPECT(context, projected["pp_capacity_before"] == player["pp_capacity"]);
+        EXPECT(context, projected["pp_capacity_after"] == player["pp_capacity"]);
+        EXPECT(context, projected["cracks_before"] == player["cracks"]);
+        EXPECT(context, projected["cracks_after"] == player["cracks"]);
+        EXPECT(context,
+               projected["evolution_energy_before"] == player["evolution_energy"]);
+        EXPECT(context,
+               projected["evolution_energy_after"] == player["evolution_energy"]);
+        EXPECT(context, projected.value("base_cost", -1) == 0);
+        EXPECT(context, projected.value("burn_cost", -1) == 0);
+        EXPECT(context, projected.value("advance_cost", -1) == 0);
+
+        EXPECT(context, submit(context, handle, *end_turn) == 0U);
+        const BufferResult after = get_view(context, handle, 0U);
+        EXPECT(context, after.json["view"]["players"][0]["current_pp"] == 0);
+    }
+
+    destroy_game(context, handle);
+}
 
 void test_deterministic_advance_and_burn(TestContext& context) {
     Json advance_config = fixed_config(0xAD0A0CEU, 1U, false);
@@ -1620,6 +1688,7 @@ void test_deterministic_trap_privacy_and_reaction(TestContext& context) {
     EXPECT(context, hidden_events.text.find("拦截伏策") == std::string::npos);
 
     bool opened_reaction = false;
+    std::optional<Json> declared_attack;
     for (int step = 0; step < 80 && !opened_reaction; ++step) {
         const BufferResult snapshot = get_view(context, handle, 0U);
         const Json& view = snapshot.json["view"];
@@ -1646,6 +1715,9 @@ void test_deterministic_trap_privacy_and_reaction(TestContext& context) {
         if (declaring_attack) {
             const BufferResult after_attack = get_view(context, handle, *setter);
             opened_reaction = after_attack.json["view"].value("phase", 0U) == 3U;
+            if (opened_reaction) {
+                declared_attack = *selected;
+            }
         }
     }
     EXPECT(context, opened_reaction);
@@ -1673,6 +1745,21 @@ void test_deterministic_trap_privacy_and_reaction(TestContext& context) {
         EXPECT(context, non_responder.value("eligible_count", 0U) == responder["eligible_count"]);
         EXPECT(context, non_responder["eligible_traps"].empty());
         EXPECT(context, non_responder.dump().find("拦截伏策") == std::string::npos);
+        EXPECT(context, declared_attack.has_value());
+        EXPECT(context, responder.contains("origin"));
+        EXPECT(context, non_responder.contains("origin"));
+        if (declared_attack.has_value() && responder.contains("origin") &&
+            non_responder.contains("origin")) {
+            const Json& origin = responder["origin"];
+            EXPECT(context, origin == non_responder["origin"]);
+            EXPECT(context, origin.value("action", 99U) == 4U);
+            EXPECT(context, origin["player"] == (*declared_attack)["player"]);
+            EXPECT(context, origin["source"] == (*declared_attack)["source"]);
+            EXPECT(context, origin.contains("target"));
+            if (origin.contains("target")) {
+                EXPECT(context, origin["target"] == (*declared_attack)["target"]);
+            }
+        }
 
         const BufferResult reaction_view = get_view(context, handle, *setter);
         const std::uint64_t pass_revision = reaction_view.json.value("revision", 0U);
@@ -1942,18 +2029,19 @@ void test_abi_only_fixed_deck_agent(TestContext& context) {
         EXPECT(context, submit(context, handle, *selected) == 0U);
         const BufferResult after_command = get_view(context, handle, actor);
         EXPECT(context, after_command.json.value("revision", 0U) == revision + 1U);
-        EXPECT(context,
-               after_command.json["view"]["players"][actor]["current_pp"] ==
-                   payment.json["payment"]["current_pp_after"]);
-        EXPECT(context,
-               after_command.json["view"]["players"][actor]["pp_capacity"] ==
-                   payment.json["payment"]["pp_capacity_after"]);
-        EXPECT(context,
-               after_command.json["view"]["players"][actor]["cracks"] ==
-                   payment.json["payment"]["cracks_after"]);
-        EXPECT(context,
-               after_command.json["view"]["players"][actor]["evolution_energy"] ==
-                   payment.json["payment"]["evolution_energy_after"]);
+        const std::uint32_t action = command.value("action", 99U);
+        if (action == 1U || action == 2U || action == 3U || action == 6U) {
+            // Printed/deployment PP is committed before effects. Other resource
+            // fields may subsequently change through public effect resolution.
+            EXPECT(context,
+                   after_command.json["view"]["players"][actor]["current_pp"] ==
+                       payment.json["payment"]["current_pp_after"]);
+        }
+        if (action == 5U) {
+            EXPECT(context,
+                   after_command.json["view"]["players"][actor]["evolution_energy"] ==
+                       payment.json["payment"]["evolution_energy_after"]);
+        }
         for (std::uint32_t viewer = 0; viewer < 2U; ++viewer) {
             const BufferResult events = read_events(context, handle, viewer, cursors[viewer]);
             for (const Json& event : events.json["events"]) {
@@ -2022,6 +2110,7 @@ int main() {
     test_privacy_event_cursors_and_atomicity(context);
     test_direct_cpp_semantic_parity(context);
     test_full_match_direct_semantic_parity(context);
+    test_cost_only_payment_preview(context);
     test_deterministic_advance_and_burn(context);
     test_deterministic_donor_query(context);
     test_deterministic_trap_privacy_and_reaction(context);

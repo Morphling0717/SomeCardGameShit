@@ -61,6 +61,9 @@ struct ActionQuery {
     std::uint64_t expected_revision = 0;
 };
 
+// A projection of costs paid at command commit time. The "after" fields never
+// include card effects, combat, turn transitions or response resolution; this
+// keeps hidden reaction eligibility from becoming a preview side channel.
 struct PaymentPreview {
     Status status;
     int current_pp_before = 0;
@@ -145,6 +148,16 @@ struct PlayerView {
     std::vector<CardView> standby;
 };
 
+// Public description of the original action currently suspended underneath a
+// reaction stack. All referenced cards and targets are already public at the
+// time the response window opens.
+struct ReactionOrigin {
+    ActionKind action = ActionKind::EndTurn;
+    PlayerId player = PlayerId::Player0;
+    InstanceId source = 0;
+    std::optional<Target> target;
+};
+
 struct ReactionContext {
     bool pending = false;
     ReactionWindow window = ReactionWindow::None;
@@ -154,6 +167,7 @@ struct ReactionContext {
     std::size_t eligible_count = 0;
     std::vector<CardView> eligible_traps; // populated only for the responder
     std::uint64_t revision = 0;
+    std::optional<ReactionOrigin> origin; // present whenever pending == true
 };
 
 struct MatchView {

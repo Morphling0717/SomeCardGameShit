@@ -172,6 +172,69 @@ void test_legal_actions_and_payment(TestContext& context) {
     EXPECT(context, deploy_game.list_valid_donors(donor_query).size() == 2U);
 }
 
+void test_payment_preview_is_cost_only_and_viewer_safe(TestContext& context) {
+    Scenario plain_scenario = base_scenario();
+    plain_scenario.players[0].current_pp = 2;
+    plain_scenario.players[0].pp_capacity = 4;
+    plain_scenario.players[0].cracks = 2;
+    plain_scenario.players[0].hand = {cards::advance::kRepairTechnician};
+
+    Scenario trapped_scenario = plain_scenario;
+    trapped_scenario.players[1].tactics = {cards::midrange::kCounterTrap};
+
+    Game plain = scenario_game(plain_scenario);
+    Game trapped = scenario_game(trapped_scenario);
+    const auto command_for = [](const Game& game) {
+        GameCommand command;
+        command.player = PlayerId::Player0;
+        command.action = ActionKind::PlayUnit;
+        command.source = *game.find_in_hand(PlayerId::Player0, cards::advance::kRepairTechnician);
+        command.slot = 0U;
+        command.expected_revision = game.revision();
+        return command;
+    };
+
+    const GameCommand plain_command = command_for(plain);
+    const GameCommand trapped_command = command_for(trapped);
+    const PaymentPreview plain_preview = plain.preview_payment(plain_command);
+    const PaymentPreview trapped_preview = trapped.preview_payment(trapped_command);
+
+    EXPECT(context, plain_preview.status);
+    EXPECT(context, trapped_preview.status);
+    EXPECT(context, plain_preview.current_pp_before == trapped_preview.current_pp_before);
+    EXPECT(context, plain_preview.current_pp_after == trapped_preview.current_pp_after);
+    EXPECT(context, plain_preview.pp_capacity_before == trapped_preview.pp_capacity_before);
+    EXPECT(context, plain_preview.pp_capacity_after == trapped_preview.pp_capacity_after);
+    EXPECT(context, plain_preview.cracks_before == trapped_preview.cracks_before);
+    EXPECT(context, plain_preview.cracks_after == trapped_preview.cracks_after);
+    EXPECT(context, plain_preview.evolution_energy_before == trapped_preview.evolution_energy_before);
+    EXPECT(context, plain_preview.evolution_energy_after == trapped_preview.evolution_energy_after);
+    EXPECT(context, plain_preview.base_cost == 2);
+    EXPECT(context, plain_preview.current_pp_after == 0);
+    EXPECT(context, plain_preview.cracks_after == 2);
+
+    EXPECT(context, plain.submit_command(plain_command));
+    EXPECT(context, trapped.submit_command(trapped_command));
+    EXPECT(context, plain.phase() == Phase::Action);
+    EXPECT(context, trapped.phase() == Phase::Reaction);
+    EXPECT(context, plain.player(PlayerId::Player0).cracks == 0);
+    EXPECT(context, trapped.player(PlayerId::Player0).cracks == 2);
+
+    Scenario end_turn_scenario = base_scenario();
+    end_turn_scenario.players[0].current_pp = 5;
+    Game end_turn_game = scenario_game(end_turn_scenario);
+    GameCommand end_turn;
+    end_turn.player = PlayerId::Player0;
+    end_turn.action = ActionKind::EndTurn;
+    end_turn.expected_revision = end_turn_game.revision();
+    const PaymentPreview end_turn_preview = end_turn_game.preview_payment(end_turn);
+    EXPECT(context, end_turn_preview.status);
+    EXPECT(context, end_turn_preview.current_pp_before == 5);
+    EXPECT(context, end_turn_preview.current_pp_after == 5);
+    EXPECT(context, end_turn_game.submit_command(end_turn));
+    EXPECT(context, end_turn_game.player(PlayerId::Player0).current_pp == 0);
+}
+
 void test_transactional_failure_has_no_side_effects(TestContext& context) {
     Scenario scenario = base_scenario();
     scenario.players[0].hand = {cards::midrange::kPrecisionStrike};
@@ -267,6 +330,13 @@ void test_event_redaction_and_independent_cursors(TestContext& context) {
     const ReactionContext reaction = game.get_reaction_context(PlayerId::Player1);
     EXPECT(context, reaction.pending);
     EXPECT(context, reaction.eligible_traps.size() == 1U);
+    EXPECT(context, reaction.origin.has_value());
+    if (reaction.origin.has_value()) {
+        EXPECT(context, reaction.origin->action == ActionKind::PlayUnit);
+        EXPECT(context, reaction.origin->player == PlayerId::Player0);
+        EXPECT(context, reaction.origin->source == play_entry_unit.source);
+        EXPECT(context, !reaction.origin->target.has_value());
+    }
     if (!reaction.eligible_traps.empty()) {
         GameCommand activate;
         activate.player = PlayerId::Player1;
@@ -447,6 +517,7 @@ int main() {
     TestContext context;
     test_snapshot_privacy(context);
     test_legal_actions_and_payment(context);
+    test_payment_preview_is_cost_only_and_viewer_safe(context);
     test_transactional_failure_has_no_side_effects(context);
     test_event_redaction_and_independent_cursors(context);
     test_headless_agent_completes_fixed_deck_match(context);

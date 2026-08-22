@@ -571,31 +571,51 @@ public sealed partial class MatchScreen : Control
 
     private void ScheduleEventAcknowledge(HotseatUiState state)
     {
-        if (_eventAcknowledgeScheduled || !state.HasUnacknowledgedEvents)
+        if (_eventAcknowledgeScheduled || !state.HasUnacknowledgedEvents ||
+            !state.Viewer.HasValue || !state.PendingEventLastSequence.HasValue)
         {
             return;
         }
 
         _eventAcknowledgeScheduled = true;
-        Callable.From(AcknowledgeRenderedEvents).CallDeferred();
+        AcknowledgeRenderedEvents(
+            state.Viewer.Value,
+            state.PendingEventLastSequence.Value);
     }
 
-    private void AcknowledgeRenderedEvents()
+    private async void AcknowledgeRenderedEvents(PlayerId viewer, ulong lastSequence)
     {
-        _eventAcknowledgeScheduled = false;
-        if (_controller is null || _controller.State.IsCovered ||
-            !_controller.State.HasUnacknowledgedEvents)
-        {
-            return;
-        }
-
         try
         {
-            _controller.AcknowledgeEvents();
+            // Do not advance the native event cursor until the matching batch has
+            // survived a complete rendered frame. Two process-frame boundaries
+            // also work under the headless renderer used by CI.
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            if (_controller is null || !IsInsideTree())
+            {
+                return;
+            }
+
+            HotseatUiState current = _controller.State;
+            if (!current.IsCovered && current.Viewer == viewer &&
+                current.PendingEventLastSequence == lastSequence)
+            {
+                _controller.AcknowledgeEvents();
+            }
         }
         catch (Exception exception)
         {
             HandleFatal(exception);
+        }
+        finally
+        {
+            _eventAcknowledgeScheduled = false;
+            if (_controller is { State: { } current } && !current.IsCovered &&
+                current.HasUnacknowledgedEvents)
+            {
+                ScheduleEventAcknowledge(current);
+            }
         }
     }
 
@@ -810,7 +830,8 @@ public sealed partial class MatchScreen : Control
             return;
         }
 
-        if (state.Selection.Action.HasValue && !state.Selection.HasSlot &&
+        if (player == state.Viewer && state.Selection.Action.HasValue &&
+            !state.Selection.HasSlot &&
             IsSlotZoneForAction(state.Selection.Action.Value, zone) &&
             state.CandidateOptions.Slots.Contains((ulong)index))
         {
@@ -953,7 +974,8 @@ public sealed partial class MatchScreen : Control
             return true;
         }
 
-        if (state.Selection.Action.HasValue && !state.Selection.HasSlot &&
+        if (player == state.Viewer && state.Selection.Action.HasValue &&
+            !state.Selection.HasSlot &&
             IsSlotZoneForAction(state.Selection.Action.Value, zone) &&
             state.CandidateOptions.Slots.Contains((ulong)index))
         {
@@ -984,7 +1006,8 @@ public sealed partial class MatchScreen : Control
             return true;
         }
 
-        return state.Selection.HasSlot && state.Selection.Slot == (ulong)index &&
+        return player == state.Viewer && state.Selection.HasSlot &&
+               state.Selection.Slot == (ulong)index &&
                state.Selection.Action.HasValue &&
                IsSlotZoneForAction(state.Selection.Action.Value, zone);
     }

@@ -57,18 +57,36 @@ Gate 2 采用 64 位 token handle 与 schema 1 UTF-8 JSON，不直接展平含 s
 - [x] Windows x86-64 与 macOS ARM64 导出、架构/许可证审计及导出程序启动 smoke
 - [x] GCC、Clang sanitizer、MSVC/Godot 与 macOS ARM64/Godot 四项 CI 全绿
 
-Gate 3A 的 Godot 界面只显示 Mulligan 首张快照，不提交任何 `GameCommand`；当前提交动态库的托管集成测试会提交一次合法调度命令。界面使用 Noto 授权字体和纯色几何占位，不宣称已有正式美术。
+Gate 3A 的历史被测界面只显示 Mulligan 首张快照，不提交任何 `GameCommand`；同提交动态库的托管集成测试会提交一次合法调度命令。界面使用 Noto 授权字体和纯色几何占位，不宣称已有正式美术。
 
-## Gate 3B：完整热座 Alpha — 下一步
+## Gate 3B：完整热座 Alpha — 实现已接入，验收进行中
 
-- [ ] 调度选择、提交和双方完整换手遮挡
-- [ ] 普通出牌、攻击、结束回合与投降
-- [ ] 预支/燃耗支付预览、进化、部署和组件选择
-- [ ] 设施、伏策设置、反制/响应和三层 LIFO 表现
-- [ ] 对局结果、返回菜单、重开与错误恢复的完整交互验收
-- [ ] Windows x86-64 与 macOS Apple Silicon 真人完成一局
+### 客户端闭环
 
-Gate 3B 若增加任何素材，只能使用原创或明确授权内容；完整正式表现层不作为可玩闭环的阻塞项。Gate 3B 仍不承诺 Web 或 Linux 正式客户端；Developer ID 签名、公证与物理 Mac 验收也尚未完成。
+- [x] 新增 Godot 无关、`net8.0` / `net10.0` 双 TFM 的 `Scgs.Hotseat` 编排层
+- [x] 调度选择、替换手牌 review、双方持续换手和两阶段遮挡提交
+- [x] 普通出牌、攻击、结束回合与投降
+- [x] 目标/位置/组件/预支渐进选择和严格支付预览
+- [x] 进化、部署、设施、伏策设置、反制/不过与响应 origin 展示
+- [x] 每位 viewer 独立的非破坏事件读取，Godot 渲染后显式 ACK
+- [x] 对局结果、返回菜单、重开与受控错误恢复
+- [x] DTO 驱动的中文行动/事件/错误展示和无身份对手牌背
+
+### 同轮引擎与制品加固
+
+- [x] 支付预览与实际支付共享费用投影，不执行效果、不形成伏策侧信道
+- [x] pending 响应提供公开 `ReactionOrigin`，ABI 1.0/schema 1/14 导出与 legacy v1 wire 不变
+- [x] CI 脚本要求唯一 smoke 标记、Gate 3B 报告 schema、压缩包解包后复审与真实启动
+- [ ] Gate 3B 最终提交的 Windows/macOS 导出与四项 CI 结果写入 `TEST_REPORT.md`
+
+### 发布标签前硬门
+
+- [ ] 物理 Apple Silicon Mac 完成启动、整局、退出与重开
+- [ ] 两名真人在目标桌面构建完成热座整局并逐次检查遮挡/交接
+- [ ] 未安装 Visual Studio 的 Windows x86-64 机器完成导出包整局验证
+- [ ] 完成硬门后才标记 `v0.4-hotseat-alpha.1`
+
+Gate 3B 使用 Noto 授权字体与原创纯色几何，不增加正式卡图、音效、动画或第二套规则/表现数据。自动 smoke 与 CI 不能替代上述物理设备和双人验收。Gate 3B 仍不承诺 Web 或 Linux 正式客户端；Developer ID 签名与公证也尚未完成。
 
 ## Alpha 后续
 

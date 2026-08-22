@@ -1,23 +1,24 @@
-# SomeCardGameShit 下一阶段开发计划
+# SomeCardGameShit M1-G 开发计划与执行记录
 
 **计划代号：** M1-G / Godot Hotseat Alpha  
 **代码基线：** `main@cfdf695d70eeabcc6de9b094c94041364fb1335f`
 **Gate 0+1 实现分支：** `codex/godot-hotseat-gate1`
 **Gate 2 实现分支：** `codex/godot-hotseat-gate2`
-**Gate 3A 被测实现提交：** `codex/godot-hotseat-gate3@3a2286a`
+**Gate 3A 已验收尖端：** `codex/godot-hotseat-gate3@5158409`
+**Gate 3B 工作分支：** `codex/godot-hotseat-gate3b`
 **规则基线：** `docs/rules-v0.4.md`  
-**目标客户端：** Godot 4.7.2 .NET（Gate 3A 工程与首帧已完成）
+**目标客户端：** Godot 4.7.2 .NET（Gate 3B 完整热座实现已接入，最终验收进行中）
 **.NET SDK：** 10.0.400
 **目标平台：** macOS Apple Silicon、Windows x86-64  
 **M1-G 总目标：** 从完整无界面引擎推进到人类可以完整打一局的单机热座版本
 
-> 当前交付已完成 Gate 3A：纯托管 `Scgs.Client`、Godot 桌面骨架、首次热座遮挡、第一张真实 viewer 快照及 Windows x86-64 / macOS ARM64 可启动导出；最终实测见 [`../TEST_REPORT.md`](../TEST_REPORT.md)。界面仍停在只读 Mulligan，M1-G“完整打一局”总目标尚未完成；不支持 Web，未修改 legacy v1 wire 字节，也未创建 PR、合并或打标签。
+> Gate 3B 已在 Gate 3A 上增加纯托管 `Scgs.Hotseat`、完整调度/行动/响应/终局/重开编排、两阶段遮挡提交和渲染后事件 ACK。最终自动化、Windows/macOS 导出和 CI 结果只以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准；物理 Apple Silicon 与两名真人热座仍是发布标签前硬门。项目不支持 Web，未修改 legacy v1 wire 字节，也不在本 Gate 创建 PR、合并或标签。
 
 ---
 
 ## 一、开工基线与当前交付
 
-> 本节的“已经完成/尚未完成”首先记录 `main@cfdf695` 的开工审计，便于解释 Gate 1 的来源。Gate 1 已关闭规则边界与客户端安全 API 缺口，Gate 2 完成稳定原生消费边界，Gate 3A 已完成 Godot 桌面骨架与首张安全快照；完整操作流程仍属于 Gate 3B。
+> 本节的“已经完成/尚未完成”首先记录 `main@cfdf695` 的开工审计，便于解释 Gate 1 的来源。Gate 1 已关闭规则边界与客户端安全 API 缺口，Gate 2 完成稳定原生消费边界，Gate 3A 完成 Godot 桌面骨架与首张安全快照，Gate 3B 接入完整操作流程；真人/物理设备验收仍未完成。
 
 ### 1. 已经完成的部分
 
@@ -92,7 +93,7 @@ Godot 客户端：不存在
 人类可玩版本：不存在
 ```
 
-Gate 0+1 交付后，客户端安全 C++ 接口已完成，并由只使用“快照 → 查询 → 命令 → 事件”的无界面代理整局测试约束；Gate 2 在其上提供 `scgs_v04` C ABI；Gate 3A 又建立 Godot 工程、只读战场和桌面导出。仍不存在的是可提交命令的完整热座 UI 与真人完整一局验收。
+Gate 0+1 交付后，客户端安全 C++ 接口已完成，并由只使用“快照 → 查询 → 命令 → 事件”的无界面代理整局测试约束；Gate 2 在其上提供 `scgs_v04` C ABI；Gate 3A 建立 Godot 工程、只读战场和桌面导出；Gate 3B 再加入可提交命令的完整热座 UI。仍未完成的是物理 Apple Silicon 和两名真人完整一局的发布前验收。
 
 ---
 
@@ -206,7 +207,7 @@ EffectTrigger::OnSpellDeclared
 
 ### P1-2：卡牌数据缺少表现字段
 
-规则数据不应承担 UI 文本和素材定位。Gate 3A 只使用纯色几何与规则 DTO 文本；正式表现层工作延后到 Gate 3B 之后，届时新增独立表现数据：
+规则数据不应承担 UI 素材定位。Gate 3B 继续使用纯色几何，并通过 `CardPresentation`、`ActionPresentation`、`GameEventPresentation` 和 `EngineCodeZhCnFormatter` 把 DTO/冻结 code 转为中文通用展示；本 Gate 不新增正式卡图或第二套规则判断。正式表现数据仍延后，届时可独立设计：
 
 ```text
 CardPresentation
@@ -318,7 +319,10 @@ Godot Control 场景
         │
         ▼
 C# BootstrapController / MatchScreen
-        │  只提交命令、请求合法选项
+        │  只渲染状态、传递选择、安排遮挡后的延迟提交
+        ▼
+Scgs.Hotseat / HotseatMatchController
+        │  只编排 IScgsGameSession，不判断规则
         ▼
 IScgsGameSession / Scgs.Client
         │  LibraryImport + cdecl
@@ -345,7 +349,9 @@ C++ Game
 5. C# 不计算费用、目标、伤害或合法性；
 6. 第一版所有引擎调用都在 Godot 主线程；
 7. 第一版不使用 C++ 回调 C#，采用主动轮询；
-8. legacy v1 wire 保留并继续测试，但不作为 Godot 同进程客户端接口。
+8. 两位 viewer 的事件 cursor 独立，只有 Godot 完成事件渲染后才 ACK；
+9. 命令确认先发布完全遮挡状态，Godot 延迟提交后才允许路由下一操作者；
+10. legacy v1 wire 保留并继续测试，但不作为 Godot 同进程客户端接口。
 
 ---
 
@@ -377,7 +383,7 @@ docs/ui-state-map.md
 docs/hotseat-acceptance.md
 ```
 
-Gate 0+1+2+3A 的已实现架构和验收边界统一记录在 `docs/architecture.md`、`docs/testing.md`、`docs/native-api-v04.md`、上述 UI 专项文档、路线图与现行交接中。
+Gate 0+1+2+3A+3B 的已实现架构和验收边界统一记录在 `docs/architecture.md`、`docs/testing.md`、`docs/native-api-v04.md`、上述 UI 专项文档、路线图与现行交接中。
 
 清理明确的一次性遗留：
 
@@ -616,6 +622,7 @@ C ABI 与直接 C++ 调用在每一步得到相同语义；Windows DLL、Linux s
 client/
 ├─ Scgs.Client/                 纯托管 ABI/DTO/session（net8.0 + net10.0）
 ├─ Scgs.Client.Tests/           MSTest 与当前提交动态库集成（net10.0）
+├─ Scgs.Hotseat/                Gate 3B 纯托管热座编排（net8.0 + net10.0）
 └─ godot/
    ├─ project.godot
    ├─ SomeCardGameShit.csproj   Godot 桌面层（net8.0）
@@ -623,11 +630,11 @@ client/
    ├─ assets/fonts/
    ├─ licenses/
    ├─ native/                   构建后暂存，二进制不提交
-   ├─ scenes/{bootstrap,cards,match,menu,overlays}/
-   └─ scripts/{Bootstrap,Match,Native,UI}/
+   ├─ scenes/{bootstrap,cards,match,menu,overlays,panels}/
+   └─ scripts/{Bootstrap,Match,Native,Presentation,UI}/
 ```
 
-托管层以 `LibraryImport` + `cdecl` 绑定全部 14 个导出，负责绝对路径解析、ABI handshake、SafeHandle、两段式严格 UTF-8 缓冲、schema 1 DTO、native/engine 错误分层和双 viewer 事件游标。Match/观看者 UI 只依赖 `IScgsGameSession`；`BootstrapController` 作为组合根负责构造具体 session。所有调用在 Godot 主线程顺序执行。
+Gate 3A 的 `Scgs.Client` 以 `LibraryImport` + `cdecl` 绑定全部 14 个导出，负责绝对路径解析、ABI handshake、SafeHandle、两段式严格 UTF-8 缓冲、schema 1 DTO 和 native/engine 错误分层。Gate 3B 的 `Scgs.Hotseat` 在它之上负责双 viewer cursor、合法行动选择、遮挡提交和操作者路由；`BootstrapController` 仍是唯一组合根。所有 native 调用在 Godot 主线程顺序执行。
 
 ### 已创建场景
 
@@ -639,7 +646,7 @@ PassDeviceOverlay.tscn
 SnapshotSlot.tscn
 ```
 
-`MulliganDialog`、`CardDetailPanel`、`ActionMenu`、`TargetSelectionOverlay`、`ReactionDialog` 与 `ResultOverlay` 尚未创建，属于 Gate 3B。
+Gate 3B 已新增 `MulliganPanel`、`ActionPromptPanel`、`CardDetailPanel`、`ConfirmationPanel`、`ReactionPanel`、`EventLogPanel`、`ResultOverlay`、`ErrorOverlay` 与 `MatchInteractionDock`，并继续复用 `SnapshotSlot` 作为公开/脱敏卡位。
 
 ### 原生库与导出位置
 
@@ -661,9 +668,33 @@ Windows 产品 DLL 使用静态 MSVC runtime。macOS 导出临时派生 ARM64 te
 - 完全不透明遮挡揭示后，在界面上显示第一张真实 viewer 0 Mulligan 快照；
 - Windows x86-64 与 macOS ARM64 导出程序都能真实启动 smoke。
 
-## Gate 3B：完整热座 Alpha — 下一步
+## Gate 3B：完整热座 Alpha — 实现已接入，最终验收进行中
 
-先完成调度提交与持续换手遮挡，再按本计划的 Vertical Slice 接入普通命令、资源机制、进化/部署、策略响应、结果和重开。Gate 3A 的首帧 smoke 不能替代这些验收。
+### 热座编排
+
+`HotseatMatchController` 不依赖 Godot，只依赖 `IScgsGameSession`。它公开冻结的 `HotseatUiState`，并覆盖：
+
+- `Covered`、`MulliganSelecting`、`MulliganReview`、`Action`、`Reaction`、`Finished`、`Faulted`、`Disposed`；
+- 完整合法行动集合与目标/位置/组件/预支的渐进候选；
+- 同 revision 支付预览和规范命令确认；
+- 每位 viewer 独立的事件 cursor、`PendingEvents` 和渲染后 `AcknowledgeEvents()`；
+- `StaleRevision` 清选重查、engine code 中文化和 native/协议故障状态。
+
+### 两阶段隐私提交
+
+`ConfirmSelection()` 只冻结规范命令，立即发布 `Covered(ResolvingCommand)` 并移除可见快照；Godot 先绘制完全不透明遮挡，再用延迟回调执行 `SubmitPreparedCommand()`。提交后只读取提交前 viewer 的结果；若操作者变化，则停在 `Covered(PassingDevice)`，等新玩家主动揭示后才读取其快照/查询/事件。
+
+调度成功后先进入 `MulliganReview`，让原 viewer 查看自己的替换手牌；确认看完后才交给下一席或进入实际先手。响应也按 responder 重复同一遮挡交接，不允许跨 viewer 预读。
+
+### UI 闭环
+
+Godot 通过统一候选支持调度、单位/法术/策略、攻击、进化、部署、伏策发动/不过、结束回合和投降；确认页显示引擎返回的费用投影。终局显示结果并允许重开或返回菜单，重开先释放旧 session。
+
+事件日志只消费当前 viewer 的脱敏事件；全部事件完成渲染后才推进该 viewer cursor。对方手牌和背面伏策节点不携带身份、tooltip 或稳定 metadata。
+
+### 本 Gate 不可伪装完成的验收
+
+Gate 3A 首帧 smoke、Gate 3B headless 自动整局和 CI 导出都不能代替物理 Apple Silicon 与两名真人热座整局。这两项仍是创建 `v0.4-hotseat-alpha.1` 前的硬门；最终自动化/CI 状态见 `TEST_REPORT.md`，不得在 run 完成前提前宣称全绿。
 
 ---
 
@@ -785,6 +816,8 @@ PP 容量：2
 
 ## 七、可玩闭环开发顺序
 
+以下保留原始 Vertical Slice 顺序以便追溯。Gate 3B 源码已通过统一 `LegalAction`/DTO 流程接入四个 slice；是否达到可发布验收仍取决于本分支自动化、物理 Apple Silicon 与双人热座硬门。
+
 ### Vertical Slice 1：最基础完整比赛
 
 先实现：
@@ -895,8 +928,13 @@ validate_invariants()
 - 动态库搜索路径；
 - 快照映射；
 - 对方隐藏手牌；
-- 事件映射；
-- 原生错误文本。
+- `ReactionOrigin` 的 pending/idle shape 与未来 action 降级；
+- 两阶段遮挡提交和新 viewer 揭示前零调用；
+- 调度 selection/review、渐进候选和规范命令匹配；
+- 支付预览与合法行动费用一致，stale revision 清选不自动重提；
+- 两位 viewer cursor 只在 ACK 后独立推进；
+- engine/native/协议错误分层、未知 code 中文降级与幂等 dispose；
+- 同提交真实动态库经安全接口完成整局和终局复验。
 
 ### 4. Godot headless 测试
 
@@ -907,12 +945,16 @@ validate_invariants()
 - Bootstrap 场景可实例化；
 - Match 场景节点路径完整；
 - 原生库能够加载；
-- 能创建比赛并取得首张快照；
+- 揭示前没有 viewer 读取，揭示后能创建比赛并取得安全快照；
+- 两阶段遮挡提交不会在绘制遮挡前执行命令；
+- 调度、普通行动、响应、终局和重开路径能由安全 DTO/查询驱动；
+- 每位 viewer 的事件只在日志渲染后 ACK；
+- 成功标记只出现一次，结构化报告通过严格字段白名单校验；
 - 导出预设有效。
 
 ### 5. Gate 3B 真人/实机测试 — 待办
 
-Gate 3A 只完成 CI runner 上的 ARM64/x86-64 导出、审计与 headless 启动 smoke；下列物理设备、人工交互和完整一局尚未验收。
+Gate 3A 已完成 CI runner 上的 ARM64/x86-64 首帧导出、审计与 headless 启动 smoke；Gate 3B 增加的自动整局和导出复验仍不能替代下列物理设备、人工交互和完整一局。未实际执行前不得勾选。
 
 #### macOS Apple Silicon
 
@@ -933,11 +975,18 @@ Gate 3A 只完成 CI runner 上的 ARM64/x86-64 导出、审计与 headless 启�
 - 不依赖已安装 Visual Studio；
 - 错误时生成可读取日志。
 
+#### 两名真人热座
+
+- 每次调度、结束回合和响应换手都先完全遮挡；
+- 下一位玩家必须主动揭示，遮挡前不出现其快照/事件；
+- 对方手牌、背面伏策、详情和日志不泄露身份；
+- 两人从调度完成到唯一终局，并各验证一次重开或返回菜单。
+
 ---
 
 ## 九、CI 计划
 
-### Gate 2+3A 当前矩阵
+### Gate 2+3A 已建立矩阵
 
 四个 job 都必须配置、构建并运行完整 CTest，随后安装 `scgs_v04`、从安装目录编译独立
 C11 consumer、审计目标架构与精确 14 个 C 导出，并上传暂存 artifact：
@@ -988,6 +1037,19 @@ Linux 两个 job 保持纯原生。Windows 与 macOS job 已在原生安装/审�
 
 被测实现的四个 job 已在 CI run `32577089388` 全绿。本路线不设 Web 或 Linux 正式客户端构建任务。
 
+### Gate 3B 追加要求
+
+Linux 两个 job 仍保持纯原生。Windows 与 macOS job 在 Gate 3A 基线上还必须：
+
+- locked restore/build `Scgs.Client`、`Scgs.Hotseat`、Godot 和 managed tests；
+- 使用同提交真实 native 完成安全接口整局、双 viewer 隐私、响应 origin 和终局/dispose 集成测试；
+- current-project 与导出程序各自只输出一次 `SCGS_GODOT_CI_SMOKE_OK`；
+- 生成只包含固定字段的 Gate 3B 报告，验证 `premature_view_calls == 0`；
+- Windows/macOS 导出 zip 解包到新目录后再次进行结构/架构/许可证审计并真实启动；
+- artifact 使用 Gate 3B 名称并记录 SHA-256。
+
+Gate 3B 最终 run 尚未写入本计划；只能在四个 job 实际完成后由 `TEST_REPORT.md` 记录，不能沿用 Gate 3A run 作为 Gate 3B 通过结论。
+
 ---
 
 ## 十、开发工单与依赖关系
@@ -1013,17 +1075,19 @@ Linux 两个 job 保持纯原生。Windows 与 macOS job 已在原生安装/审�
 | GODOT-001 | 完成 | P0 | 创建 Godot 4 .NET 工程 | ABI-003、CI-001 |
 | GODOT-002 | 完成 | P0 | C# P/Invoke 与库解析 | ABI-002 |
 | UI-001 | 完成 | P0 | 主战场静态布局 | GODOT-001 |
-| UI-002 | 部分完成 | P0 | 首次遮挡已完成；持续换手遮挡待 Gate 3B | GODOT-001、ENG-004 |
-| UI-003 | 待办 | P0 | 基础出牌/攻击/结束回合 | GODOT-002、ENG-005 |
-| UI-004 | 待办 | P0 | 调度流程 | UI-002、ABI-003 |
-| UI-005 | 待办 | P0 | 预支/燃耗支付预览 | ENG-007、UI-003 |
-| UI-006 | 待办 | P0 | 进化与职业充能 | UI-003 |
-| UI-007 | 待办 | P0 | 战备部署与组件 | ENG-006、UI-003 |
-| UI-008 | 待办 | P0 | 设施、伏策与响应窗口 | ENG-008、UI-003 |
-| UI-009 | 待办 | P1 | 事件动画和对局日志 | UI-003～008 |
+| HOTSEAT-001 | 完成 | P0 | 双 TFM 热座状态机、两阶段遮挡提交与独立 cursor/ACK | GODOT-002、ENG-004～008 |
+| UI-002 | 完成 | P0 | 首次、持续换手和结算遮挡 | HOTSEAT-001 |
+| UI-003 | 完成 | P0 | 基础出牌/攻击/结束回合/投降 | GODOT-002、ENG-005 |
+| UI-004 | 完成 | P0 | 双方调度与替换手牌 review | UI-002、ABI-003 |
+| UI-005 | 完成 | P0 | 预支/燃耗支付预览 | ENG-007、UI-003 |
+| UI-006 | 完成 | P0 | 进化与职业充能显示 | UI-003 |
+| UI-007 | 完成 | P0 | 战备部署、位置与组件 | ENG-006、UI-003 |
+| UI-008 | 完成 | P0 | 设施、伏策、响应 origin 与不过 | ENG-008、UI-003 |
+| UI-009 | 完成 | P1 | 脱敏事件日志、终局与错误 overlay | UI-003～008 |
 | CI-001 | 完成 | P0 | 动态库三平台构建 | ABI-003 |
 | CI-002 | 完成 | P0 | dotnet 与 Godot headless | GODOT-002 |
 | CI-003 | 完成 | P0 | macOS/Windows 导出产物 | CI-002 |
+| CI-004 | 验收中 | P0 | Gate 3B 整局报告、唯一 marker、解包复审/启动 | UI-002～009 |
 | QA-001 | 待办 | P0 | Mac 实机完整一局 | CI-003 |
 | QA-002 | 待办 | P0 | Windows 两台机器完整一局 | CI-003 |
 | REL-001 | 待办 | P0 | 标记 `v0.4-hotseat-alpha.1` | QA-001、QA-002 |
@@ -1032,7 +1096,7 @@ Linux 两个 job 保持纯原生。Windows 与 macOS job 已在原生安装/审�
 
 ## 十一、提交策略
 
-长期每个 Gate 应独立提交。Gate 0+1 曾按要求只创建本地提交；Gate 2 与 Gate 3A 均已获得明确推送授权，分别在 `codex/godot-hotseat-gate2`、`codex/godot-hotseat-gate3` 检查 CI，但仍不创建 PR、不合并或打标签。
+长期每个 Gate 应独立提交。Gate 0+1 曾按要求只创建本地提交；Gate 2、Gate 3A 与 Gate 3B 均已获得明确推送授权，分别在对应 `codex/godot-hotseat-*` 分支检查 CI，但仍不创建 PR、不合并或打标签。
 
 已产生的 Gate 0～3A 主题提交包括：
 
@@ -1048,11 +1112,14 @@ feat(godot): deliver Gate 3A desktop snapshot shell
 fix(ci): stabilize Gate 3A Godot exports
 fix(godot): make cold imports deterministic
 
-# Gate 3B 候选主题（尚未提交）
-feat(godot): implement basic hotseat match loop
-feat(godot): expose v0.4 resource and deployment systems
-feat(godot): implement tactic response flow
-test(godot): verify complete hotseat games on target devices
+# Gate 3B 已拆分/后续主题
+fix(engine): harden Gate 3B client previews
+test(ci): enforce Gate 3B package smoke contracts
+feat(client): add safe hot-seat match controller
+feat(godot): add Gate 3B interaction presentation
+feat(godot): connect the complete hot-seat match loop
+test(godot): verify complete hot-seat flows and exports
+docs: record Gate 3B implementation and measured validation
 ```
 
 获得推送授权后：
@@ -1082,8 +1149,9 @@ test(godot): verify complete hotseat games on target devices
 
 - 快照是最终真值；
 - 事件是表现建议；
-- 每个命令后先保存新快照；
-- 动画队列可以延迟显示，但不能延迟规则状态。
+- 每个命令后重新读取新快照；
+- 每位 viewer 的事件先进入 pending，完成渲染后才 ACK 对应 sequence；
+- 日志/动画可以延迟显示，但不能延迟或推演规则状态。
 
 ### 3. 原生动态库打包失败
 
@@ -1099,8 +1167,10 @@ test(godot): verify complete hotseat games on target devices
 控制：
 
 - viewer-scoped snapshot；
+- 确认命令先进入 `Covered(ResolvingCommand)`，清空当前快照后才延迟提交；
 - 遮挡期间销毁当前手牌 UI；
 - 卡牌详情面板关闭；
+- 新操作者主动揭示前不调用其 view/query/events；
 - 不在日志记录隐藏卡牌名称；
 - 对方伏策只显示背面。
 
@@ -1150,7 +1220,7 @@ test(godot): verify complete hotseat games on target devices
 
 ## 十四、执行顺序与当前状态
 
-Gate 0+1 已完成 1～10，Gate 2 已完成 11～12，Gate 3A 已完成 13～15 和 22，并完成第 16 项的首次遮挡但未完成调度/持续换手。Gate 3B 从补完第 16 项开始。
+Gate 0+1 已完成 1～10，Gate 2 已完成 11～12，Gate 3A 已完成 13～15 和首帧版本的 22；Gate 3B 已接入 16～21 的源码闭环，正在完成同提交自动化/导出复验。第 23 项真人/物理设备硬门仍未完成。
 以下保留 M1-G 的完整依赖顺序；状态以每行标记为准：
 
 1. [完成] 基于 `main@cfdf695` 创建 `codex/godot-hotseat-gate1`；
@@ -1168,13 +1238,13 @@ Gate 0+1 已完成 1～10，Gate 2 已完成 11～12，Gate 3A 已完成 13～15
 13. [完成] 创建 Godot 4 .NET 工程；
 14. [完成] 加入 P/Invoke；
 15. [完成] 显示第一张真实引擎快照；
-16. [部分] 首次热座遮挡已完成；调度和每次换手遮挡待 Gate 3B；
-17. [待办] 完成普通单位、攻击和结束回合；
-18. [待办] 完成完整基础比赛；
-19. [待办] 接入预支、燃耗和裂痕；
-20. [待办] 接入进化、部署和组件；
-21. [待办] 接入策略区与三层响应；
-22. [完成] 完成 macOS ARM64 和 Windows x86-64 CI 导出/启动 smoke；
+16. [完成] 调度 review、每次换手和命令结算的两阶段完全遮挡；
+17. [完成] 接入普通单位、法术/策略、攻击、结束回合和投降；
+18. [完成源码] 接入从双方调度到结果/重开的完整基础比赛；
+19. [完成源码] 接入预支、燃耗、裂痕和引擎支付预览；
+20. [完成源码] 接入进化、部署、位置和组件选择；
+21. [完成源码] 接入策略区、响应 origin、伏策发动/不过和换手；
+22. [Gate 3A 完成；Gate 3B 复验中] macOS ARM64 和 Windows x86-64 CI 导出/启动 smoke；
 23. [待办] 在两类机器上完成真人整局测试；
 24. [待办] 标记 `v0.4-hotseat-alpha.1`。
 

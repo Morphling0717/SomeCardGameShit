@@ -59,7 +59,7 @@ Gate 2 采用 64 位 token handle 与 schema 1 UTF-8 JSON，不直接展平含 s
 
 Gate 3A 的历史被测界面只显示 Mulligan 首张快照，不提交任何 `GameCommand`；同提交动态库的托管集成测试会提交一次合法调度命令。界面使用 Noto 授权字体和纯色几何占位，不宣称已有正式美术。
 
-## Gate 3B：完整热座 Alpha — 实现已接入，验收进行中
+## Gate 3B：完整热座 Alpha — 源码与自动复验已完成；发布硬门待办
 
 ### 客户端闭环
 
@@ -69,7 +69,7 @@ Gate 3A 的历史被测界面只显示 Mulligan 首张快照，不提交任何 `
 - [x] 目标/位置/组件/预支渐进选择和严格支付预览
 - [x] 进化、部署、设施、伏策设置、反制/不过与响应 origin 展示
 - [x] 每位 viewer 独立的非破坏事件读取，Godot 渲染后显式 ACK
-- [x] 对局结果、返回菜单、重开与受控错误恢复
+- [x] 对局结果、返回菜单、重开与受控错误恢复源码路径（真实按钮 E2E 与 `terminal-restart` 仍待人工/专项自动化）
 - [x] DTO 驱动的中文行动/事件/错误展示和无身份对手牌背
 
 ### 同轮引擎与制品加固
@@ -77,7 +77,7 @@ Gate 3A 的历史被测界面只显示 Mulligan 首张快照，不提交任何 `
 - [x] 支付预览与实际支付共享费用投影，不执行效果、不形成伏策侧信道
 - [x] pending 响应提供公开 `ReactionOrigin`，ABI 1.0/schema 1/14 导出与 legacy v1 wire 不变
 - [x] CI 脚本要求唯一 smoke 标记、Gate 3B 报告 schema、压缩包解包后复审与真实启动
-- [ ] Gate 3B 最终提交的 Windows/macOS 导出与四项 CI 结果写入 `TEST_REPORT.md`
+- [x] Gate 3B 被测实现的 Windows/macOS 导出与四项 CI 结果写入 `TEST_REPORT.md`
 
 ### 发布标签前硬门
 

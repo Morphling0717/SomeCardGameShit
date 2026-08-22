@@ -10,13 +10,15 @@
 - Gate 2：`codex/godot-hotseat-gate2@8371427`
 - Gate 3A 已验收尖端：`codex/godot-hotseat-gate3@5158409`
 - Gate 3B 工作分支：`codex/godot-hotseat-gate3b`
+- Gate 3B 被测实现：`9845a3fc89442e2f2066ae0265e8478e03b52632`
+- Gate 3B 自动验收：GitHub Actions run [`32583321294`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32583321294)，4/4 jobs 全绿
 - 规则真值：[`rules-v0.4.md`](rules-v0.4.md)，用户最新明确决定优先于旧文档歧义
 - 客户端架构：[`godot-client-architecture.md`](godot-client-architecture.md)
 - UI 状态：[`ui-state-map.md`](ui-state-map.md)
 - 验收清单：[`hotseat-acceptance.md`](hotseat-acceptance.md)
 - 真实构建/测试/CI：[`../TEST_REPORT.md`](../TEST_REPORT.md)
 
-Gate 3B 在 Gate 3A 首帧之上接入完整调度、行动、响应、终局和重开路径，并增加独立 `Scgs.Hotseat` 编排层。本文描述源码职责和必须保持的约束；最终 Windows/macOS 导出与 CI 状态只能由 `TEST_REPORT.md` 记录。在该报告写入最终 run 前，不得宣称 Gate 3B CI 已全绿。
+Gate 3B 在 Gate 3A 首帧之上接入完整调度、行动、响应、终局和重开路径，并增加独立 `Scgs.Hotseat` 编排层。本文描述源码职责和必须保持的约束；Windows/macOS 导出、ZIP 往返启动与四项 CI 已在上述实现提交通过，详细命令、数量、制品摘要和未完成边界只以 `TEST_REPORT.md` 为准。物理设备、双人热座和真实按钮交互硬门仍未完成。
 
 本 Gate 不修改 legacy v1 wire 字节，不改变 `scgs_v04` ABI 1.0/schema 1/精确 14 导出，不提交原生 DLL/dylib，不创建 PR、不合并、不打标签。
 
@@ -172,7 +174,7 @@ MatchInteractionDock
 - Gate 3B 结构化报告使用固定字段白名单；`premature_view_calls` 必须为 0。
 - zip 必须解包到新目录后重新审计并真实启动，不能只验证压缩前目录。
 
-Gate 3B 分支的真实 job、测试数量、artifact 名称/大小/哈希和失败收口，只在最终 [`../TEST_REPORT.md`](../TEST_REPORT.md) 中填写。本文不预先宣称 CI 结果。
+Gate 3B run `32583321294` 已验证唯一 marker、严格整局报告、Windows/macOS 导出及 ZIP 解包后再次审计/启动，并上传 Gate 3B 命名制品；真实 job、测试数量、artifact 大小/哈希和问题收口记录在 [`../TEST_REPORT.md`](../TEST_REPORT.md)。自动整局由 CI helper 注入合法行动，不等于 Godot Button signal E2E，也没有执行 `terminal-restart`。
 
 ## 8. 接手者必须完成的发布前硬门
 

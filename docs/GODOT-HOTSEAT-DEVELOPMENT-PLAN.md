@@ -7,12 +7,12 @@
 **Gate 3A 已验收尖端：** `codex/godot-hotseat-gate3@5158409`
 **Gate 3B 工作分支：** `codex/godot-hotseat-gate3b`
 **规则基线：** `docs/rules-v0.4.md`  
-**目标客户端：** Godot 4.7.2 .NET（Gate 3B 完整热座实现已接入，最终验收进行中）
+**目标客户端：** Godot 4.7.2 .NET（Gate 3B 源码与自动复验已完成，发布硬门待办）
 **.NET SDK：** 10.0.400
 **目标平台：** macOS Apple Silicon、Windows x86-64  
 **M1-G 总目标：** 从完整无界面引擎推进到人类可以完整打一局的单机热座版本
 
-> Gate 3B 已在 Gate 3A 上增加纯托管 `Scgs.Hotseat`、完整调度/行动/响应/终局/重开编排、两阶段遮挡提交和渲染后事件 ACK。最终自动化、Windows/macOS 导出和 CI 结果只以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准；物理 Apple Silicon 与两名真人热座仍是发布标签前硬门。项目不支持 Web，未修改 legacy v1 wire 字节，也不在本 Gate 创建 PR、合并或标签。
+> Gate 3B 已在 Gate 3A 上增加纯托管 `Scgs.Hotseat`、完整调度/行动/响应/终局/重开编排、两阶段遮挡提交和渲染后事件 ACK。被测实现 `9845a3f` 的自动整局、Windows/macOS 导出和四项 CI 已通过，结果以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准；物理 Apple Silicon 与两名真人热座仍是发布标签前硬门。项目不支持 Web，未修改 legacy v1 wire 字节，也不在本 Gate 创建 PR、合并或标签。
 
 ---
 
@@ -668,7 +668,7 @@ Windows 产品 DLL 使用静态 MSVC runtime。macOS 导出临时派生 ARM64 te
 - 完全不透明遮挡揭示后，在界面上显示第一张真实 viewer 0 Mulligan 快照；
 - Windows x86-64 与 macOS ARM64 导出程序都能真实启动 smoke。
 
-## Gate 3B：完整热座 Alpha — 实现已接入，最终验收进行中
+## Gate 3B：完整热座 Alpha — 源码与自动复验已完成；发布硬门待办
 
 ### 热座编排
 
@@ -694,7 +694,7 @@ Godot 通过统一候选支持调度、单位/法术/策略、攻击、进化、
 
 ### 本 Gate 不可伪装完成的验收
 
-Gate 3A 首帧 smoke、Gate 3B headless 自动整局和 CI 导出都不能代替物理 Apple Silicon 与两名真人热座整局。这两项仍是创建 `v0.4-hotseat-alpha.1` 前的硬门；最终自动化/CI 状态见 `TEST_REPORT.md`，不得在 run 完成前提前宣称全绿。
+Gate 3A 首帧 smoke、Gate 3B headless 自动整局和 CI 导出都不能代替物理 Apple Silicon 与两名真人热座整局。这两项仍是创建 `v0.4-hotseat-alpha.1` 前的硬门；自动化/CI 已由 run `32583321294` 验证，完整状态和限制见 `TEST_REPORT.md`。
 
 ---
 
@@ -816,7 +816,7 @@ PP 容量：2
 
 ## 七、可玩闭环开发顺序
 
-以下保留原始 Vertical Slice 顺序以便追溯。Gate 3B 源码已通过统一 `LegalAction`/DTO 流程接入四个 slice；是否达到可发布验收仍取决于本分支自动化、物理 Apple Silicon 与双人热座硬门。
+以下保留原始 Vertical Slice 顺序以便追溯。Gate 3B 源码已通过统一 `LegalAction`/DTO 流程接入四个 slice，自动化矩阵也已通过；是否达到可发布验收仍取决于物理 Apple Silicon、双人热座及验收清单中的其余人工硬门。
 
 ### Vertical Slice 1：最基础完整比赛
 
@@ -1048,7 +1048,7 @@ Linux 两个 job 仍保持纯原生。Windows 与 macOS job 在 Gate 3A 基线�
 - Windows/macOS 导出 zip 解包到新目录后再次进行结构/架构/许可证审计并真实启动；
 - artifact 使用 Gate 3B 名称并记录 SHA-256。
 
-Gate 3B 最终 run 尚未写入本计划；只能在四个 job 实际完成后由 `TEST_REPORT.md` 记录，不能沿用 Gate 3A run 作为 Gate 3B 通过结论。
+Gate 3B 被测实现 `9845a3f` 的 run [`32583321294`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32583321294) 已 4/4 jobs 全绿；准确测试数量、整局报告和 artifact 摘要记录在 `TEST_REPORT.md`，未沿用 Gate 3A run 作为通过结论。
 
 ---
 
@@ -1087,7 +1087,7 @@ Gate 3B 最终 run 尚未写入本计划；只能在四个 job 实际完成后�
 | CI-001 | 完成 | P0 | 动态库三平台构建 | ABI-003 |
 | CI-002 | 完成 | P0 | dotnet 与 Godot headless | GODOT-002 |
 | CI-003 | 完成 | P0 | macOS/Windows 导出产物 | CI-002 |
-| CI-004 | 验收中 | P0 | Gate 3B 整局报告、唯一 marker、解包复审/启动 | UI-002～009 |
+| CI-004 | 完成 | P0 | Gate 3B 整局报告、唯一 marker、解包复审/启动 | UI-002～009 |
 | QA-001 | 待办 | P0 | Mac 实机完整一局 | CI-003 |
 | QA-002 | 待办 | P0 | Windows 两台机器完整一局 | CI-003 |
 | REL-001 | 待办 | P0 | 标记 `v0.4-hotseat-alpha.1` | QA-001、QA-002 |
@@ -1220,7 +1220,7 @@ docs: record Gate 3B implementation and measured validation
 
 ## 十四、执行顺序与当前状态
 
-Gate 0+1 已完成 1～10，Gate 2 已完成 11～12，Gate 3A 已完成 13～15 和首帧版本的 22；Gate 3B 已接入 16～21 的源码闭环，正在完成同提交自动化/导出复验。第 23 项真人/物理设备硬门仍未完成。
+Gate 0+1 已完成 1～10，Gate 2 已完成 11～12，Gate 3A 已完成 13～15 和首帧版本的 22；Gate 3B 已接入 16～21 的源码闭环并完成同提交自动化/导出复验。第 23 项真人/物理设备硬门仍未完成。
 以下保留 M1-G 的完整依赖顺序；状态以每行标记为准：
 
 1. [完成] 基于 `main@cfdf695` 创建 `codex/godot-hotseat-gate1`；
@@ -1244,7 +1244,7 @@ Gate 0+1 已完成 1～10，Gate 2 已完成 11～12，Gate 3A 已完成 13～15
 19. [完成源码] 接入预支、燃耗、裂痕和引擎支付预览；
 20. [完成源码] 接入进化、部署、位置和组件选择；
 21. [完成源码] 接入策略区、响应 origin、伏策发动/不过和换手；
-22. [Gate 3A 完成；Gate 3B 复验中] macOS ARM64 和 Windows x86-64 CI 导出/启动 smoke；
+22. [Gate 3A 与 Gate 3B 自动复验完成] macOS ARM64 和 Windows x86-64 CI 导出/启动 smoke；
 23. [待办] 在两类机器上完成真人整局测试；
 24. [待办] 标记 `v0.4-hotseat-alpha.1`。
 

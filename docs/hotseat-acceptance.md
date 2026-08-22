@@ -47,21 +47,22 @@ Gate 3A 的历史通过结论不自动证明 Gate 3B 的完整交互仍然通过
 
 以下项目只有在最终提交上有真实输出后才能勾选；不要在 CI 尚未结束时提前修改：
 
-- [ ] MSVC Release、GCC Release、Clang ASan/UBSan 与 AppleClang ARM64 的原生矩阵全绿；
-- [ ] 2,048-seed Release 与 256-seed sanitizer 压力、legacy wire/Python、精确 14 导出和 `git diff --check` 通过；
-- [ ] managed 单元测试覆盖两阶段遮挡、调度 review、渐进候选、支付一致、stale revision、响应换手、独立 cursor/ACK、未知值与 dispose；
-- [ ] 同提交真实动态库测试只经安全接口完成确定性整局，并覆盖终局/重开与双 viewer 隐私；
-- [ ] Godot 冷导入、四个主场景及新增面板/overlay 实例化无 C# exception/Godot error；
-- [ ] 当前工程与 Windows/macOS 导出各自只输出一次 `SCGS_GODOT_CI_SMOKE_OK`，并生成通过严格 schema 校验的 Gate 3B 报告；
-- [ ] 导出包完成解包后再次审计和真实启动，不只检查压缩前目录；
-- [ ] Windows x86-64 与 macOS arm64 Gate 3B artifact 名称、架构、native 布局、许可证和 SHA-256 已记录。
+- [x] MSVC Release、GCC Release、Clang ASan/UBSan 与 AppleClang ARM64 的原生矩阵全绿；
+- [x] 2,048-seed Release 与 256-seed sanitizer 压力、legacy wire/Python、精确 14 导出和 `git diff --check` 通过；
+- [x] managed 单元测试覆盖两阶段遮挡、调度 review、渐进候选、支付一致、stale revision、响应换手、独立 cursor/ACK、未知值与 dispose；
+- [x] 同提交真实动态库测试只经安全接口完成 8 局固定牌组/先手矩阵自然终局及独立投降终局，并覆盖双 viewer 隐私；
+- [ ] Godot 结果页通过真实按钮 signal 完成随机重开、再次终局、返回菜单与受控错误恢复；
+- [x] Godot 冷导入、四个主场景及新增面板/overlay 实例化无 C# exception/Godot error；
+- [x] 当前工程与 Windows/macOS 导出各自只输出一次 `SCGS_GODOT_CI_SMOKE_OK`，并生成通过严格 schema 校验的 Gate 3B 报告；
+- [x] 导出包完成解包后再次审计和真实启动，不只检查压缩前目录；
+- [x] Windows x86-64 与 macOS arm64 Gate 3B artifact 名称、架构、native 布局、许可证和 SHA-256 已记录。
 
 ## 必跑的 Gate 3B 场景
 
 自动化报告与人工观察合并后至少覆盖：
 
 - [ ] `privacy-mulligan`：揭示前零 viewer 读取、两席调度、替换手牌 review、每次交接全遮挡；
-- [ ] `full-match`：固定牌组从 Mulligan 打到唯一终局，包含普通出牌、攻击、结束回合、投降或致命结果；
+- [x] `full-match`：固定牌组从 Mulligan 打到唯一自然终局，包含所有非投降行动种类；由 CI helper 驱动合法行动，不代表 Godot Button signal E2E；
 - [ ] `resources`：预支、燃耗、裂痕/修复/增长及支付预览与实际资源变化一致；
 - [ ] `evolve-deploy`：进化、战备部署、位置和组件来源选择；
 - [ ] `reaction`：设施/伏策、公开 origin、发动/不过、反制换手和 LIFO 结果；

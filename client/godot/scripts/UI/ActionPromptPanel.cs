@@ -18,6 +18,8 @@ public sealed partial class ActionPromptPanel : PanelContainer
 
     public event Action<ulong>? CardRequested;
 
+    public event Action<string>? ChoiceRequested;
+
     public event Action? CancelRequested;
 
     public override void _Ready()
@@ -85,6 +87,38 @@ public sealed partial class ActionPromptPanel : PanelContainer
         {
             _buttons.AddChild(new Label { Text = "没有可选择的公开卡牌。" });
         }
+        _cancelButton.Visible = canCancel;
+        _cancelButton.Disabled = false;
+        _cancelButton.Text = cancelLabel;
+    }
+
+    public void PresentChoices(
+        string prompt,
+        IReadOnlyList<(string Label, string Key)> choices,
+        bool canCancel,
+        string cancelLabel = "取消选择")
+    {
+        Visible = true;
+        _prompt.Text = prompt;
+        FreeChildren(_buttons);
+        foreach ((string label, string key) in choices)
+        {
+            var button = new Button
+            {
+                Text = label,
+                CustomMinimumSize = new Vector2(0, 42),
+                FocusMode = FocusModeEnum.All,
+            };
+            string capturedKey = key;
+            button.Pressed += () => ChoiceRequested?.Invoke(capturedKey);
+            _buttons.AddChild(button);
+        }
+
+        if (choices.Count == 0)
+        {
+            _buttons.AddChild(new Label { Text = "没有可选择的合法选项。" });
+        }
+
         _cancelButton.Visible = canCancel;
         _cancelButton.Disabled = false;
         _cancelButton.Text = cancelLabel;

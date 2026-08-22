@@ -24,6 +24,8 @@ public sealed partial class BootstrapController : Control
     private string? _nativeLibraryPath;
     private string? _ciScreenshotPath;
     private bool _ciSmoke;
+    private MatchSetup? _activeSetup;
+    private bool _activeDeterministic;
 
     public override void _Ready()
     {
@@ -111,6 +113,8 @@ public sealed partial class BootstrapController : Control
     private void ShowMainMenu()
     {
         _match = null;
+        _activeSetup = null;
+        _activeDeterministic = false;
         _menu = MainMenuScene.Instantiate<MainMenuScreen>();
         _menu.StartRequested += setup => StartMatch(setup, deterministic: false);
         ReplaceScreen(_menu);
@@ -151,8 +155,11 @@ public sealed partial class BootstrapController : Control
             _session = candidate;
             candidate = null;
             _menu = null;
+            _activeSetup = setup;
+            _activeDeterministic = deterministic;
             _match = MatchScene.Instantiate<MatchScreen>();
             _match.ExitRequested += ReturnToMenu;
+            _match.RestartRequested += RestartMatch;
             _match.FirstSnapshotPresented += deterministic ? OnCiSnapshotPresented : OnFirstSnapshotPresented;
             ReplaceScreen(_match);
 
@@ -324,6 +331,13 @@ public sealed partial class BootstrapController : Control
     {
         DisposeSession();
         ShowMainMenu();
+    }
+
+    private void RestartMatch()
+    {
+        MatchSetup setup = _activeSetup ?? MatchSetup.Defaults;
+        bool deterministic = _activeDeterministic;
+        StartMatch(setup, deterministic);
     }
 
     private void ReplaceScreen(Control screen)

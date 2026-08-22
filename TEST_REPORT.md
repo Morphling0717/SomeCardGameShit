@@ -6,6 +6,8 @@
 
 **基线：** `main@cfdf695d70eeabcc6de9b094c94041364fb1335f`
 
+**被测实现提交：** `a952c5282eca4adcb6325d2fc027ca21c0568d4e`
+
 **范围：** Godot 客户端化前置 Gate 0+1；不包含 C ABI、Godot 场景/UI 或正式美术。
 
 ## 结论

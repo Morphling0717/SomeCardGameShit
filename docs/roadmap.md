@@ -47,21 +47,35 @@
 
 Gate 2 采用 64 位 token handle 与 schema 1 UTF-8 JSON，不直接展平含 string/vector/optional 的 C++ DTO。规范见 [`native-api-v04.md`](native-api-v04.md)。
 
-## Gate 3：Godot 热座 Alpha — 后续
+## Gate 3A：Godot 桌面骨架与首张安全快照 — 已完成
 
-- [ ] 创建 Godot 4.7.2 .NET 工程和桌面导出预设
-- [ ] C# P/Invoke 与原生库加载
-- [ ] 调度、热座遮屏、出牌、攻击、进化、部署、响应、结束和投降 UI
-- [ ] Windows x86-64 与 macOS Apple Silicon 实机完整一局
-- [ ] 仅用原创或明确授权的正式素材
+- [x] 精确锁定 .NET SDK 10.0.400 与 Godot 4.7.2 .NET，使用 locked restore
+- [x] `Scgs.Client` 双 TFM、完整 14 导出绑定、安全 handle/缓冲/JSON/错误/事件游标
+- [x] 创建 `Bootstrap`、`MainMenu`、`Match`、`PassDeviceOverlay` 与桌面导出预设
+- [x] 两席固定牌组选择、首次完全不透明换手遮挡及揭示后第一张真实 viewer 快照
+- [x] 结构化只读战场显示双方公开状态、己方手牌身份与对方牌背
+- [x] Windows x86-64 与 macOS ARM64 导出、架构/许可证审计及导出程序启动 smoke
+- [x] GCC、Clang sanitizer、MSVC/Godot 与 macOS ARM64/Godot 四项 CI 全绿
 
-Gate 2 不创建场景、不实现正式 UI/美术，也不承诺 Web。
+Gate 3A 的 Godot 界面只显示 Mulligan 首张快照，不提交任何 `GameCommand`；当前提交动态库的托管集成测试会提交一次合法调度命令。界面使用 Noto 授权字体和纯色几何占位，不宣称已有正式美术。
+
+## Gate 3B：完整热座 Alpha — 下一步
+
+- [ ] 调度选择、提交和双方完整换手遮挡
+- [ ] 普通出牌、攻击、结束回合与投降
+- [ ] 预支/燃耗支付预览、进化、部署和组件选择
+- [ ] 设施、伏策设置、反制/响应和三层 LIFO 表现
+- [ ] 对局结果、返回菜单、重开与错误恢复的完整交互验收
+- [ ] Windows x86-64 与 macOS Apple Silicon 真人完成一局
+
+Gate 3B 若增加任何素材，只能使用原创或明确授权内容；完整正式表现层不作为可玩闭环的阻塞项。Gate 3B 仍不承诺 Web 或 Linux 正式客户端；Developer ID 签名、公证与物理 Mac 验收也尚未完成。
 
 ## Alpha 后续
 
 - [ ] 主战技与普通主动能力 UI
 - [ ] 同时触发人工排序
 - [ ] 固定牌组未使用关键词验收
+- [ ] 正式卡图、音效、动画与独立表现数据
 - [ ] 异地联机、录像与版本化网络协议
 - [ ] 卡组编辑、内容扩展、平衡与真人数据
 

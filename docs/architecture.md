@@ -35,7 +35,7 @@ Native 适配层只序列化 Gate 1 的安全 DTO，并且只经 `make_view`、�
 
 ## C# 与 Godot 边界
 
-`Scgs.Client` 是不依赖 Godot 的纯托管层，同时生成 `net8.0` 与 `net10.0`。它以 `LibraryImport` + `cdecl` 绑定全部 14 个 ABI 导出，用 `SafeHandle` 管理 64 位 token，并统一处理绝对路径加载、两段式缓冲区、严格 UTF-8、schema 1 JSON 和 native/engine 错误分层。Godot 工程目标为 `net8.0`，只依赖 `IScgsGameSession`，不直接调用 P/Invoke。
+`Scgs.Client` 是不依赖 Godot 的纯托管层，同时生成 `net8.0` 与 `net10.0`。它以 `LibraryImport` + `cdecl` 绑定全部 14 个 ABI 导出，用 `SafeHandle` 管理 64 位 token，并统一处理绝对路径加载、两段式缓冲区、严格 UTF-8、schema 1 JSON 和 native/engine 错误分层。Godot 工程目标为 `net8.0`；Match/观看者 UI 只依赖 `IScgsGameSession`，`BootstrapController` 作为组合根创建具体会话，场景代码不直接调用 P/Invoke。
 
 所有 native 调用在 Godot 主线程顺序执行。动态库只从显式绝对路径加载：编辑器使用 `client/godot/native/<target>` 暂存目录，Windows 导出将 DLL 放在 EXE 同目录，macOS 导出将 dylib 放在 `.app/Contents/Frameworks`。详细约束见 [`godot-client-architecture.md`](godot-client-architecture.md)。
 

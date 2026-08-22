@@ -5,8 +5,8 @@
 ## 分层
 
 ```text
-Godot 场景与控件（net8.0，主线程）
-              │ 只依赖 IScgsGameSession
+Godot Match 场景与观看者控件（net8.0，主线程）
+              │ 依赖 IScgsGameSession；Bootstrap 负责组合
               ▼
 Scgs.Client（纯托管，net8.0 / net10.0）
               │ LibraryImport + cdecl + schema 1 JSON
@@ -58,7 +58,7 @@ Windows 导出把 DLL 放在 EXE 同目录。Godot 4.7.2 官方 macOS template �
 
 ## 会话接口
 
-Godot 只依赖 `IScgsGameSession`，其能力与 C ABI 一一对应：
+Match/观看者 UI 只依赖 `IScgsGameSession`；`BootstrapController` 是唯一组合根，负责创建具体 `ScgsGameSession` 并把接口交给场景。接口能力与 C ABI 一一对应：
 
 ```text
 Start

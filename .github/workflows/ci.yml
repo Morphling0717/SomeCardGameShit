@@ -176,14 +176,17 @@ jobs:
         shell: pwsh
         run: |
           $native = (Resolve-Path "build/stage-msvc/bin/scgs_v04.dll").Path
+          $report = Join-Path $env:RUNNER_TEMP "gate3b-current-project-windows.json"
           python scripts/ci/run_with_timeout.py `
-            --timeout 30 `
+            --timeout 180 `
             --expect-output SCGS_GODOT_CI_SMOKE_OK `
             --expect-output-count 1 `
             --forbid-output "SCRIPT ERROR:" `
             --forbid-output "ERROR:" `
             -- "$env:GODOT4" --headless --path client/godot -- `
-            --ci-smoke "--native-library=$native"
+            --ci-smoke "--native-library=$native" "--ci-report=$report"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/ci/validate_gate3b_report.py --report "$report" --scenario full-match
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Export and finalize Windows client
         env:
@@ -210,16 +213,19 @@ jobs:
         run: |
           $exportDirectory = Join-Path "${{ github.workspace }}" "artifacts/godot/windows-x86_64"
           $export = Join-Path $exportDirectory "SomeCardGameShit.exe"
+          $report = Join-Path $env:RUNNER_TEMP "gate3b-export-windows.json"
           python scripts/audit_godot_export.py --platform windows-x86_64 --export "$export"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/ci/run_with_timeout.py `
-            --timeout 30 `
+            --timeout 180 `
             --cwd "$exportDirectory" `
             --expect-output SCGS_GODOT_CI_SMOKE_OK `
             --expect-output-count 1 `
             --forbid-output "SCRIPT ERROR:" `
             --forbid-output "ERROR:" `
-            -- "$export" --headless -- --ci-smoke
+            -- "$export" --headless -- --ci-smoke "--ci-report=$report"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/ci/validate_gate3b_report.py --report "$report" --scenario full-match
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package Windows client
         shell: pwsh
@@ -238,17 +244,20 @@ jobs:
           New-Item -ItemType Directory -Path $roundTrip -Force | Out-Null
           Expand-Archive -LiteralPath $package -DestinationPath $roundTrip -Force
           $export = Join-Path $roundTrip "SomeCardGameShit.exe"
+          $report = Join-Path $env:RUNNER_TEMP "gate3b-roundtrip-windows.json"
           python scripts/audit_godot_export.py --platform windows-x86_64 --export "$export"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/ci/run_with_timeout.py `
-            --timeout 60 `
+            --timeout 180 `
             --cwd "$roundTrip" `
             --expect-output SCGS_GODOT_CI_SMOKE_OK `
             --expect-output-count 1 `
             --forbid-output "SCRIPT ERROR:" `
             --forbid-output "ERROR:" `
             --forbid-output "Unhandled exception" `
-            -- "$export" --headless -- --ci-smoke
+            -- "$export" --headless -- --ci-smoke "--ci-report=$report"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/ci/validate_gate3b_report.py --report "$report" --scenario full-match
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant() | ForEach-Object { "package_sha256=$_" }
       - name: Check patch whitespace
@@ -348,14 +357,16 @@ jobs:
           GODOT4: ${{ steps.godot.outputs.godot }}
         run: |
           native="$(cd build/stage-macos/lib && pwd)/libscgs_v04.dylib"
+          report="${RUNNER_TEMP}/gate3b-current-project-macos.json"
           python scripts/ci/run_with_timeout.py \
-            --timeout 30 \
+            --timeout 180 \
             --expect-output SCGS_GODOT_CI_SMOKE_OK \
             --expect-output-count 1 \
             --forbid-output 'SCRIPT ERROR:' \
             --forbid-output 'ERROR:' \
             -- "$GODOT4" --headless --path client/godot -- \
-            --ci-smoke "--native-library=${native}"
+            --ci-smoke "--native-library=${native}" "--ci-report=${report}"
+          python scripts/ci/validate_gate3b_report.py --report "$report" --scenario full-match
       - name: Export, finalize, and sign macOS client
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
@@ -380,15 +391,17 @@ jobs:
           export_directory="${GITHUB_WORKSPACE}/artifacts/godot/macos-arm64"
           app="${export_directory}/SomeCardGameShit.app"
           executable="$app/Contents/MacOS/SomeCardGameShit"
+          report="${RUNNER_TEMP}/gate3b-export-macos.json"
           python scripts/audit_godot_export.py --platform macos-arm64 --export "$app"
           python scripts/ci/run_with_timeout.py \
-            --timeout 30 \
+            --timeout 180 \
             --cwd "$export_directory" \
             --expect-output SCGS_GODOT_CI_SMOKE_OK \
             --expect-output-count 1 \
             --forbid-output 'SCRIPT ERROR:' \
             --forbid-output 'ERROR:' \
-            -- "$executable" --headless -- --ci-smoke
+            -- "$executable" --headless -- --ci-smoke "--ci-report=${report}"
+          python scripts/ci/validate_gate3b_report.py --report "$report" --scenario full-match
       - name: Package macOS client
         run: |
           mkdir -p artifacts/packages
@@ -403,16 +416,18 @@ jobs:
           ditto -x -k "$package" "$round_trip"
           app="$round_trip/SomeCardGameShit.app"
           executable="$app/Contents/MacOS/SomeCardGameShit"
+          report="${RUNNER_TEMP}/gate3b-roundtrip-macos.json"
           python scripts/audit_godot_export.py --platform macos-arm64 --export "$app"
           python scripts/ci/run_with_timeout.py \
-            --timeout 60 \
+            --timeout 180 \
             --cwd "$round_trip" \
             --expect-output SCGS_GODOT_CI_SMOKE_OK \
             --expect-output-count 1 \
             --forbid-output 'SCRIPT ERROR:' \
             --forbid-output 'ERROR:' \
             --forbid-output 'Unhandled exception' \
-            -- "$executable" --headless -- --ci-smoke
+            -- "$executable" --headless -- --ci-smoke "--ci-report=${report}"
+          python scripts/ci/validate_gate3b_report.py --report "$report" --scenario full-match
           shasum -a 256 "$package" | awk '{print "package_sha256=" $1}'
       - name: Check patch whitespace
         run: git diff --check

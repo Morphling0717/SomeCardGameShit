@@ -18,6 +18,7 @@ SCENARIOS = {
     "terminal-restart",
 }
 DECKS = {"midrange", "advance"}
+FULL_MATCH_ACTIONS = list(range(10))
 EXPECTED_FIELDS = {
     "schema_version",
     "scenario",
@@ -74,7 +75,7 @@ def validate(report: object, expected_scenario: str | None = None) -> None:
     _integer(report, "seed", 0, 0xFFFF_FFFF)
     _integer(report, "first_player", 0, 1)
     steps = _integer(report, "steps", 0, 1_000_000)
-    _integer(report, "turns", 0, 1_000_000)
+    turns = _integer(report, "turns", 0, 1_000_000)
     covers = _integer(report, "covers", 0, 1_000_000)
     reveals = _integer(report, "reveals", 0, 1_000_000)
     premature = _integer(report, "premature_view_calls", 0, 1_000_000)
@@ -102,6 +103,17 @@ def validate(report: object, expected_scenario: str | None = None) -> None:
     if scenario in {"full-match", "terminal-restart"}:
         if steps == 0 or result == 0 or disposed == 0:
             raise ReportError(f"{scenario} did not reach and dispose a terminal match")
+    if scenario == "full-match":
+        if actions != FULL_MATCH_ACTIONS:
+            raise ReportError(
+                "full-match must successfully submit every non-surrender ActionKind"
+            )
+        if turns == 0:
+            raise ReportError("full-match did not complete an end-turn transition")
+        if reveals < 2:
+            raise ReportError("full-match did not exercise a hot-seat handoff")
+        if covers < steps + 1:
+            raise ReportError("full-match did not cover every command submission")
 
 
 def main() -> int:

@@ -1,8 +1,12 @@
 using Godot;
 using Scgs.Client;
+using Scgs.GodotClient.Ci;
 using Scgs.GodotClient.Match;
 using Scgs.GodotClient.Native;
 using Scgs.GodotClient.UI;
+using System.Text;
+using System.Text.Json;
+using System.Text.Json.Serialization;
 
 namespace Scgs.GodotClient.Bootstrap;
 
@@ -23,7 +27,10 @@ public sealed partial class BootstrapController : Control
     private ScgsGameSession? _session;
     private string? _nativeLibraryPath;
     private string? _ciScreenshotPath;
+    private string? _ciReportPath;
     private bool _ciSmoke;
+    private bool _ciRunStarted;
+    private bool _ciTerminalSignaled;
     private MatchSetup? _activeSetup;
     private bool _activeDeterministic;
 
@@ -36,10 +43,11 @@ public sealed partial class BootstrapController : Control
         try
         {
             _ciScreenshotPath = ResolveCiScreenshotPath(OS.GetCmdlineUserArgs());
+            _ciReportPath = ResolveCiReportPath(OS.GetCmdlineUserArgs());
         }
         catch (Exception exception)
         {
-            GD.PushError($"Gate 3A startup option validation failed: {exception}");
+            GD.PushError($"Gate 3B startup option validation failed: {exception}");
             if (_ciSmoke)
             {
                 FailCiSmoke($"启动参数无效：{exception.Message}");
@@ -69,7 +77,7 @@ public sealed partial class BootstrapController : Control
         }
         catch (Exception exception)
         {
-            GD.PushError($"Gate 3A native preflight failed: {exception}");
+            GD.PushError($"Gate 3B native preflight failed: {exception}");
             if (_ciSmoke)
             {
                 FailCiSmoke($"原生引擎预检失败：{exception.Message}");
@@ -163,7 +171,7 @@ public sealed partial class BootstrapController : Control
             _match.FirstSnapshotPresented += deterministic ? OnCiSnapshotPresented : OnFirstSnapshotPresented;
             ReplaceScreen(_match);
 
-            // Gate 3A establishes a deterministic mulligan privacy order:
+            // Gate 3B keeps the deterministic mulligan privacy order:
             // player 0 is covered first. Begin() must not call GetView.
             _match.Begin(_session, PlayerId.Player0);
             if (_match.SnapshotRequestCount != 0 || !_match.IsPrivacyCoverVisible)
@@ -203,7 +211,7 @@ public sealed partial class BootstrapController : Control
 
     private static void OnFirstSnapshotPresented(MatchView view)
     {
-        GD.Print($"Gate 3A first snapshot: viewer={view.Viewer}, phase={view.Phase}, revision={view.Revision}");
+        GD.Print($"Gate 3B first snapshot: viewer={view.Viewer}, phase={view.Phase}, revision={view.Revision}");
     }
 
     private void OnCiSnapshotPresented(MatchView view)
@@ -244,14 +252,13 @@ public sealed partial class BootstrapController : Control
                 throw new InvalidOperationException("Rendered labels do not match the structured DTO snapshot.");
             }
 
-            int snapshotRequestCount = _match.SnapshotRequestCount;
             if (_ciScreenshotPath is { } screenshotPath)
             {
-                CaptureCiScreenshotAndExit(view, snapshotRequestCount, screenshotPath);
+                CaptureCiScreenshotAndContinue(view, screenshotPath);
                 return;
             }
 
-            CompleteCiSmoke(view, snapshotRequestCount);
+            BeginCiFullMatch(view);
         }
         catch (Exception exception)
         {
@@ -259,20 +266,27 @@ public sealed partial class BootstrapController : Control
         }
     }
 
-    private async void CaptureCiScreenshotAndExit(
-        MatchView view,
-        int snapshotRequestCount,
-        string screenshotPath)
+    private async void CaptureCiScreenshotAndContinue(MatchView view, string screenshotPath)
     {
         try
         {
+            if (string.Equals(DisplayServer.GetName(), "headless", StringComparison.OrdinalIgnoreCase))
+            {
+                throw new InvalidOperationException(
+                    "--ci-screenshot requires a display-backed renderer; the headless texture is unavailable.");
+            }
+
             string? directory = Path.GetDirectoryName(screenshotPath);
             if (!string.IsNullOrEmpty(directory))
             {
                 Directory.CreateDirectory(directory);
             }
 
-            await ToSignal(RenderingServer.Singleton, RenderingServer.SignalName.FramePostDraw);
+            // FramePostDraw is not guaranteed by a dummy/headless renderer.
+            // Two process-frame boundaries keep screenshot mode bounded while
+            // still allowing the first snapshot to reach the viewport texture.
+            await NextProcessFrameAsync();
+            await NextProcessFrameAsync();
             Image image = GetViewport().GetTexture().GetImage();
             Error result = image.SavePng(screenshotPath);
             if (result != Error.Ok)
@@ -283,7 +297,7 @@ public sealed partial class BootstrapController : Control
             GD.Print(
                 $"SCGS_GODOT_CI_SCREENSHOT_OK path={screenshotPath} " +
                 $"size={image.GetWidth()}x{image.GetHeight()}");
-            CompleteCiSmoke(view, snapshotRequestCount);
+            BeginCiFullMatch(view);
         }
         catch (Exception exception)
         {
@@ -291,12 +305,114 @@ public sealed partial class BootstrapController : Control
         }
     }
 
-    private void CompleteCiSmoke(MatchView view, int snapshotRequestCount)
+    private void BeginCiFullMatch(MatchView firstView)
     {
+        if (_ciRunStarted)
+        {
+            throw new InvalidOperationException("The Gate 3B full-match smoke was started more than once.");
+        }
+
+        _ciRunStarted = true;
+        RunCiFullMatch(firstView);
+    }
+
+    private async void RunCiFullMatch(MatchView firstView)
+    {
+        try
+        {
+            MatchScreen match = _match ??
+                throw new InvalidOperationException("The Gate 3B match screen is unavailable.");
+            var runner = new Gate3BFullMatchSmoke(match, NextProcessFrameAsync);
+            Gate3BSmokeOutcome outcome = await runner.RunAsync();
+            if (outcome.FinalView.RandomSeed != firstView.RandomSeed ||
+                outcome.FinalView.FirstPlayer != firstView.FirstPlayer ||
+                outcome.FinalView.Result == GameResult.Ongoing ||
+                outcome.Steps <= 2)
+            {
+                throw new InvalidOperationException(
+                    "The terminal smoke outcome does not match the deterministic first snapshot.");
+            }
+
+            WriteCiReport(outcome);
+            CompleteCiSmoke(outcome);
+        }
+        catch (Exception exception)
+        {
+            FailCiSmoke(exception.Message);
+        }
+    }
+
+    private async Task NextProcessFrameAsync()
+    {
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+    }
+
+    private void WriteCiReport(Gate3BSmokeOutcome outcome)
+    {
+        if (_ciReportPath is not { } reportPath)
+        {
+            return;
+        }
+
+        MatchSetup setup = _activeSetup ??
+            throw new InvalidOperationException("The active deck setup is unavailable for the CI report.");
+        string? directory = Path.GetDirectoryName(reportPath);
+        if (!string.IsNullOrEmpty(directory))
+        {
+            Directory.CreateDirectory(directory);
+        }
+
+        var report = new Gate3BSmokeReport
+        {
+            Seed = outcome.FinalView.RandomSeed,
+            Player0Deck = setup.Player0Deck,
+            Player1Deck = setup.Player1Deck,
+            FirstPlayer = checked((int)(uint)outcome.FinalView.FirstPlayer),
+            Steps = outcome.Steps,
+            Turns = outcome.Turns,
+            ActionKinds = outcome.ActionKinds
+                .Select(action => checked((int)(uint)action))
+                .Order()
+                .ToArray(),
+            Covers = outcome.Covers,
+            Reveals = outcome.Reveals,
+            PrematureViewCalls = outcome.PrematureViewerCalls,
+            Result = checked((int)(uint)outcome.FinalView.Result),
+            DisposedSessions = outcome.DisposedSessions,
+        };
+        string json = JsonSerializer.Serialize(report, new JsonSerializerOptions
+        {
+            WriteIndented = true,
+        });
+        string temporaryPath = $"{reportPath}.tmp-{System.Environment.ProcessId}";
+        try
+        {
+            File.WriteAllText(temporaryPath, json + System.Environment.NewLine, new UTF8Encoding(false));
+            File.Move(temporaryPath, reportPath, overwrite: true);
+        }
+        finally
+        {
+            if (File.Exists(temporaryPath))
+            {
+                File.Delete(temporaryPath);
+            }
+        }
+    }
+
+    private void CompleteCiSmoke(Gate3BSmokeOutcome outcome)
+    {
+        if (_ciTerminalSignaled)
+        {
+            return;
+        }
+
+        _ciTerminalSignaled = true;
         DisposeSession();
         GD.Print(
-            $"SCGS_GODOT_CI_SMOKE_OK viewer={view.Viewer} phase={view.Phase} " +
-            $"revision={view.Revision} get_view_calls={snapshotRequestCount} disposed=true");
+            $"SCGS_GODOT_CI_SMOKE_OK result={outcome.FinalView.Result} " +
+            $"revision={outcome.FinalView.Revision} steps={outcome.Steps} " +
+            $"covers={outcome.Covers} reveals={outcome.Reveals} " +
+            $"premature_view_calls={outcome.PrematureViewerCalls} disposed=true");
         GetTree().Quit(0);
     }
 
@@ -322,6 +438,33 @@ public sealed partial class BootstrapController : Control
             !Path.IsPathFullyQualified(values[0]))
         {
             throw new InvalidOperationException("--ci-screenshot requires one absolute output path.");
+        }
+
+        return Path.GetFullPath(values[0]);
+    }
+
+    private string? ResolveCiReportPath(IReadOnlyList<string> arguments)
+    {
+        const string prefix = "--ci-report=";
+        string[] values = arguments
+            .Where(argument => argument.StartsWith(prefix, StringComparison.Ordinal))
+            .Select(argument => argument[prefix.Length..])
+            .ToArray();
+
+        if (values.Length == 0)
+        {
+            return null;
+        }
+
+        if (!_ciSmoke)
+        {
+            throw new InvalidOperationException("--ci-report requires --ci-smoke.");
+        }
+
+        if (values.Length != 1 || string.IsNullOrWhiteSpace(values[0]) ||
+            !Path.IsPathFullyQualified(values[0]))
+        {
+            throw new InvalidOperationException("--ci-report requires one absolute output path.");
         }
 
         return Path.GetFullPath(values[0]);
@@ -355,8 +498,59 @@ public sealed partial class BootstrapController : Control
 
     private void FailCiSmoke(string message)
     {
+        if (_ciTerminalSignaled)
+        {
+            return;
+        }
+
+        _ciTerminalSignaled = true;
         GD.PrintErr($"SCGS_GODOT_CI_SMOKE_FAILED {message}");
         DisposeSession();
         GetTree().Quit(1);
+    }
+
+    private sealed record Gate3BSmokeReport
+    {
+        [JsonPropertyName("schema_version")]
+        public int SchemaVersion { get; init; } = 1;
+
+        [JsonPropertyName("scenario")]
+        public string Scenario { get; init; } = "full-match";
+
+        [JsonPropertyName("seed")]
+        public required uint Seed { get; init; }
+
+        [JsonPropertyName("player0_deck")]
+        public required string Player0Deck { get; init; }
+
+        [JsonPropertyName("player1_deck")]
+        public required string Player1Deck { get; init; }
+
+        [JsonPropertyName("first_player")]
+        public required int FirstPlayer { get; init; }
+
+        [JsonPropertyName("steps")]
+        public required int Steps { get; init; }
+
+        [JsonPropertyName("turns")]
+        public required int Turns { get; init; }
+
+        [JsonPropertyName("action_kinds")]
+        public required IReadOnlyList<int> ActionKinds { get; init; }
+
+        [JsonPropertyName("covers")]
+        public required int Covers { get; init; }
+
+        [JsonPropertyName("reveals")]
+        public required int Reveals { get; init; }
+
+        [JsonPropertyName("premature_view_calls")]
+        public required int PrematureViewCalls { get; init; }
+
+        [JsonPropertyName("result")]
+        public required int Result { get; init; }
+
+        [JsonPropertyName("disposed_sessions")]
+        public required int DisposedSessions { get; init; }
     }
 }

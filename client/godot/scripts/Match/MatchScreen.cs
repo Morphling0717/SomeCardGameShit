@@ -26,6 +26,17 @@ public sealed partial class MatchScreen : Control
     private bool _eventAcknowledgeScheduled;
     private bool _submitting;
     private bool _firstSnapshotRaised;
+    private ActionKind? _preparedActionKind;
+    private readonly HashSet<ActionKind> _successfulActionKinds = [];
+    private int _coverPresentationCount;
+    private int _revealRequestCount;
+    private int _passingDeviceCoverCount;
+    private int _eventAcknowledgeCount;
+    private int _submissionCount;
+    private int _successfulSubmissionCount;
+    private int _disposedSessionCount;
+    private bool _sawReaction;
+    private EngineStatus? _lastSubmissionStatus;
 
     public event Action? ExitRequested;
 
@@ -41,6 +52,37 @@ public sealed partial class MatchScreen : Control
 
     public int OpponentHandBackCount =>
         GetNodeOrNull<Container>("%OpponentHandBacks")?.GetChildCount() ?? 0;
+
+    internal HotseatUiState CiState => _controller?.State ??
+        throw new InvalidOperationException("The CI match controller is unavailable.");
+
+    internal bool CiConfirmationVisible => _dock.Confirmation.Visible;
+
+    internal bool CiMulliganVisible => _dock.Mulligan.Visible;
+
+    internal bool CiResultVisible => _resultOverlay.Visible;
+
+    internal int CiCoverPresentationCount => _coverPresentationCount;
+
+    internal int CiRevealRequestCount => _revealRequestCount;
+
+    internal int CiPassingDeviceCoverCount => _passingDeviceCoverCount;
+
+    internal int CiEventAcknowledgeCount => _eventAcknowledgeCount;
+
+    internal int CiSubmissionCount => _submissionCount;
+
+    internal int CiSuccessfulSubmissionCount => _successfulSubmissionCount;
+
+    internal int CiDisposedSessionCount => _disposedSessionCount;
+
+    internal int CiPrematureViewerCallCount => _countingSession?.PrematureViewerCallCount ?? 0;
+
+    internal bool CiSawReaction => _sawReaction;
+
+    internal EngineStatus? CiLastSubmissionStatus => _lastSubmissionStatus;
+
+    internal IReadOnlyCollection<ActionKind> CiSuccessfulActionKinds => _successfulActionKinds;
 
     public override void _Ready()
     {
@@ -92,9 +134,12 @@ public sealed partial class MatchScreen : Control
         }
 
         DisposeController();
+        ResetCiMetrics();
         _countingSession = new CountingSession(session);
         _controller = new HotseatMatchController(_countingSession);
         _controller.StateChanged += OnControllerStateChanged;
+        _countingSession.RequireReveal(PlayerId.Player0);
+        _coverPresentationCount = 1;
         _firstSnapshotRaised = false;
         RenderState(_controller.State);
         if (SnapshotRequestCount != 0)
@@ -112,6 +157,43 @@ public sealed partial class MatchScreen : Control
 
         _privacyOverlay.RequestRevealForSmoke();
     }
+
+    internal void SelectLegalActionForCi(LegalAction action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        if (!HasPresentedSnapshot || IsPrivacyCoverVisible)
+        {
+            throw new InvalidOperationException(
+                "CI may select an action only after the viewer snapshot is visibly presented.");
+        }
+
+        RunUiAction(() => _controller!.SelectLegalAction(action));
+    }
+
+    internal void ConfirmCurrentSelectionForCi()
+    {
+        if (!HasPresentedSnapshot || IsPrivacyCoverVisible)
+        {
+            throw new InvalidOperationException(
+                "CI may confirm only after the viewer snapshot is visibly presented.");
+        }
+
+        PrepareAndSubmitSelection();
+    }
+
+    internal void CompleteMulliganReviewForCi()
+    {
+        if (!HasPresentedSnapshot || IsPrivacyCoverVisible ||
+            CiState.Mode != HotseatUiMode.MulliganReview)
+        {
+            throw new InvalidOperationException(
+                "CI may complete mulligan review only while its visible review panel is active.");
+        }
+
+        OnMulliganReviewAcknowledged();
+    }
+
+    internal void DisposeForCiSmoke() => DisposeController();
 
     public bool RenderedLabelsMatch(MatchView view)
     {
@@ -139,7 +221,22 @@ public sealed partial class MatchScreen : Control
     {
         if (eventArgs.State.Mode == HotseatUiMode.Covered)
         {
+            _coverPresentationCount++;
+            if (eventArgs.State.CoverReason == HotseatCoverReason.PassingDevice)
+            {
+                _passingDeviceCoverCount++;
+            }
+
+            if (eventArgs.State.AwaitingPlayer is { } awaitingPlayer)
+            {
+                _countingSession?.RequireReveal(awaitingPlayer);
+            }
+
             RenderCoveredState(eventArgs.State);
+        }
+        else if (eventArgs.State.Mode == HotseatUiMode.Reaction)
+        {
+            _sawReaction = true;
         }
 
         ScheduleRender();
@@ -208,6 +305,10 @@ public sealed partial class MatchScreen : Control
         if (state.Mode == HotseatUiMode.Finished)
         {
             ClearSensitiveVisuals();
+            // Keep the final event batch behind the fully opaque result layer
+            // long enough for the normal deferred acknowledgement path to run.
+            _dock.EventLog.Replace(view.Viewer, state.Events);
+            ScheduleEventAcknowledge(state);
             _privacyOverlay.CompleteReveal();
             _resultOverlay.Present(view.Result, view.Viewer);
             HasPresentedSnapshot = true;
@@ -441,6 +542,10 @@ public sealed partial class MatchScreen : Control
     {
         try
         {
+            PlayerId viewer = _controller?.State.AwaitingPlayer ??
+                throw new InvalidOperationException("No covered viewer is awaiting reveal.");
+            _countingSession?.AuthorizeReveal(viewer);
+            _revealRequestCount++;
             _controller?.Reveal();
         }
         catch (Exception exception)
@@ -523,10 +628,14 @@ public sealed partial class MatchScreen : Control
 
         try
         {
+            ActionKind? action = _controller.State.SelectedAction?.Command.Action;
             if (!_controller.ConfirmSelection())
             {
                 return;
             }
+
+            _preparedActionKind = action ??
+                throw new InvalidOperationException("A prepared command lost its action kind.");
 
             RenderCoveredState(_controller.State);
             SubmitPreparedAfterCover();
@@ -557,7 +666,19 @@ public sealed partial class MatchScreen : Control
                 return;
             }
 
-            _controller.SubmitPreparedCommand();
+            EngineStatus status = _controller.SubmitPreparedCommand();
+            _submissionCount++;
+            _lastSubmissionStatus = status;
+            if (status.IsSuccess)
+            {
+                _successfulSubmissionCount++;
+                if (_preparedActionKind is { } action)
+                {
+                    _successfulActionKinds.Add(action);
+                }
+            }
+
+            _preparedActionKind = null;
         }
         catch (Exception exception)
         {
@@ -601,7 +722,10 @@ public sealed partial class MatchScreen : Control
             if (!current.IsCovered && current.Viewer == viewer &&
                 current.PendingEventLastSequence == lastSequence)
             {
-                _controller.AcknowledgeEvents();
+                if (_controller.AcknowledgeEvents())
+                {
+                    _eventAcknowledgeCount++;
+                }
             }
         }
         catch (Exception exception)
@@ -1197,9 +1321,25 @@ public sealed partial class MatchScreen : Control
             _controller.StateChanged -= OnControllerStateChanged;
             _controller.Dispose();
             _controller = null;
+            _disposedSessionCount++;
         }
 
         _countingSession = null;
+    }
+
+    private void ResetCiMetrics()
+    {
+        _preparedActionKind = null;
+        _successfulActionKinds.Clear();
+        _coverPresentationCount = 0;
+        _revealRequestCount = 0;
+        _passingDeviceCoverCount = 0;
+        _eventAcknowledgeCount = 0;
+        _submissionCount = 0;
+        _successfulSubmissionCount = 0;
+        _disposedSessionCount = 0;
+        _sawReaction = false;
+        _lastSubmissionStatus = null;
     }
 
     private static void FreeChildren(Node parent)
@@ -1233,6 +1373,8 @@ public sealed partial class MatchScreen : Control
     private sealed class CountingSession : IScgsGameSession
     {
         private readonly IScgsGameSession _inner;
+        private PlayerId? _authorizedViewer;
+        private PlayerId? _awaitingReveal;
         private bool _disposed;
 
         internal CountingSession(IScgsGameSession inner) =>
@@ -1240,43 +1382,106 @@ public sealed partial class MatchScreen : Control
 
         internal int GetViewCallCount { get; private set; }
 
+        internal int PrematureViewerCallCount { get; private set; }
+
+        internal void RequireReveal(PlayerId viewer)
+        {
+            _awaitingReveal = viewer;
+            _authorizedViewer = null;
+        }
+
+        internal void AuthorizeReveal(PlayerId viewer)
+        {
+            if (_awaitingReveal != viewer)
+            {
+                throw new InvalidOperationException(
+                    $"Viewer {viewer} was not the player protected by the current privacy cover.");
+            }
+
+            _authorizedViewer = viewer;
+            _awaitingReveal = null;
+        }
+
         public EngineStatus Start() => _inner.Start();
 
         public MatchView GetView(PlayerId viewer)
         {
+            VerifyViewerAccess(viewer);
             GetViewCallCount++;
             return _inner.GetView(viewer);
         }
 
-        public LegalActionsResult ListLegalActions(ActionQueryRequest query) =>
-            _inner.ListLegalActions(query);
+        public LegalActionsResult ListLegalActions(ActionQueryRequest query)
+        {
+            VerifyViewerAccess(query.Player);
+            return _inner.ListLegalActions(query);
+        }
 
-        public ValidTargetsResult ListValidTargets(ActionQueryRequest query) =>
-            _inner.ListValidTargets(query);
+        public ValidTargetsResult ListValidTargets(ActionQueryRequest query)
+        {
+            VerifyViewerAccess(query.Player);
+            return _inner.ListValidTargets(query);
+        }
 
-        public ValidSlotsResult ListValidSlots(ActionQueryRequest query) =>
-            _inner.ListValidSlots(query);
+        public ValidSlotsResult ListValidSlots(ActionQueryRequest query)
+        {
+            VerifyViewerAccess(query.Player);
+            return _inner.ListValidSlots(query);
+        }
 
-        public ValidDonorsResult ListValidDonors(ActionQueryRequest query) =>
-            _inner.ListValidDonors(query);
+        public ValidDonorsResult ListValidDonors(ActionQueryRequest query)
+        {
+            VerifyViewerAccess(query.Player);
+            return _inner.ListValidDonors(query);
+        }
 
-        public PaymentResult PreviewPayment(GameCommandRequest command) =>
-            _inner.PreviewPayment(command);
+        public PaymentResult PreviewPayment(GameCommandRequest command)
+        {
+            VerifyViewerAccess(command.Player);
+            return _inner.PreviewPayment(command);
+        }
 
-        public ReactionContext GetReactionContext(PlayerId viewer) =>
-            _inner.GetReactionContext(viewer);
+        public ReactionContext GetReactionContext(PlayerId viewer)
+        {
+            VerifyViewerAccess(viewer);
+            return _inner.GetReactionContext(viewer);
+        }
 
-        public EngineStatus SubmitCommand(GameCommandRequest command) =>
-            _inner.SubmitCommand(command);
+        public EngineStatus SubmitCommand(GameCommandRequest command)
+        {
+            VerifyViewerAccess(command.Player);
+            return _inner.SubmitCommand(command);
+        }
 
-        public EventBatch ReadEvents(PlayerId viewer, ulong afterSequence) =>
-            _inner.ReadEvents(viewer, afterSequence);
+        public EventBatch ReadEvents(PlayerId viewer, ulong afterSequence)
+        {
+            VerifyViewerAccess(viewer);
+            return _inner.ReadEvents(viewer, afterSequence);
+        }
 
-        public EventBatch ReadNewEvents(PlayerId viewer) =>
-            _inner.ReadNewEvents(viewer);
+        public EventBatch ReadNewEvents(PlayerId viewer)
+        {
+            VerifyViewerAccess(viewer);
+            return _inner.ReadNewEvents(viewer);
+        }
 
-        public ulong GetEventCursor(PlayerId viewer) =>
-            _inner.GetEventCursor(viewer);
+        public ulong GetEventCursor(PlayerId viewer)
+        {
+            VerifyViewerAccess(viewer);
+            return _inner.GetEventCursor(viewer);
+        }
+
+        private void VerifyViewerAccess(PlayerId viewer)
+        {
+            if (_authorizedViewer == viewer)
+            {
+                return;
+            }
+
+            PrematureViewerCallCount++;
+            throw new InvalidOperationException(
+                $"Viewer-scoped native call for {viewer} occurred before an explicit reveal.");
+        }
 
         public void Dispose()
         {

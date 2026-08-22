@@ -18,8 +18,8 @@ def valid_report() -> dict[str, object]:
         "first_player": 0,
         "steps": 42,
         "turns": 12,
-        "action_kinds": [0, 1, 4, 9],
-        "covers": 14,
+        "action_kinds": list(range(10)),
+        "covers": 57,
         "reveals": 14,
         "premature_view_calls": 0,
         "result": 1,
@@ -55,6 +55,24 @@ class Gate3bReportTests(unittest.TestCase):
         )
         with self.assertRaisesRegex(ReportError, "both handoffs"):
             validate(report)
+
+    def test_full_match_requires_complete_non_surrender_coverage(self) -> None:
+        report = valid_report()
+        report["action_kinds"] = list(range(9))
+        with self.assertRaisesRegex(ReportError, "every non-surrender"):
+            validate(report, "full-match")
+
+    def test_full_match_requires_turn_handoff_and_cover_per_command(self) -> None:
+        for field, value, message in (
+            ("turns", 0, "end-turn"),
+            ("reveals", 1, "handoff"),
+            ("covers", 42, "cover every"),
+        ):
+            with self.subTest(field=field):
+                report = valid_report()
+                report[field] = value
+                with self.assertRaisesRegex(ReportError, message):
+                    validate(report, "full-match")
 
 
 if __name__ == "__main__":

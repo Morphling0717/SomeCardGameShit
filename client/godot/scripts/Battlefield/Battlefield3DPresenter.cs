@@ -1011,8 +1011,11 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         {
             _targetArrow.ShowBetween(source, pointer);
         }
-        else if (_dragVisualSource is { Kind: BattlefieldSurfaceKind.HandCard or
-                     BattlefieldSurfaceKind.StandbyCard })
+        else if (_dragVisualSource is
+        {
+            Kind: BattlefieldSurfaceKind.HandCard or
+                BattlefieldSurfaceKind.StandbyCard,
+        })
         {
             _placementGhost.ShowAt(pointer, PerspectiveViewer);
         }

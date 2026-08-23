@@ -24,7 +24,7 @@ Windows 与 macOS 均完成 locked restore、C# Debug/Release 零警告构建、
 SCGS_GODOT_CI_SMOKE_OK result=Player1Won revision=3 steps=148 covers=71 reveals=71 premature_view_calls=0 disposed=true
 ```
 
-默认 3D 的严格 schema v3 报告记录：固定 seed `3235823838`、`midrange` 对 `advance`、Player0 先手、第一局 52 个结束回合、两局合计 148 次成功命令提交、`ActionKind` 0～10 全覆盖、71 次遮挡、71 次揭示、遮挡前 0 次 viewer 读取、每条命令至少 2 个完整公共结算帧、两类私密泄露均为 0、1 次 signal 重开、1 次第二局投降终局及 2 次 session 释放。
+默认 3D 的严格 schema v3 报告记录：固定 seed `3235823838`、`midrange` 对 `advance`、Player0 先手、第一局 52 个结束回合、两局合计 148 次成功命令提交、`ActionKind` 0～10 全覆盖、71 次遮挡、71 次揭示、揭示前及遮挡期间 0 次 viewer 读取、每条命令至少 2 个完整公共结算帧、两类私密泄露均为 0、1 次 signal 重开、1 次第二局投降终局及 2 次 session 释放。
 
 Gate 4A 新增空间证据为：`surface_intent_e2e=true`、`raycast_e2e=true`、HUD 射线阻断 1 次、拖拽阈值 8 px、相机 70° FOV / 58° 俯角、viewer 透视重建 69 次、actor 池复用 830 次、锁定状态空间输入阻断 148 次、`spatial_private_leaks=0`。legacy 2D 报告仍证明经过共享 surface intent，同时所有 3D 专属证据均为 0。
 
@@ -123,7 +123,7 @@ Windows 精确提交制品以 `GITHUB_SHA=7a6808ddcd76d2c78fd906a9235f867c11c84e
 | `Resolving` 恶意 DTO 隐私 | 2 个完整帧；Label/材质/metadata/tooltip/碰撞/回调/drag token 泄露 0；期间无 viewer 数据 |
 | Windows 精确提交 ZIP 往返 | audit + 解包 + 两次真实整局通过；93,103,109 bytes；SHA-256 `3f703500d118ac511e4c3ce2b587d4ad5f09d3fb477dcb595e6af393af1c3870` |
 | Windows 精确提交 DLL | 459,264 bytes；SHA-256 `e8c76c29544ee2b729768a0f37cdf177c1c5c66dd8e21af27be071aab123fc8b` |
-| 1600×900 / 1280×720 `Resolving` 视觉检查 | 中文可读、左右栏不遮战场、公开投影牌背匿名、空牌组/墓地/封存区仍有明确占位 |
+| 1600×900 / 1280×720 `Resolving` 视觉检查 | 中文可读、左右栏不遮战场、公开投影牌背匿名；其他状态仍列为人工硬门 |
 | `dotnet format --verify-no-changes` | 4 个项目通过 |
 | `git diff --check` / staged check | 通过 |
 

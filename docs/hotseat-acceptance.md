@@ -1,6 +1,6 @@
-# Gate 3C 直接交互热座验收
+# Gate 4A 默认 3D/2.5D 热座验收
 
-本清单把 Gate 3B 已验收基线、Gate 3C 源码契约、自动化结果与真人/物理设备验收分开记录。勾选只能依据同一提交的实现、测试日志或人工记录；准确运行数量与远端 CI 状态只以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准。
+本清单把 Gate 3B/3C 已验收基线、Gate 4A 源码契约、自动化结果与真人/物理设备验收分开记录。勾选只能依据同一提交的实现、测试日志或人工记录；准确运行数量与远端 CI 状态只以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准。Gate 4A 项目在真实证据写入报告前保持未勾选。
 
 ## 必须保留的 Gate 3B 基线
 
@@ -58,14 +58,45 @@ Gate 3B 的历史通过不能证明 Gate 3C 的交互或公共投影安全；Gat
 - [x] 当前工程、Windows/macOS 导出及 ZIP 解包后启动各只输出一次 `SCGS_GODOT_CI_SMOKE_OK`；
 - [x] artifact 使用 `SomeCardGameShit-gate3c-windows-x86_64` 与 `SomeCardGameShit-gate3c-macos-arm64`，架构、native 布局、许可证和摘要已记录。
 
+以上是 Gate 3C 的历史被测证据，不自动证明 Gate 4A 的 3D presenter、空间输入或 actor 池安全。
+
+## Gate 4A 源码与报告契约
+
+### 默认 3D 与共享操作
+
+- [ ] 无参数产品入口默认创建 3D/2.5D presenter；主菜单不提供 2D 切换；
+- [ ] 只有精确参数 `--legacy-2d-board` 创建 legacy 2D presenter，且该路径仍完成同一 signal full-match；
+- [ ] 3D 与 2D 只把 surface 映射为同一 `HotseatSurfaceIntent`，不各自维护合法性或命令拼装；
+- [ ] 手牌、主战者、双方单位/策略位、战备与施放区都有明确空间/HUD surface，点击与拖拽得到相同规范命令；
+- [ ] HUD 命中阻止 raycast，未达 8 px 仍按点击，非法落点不调用 native；
+- [ ] 固定 70° FOV、约 58° 俯角，当前 viewer 始终位于近端且透视切换发生在完全遮挡内；
+- [ ] `Covered`、`Resolving`、调度、终局、错误和销毁状态均拒绝空间输入。
+
+### 空间隐私与对象池
+
+- [ ] 3D actor 归还池时清空 Label、材质参数、metadata、tooltip、碰撞层/掩码、signal/callback、拖拽 token 与 DTO 引用；
+- [ ] 匿名手牌/伏策 actor 不含 definition ID、instance ID、卡名或稳定可关联 metadata；
+- [ ] 恶意私密哨兵无法进入 `Resolving` 的 3D 场景树、材质、碰撞、tooltip、metadata 或回调；
+- [ ] 显示环境的公共投影至少经过两次 `FramePostDraw` 才提交，headless 专用回退经过两次 process-frame 栅栏；
+- [ ] 透视重建和 actor 池复用不会短暂显示前一 viewer 的私密数据。
+
+### Gate 4A 自动化（待真实执行）
+
+- [ ] schema v3 报告严格继承 Gate 3C 全部字段及整局约束，`gate="4A"`、`action_kinds` 为 0～10、两类私密泄露计数均为 0；
+- [ ] 默认 3D 报告验证 surface/raycast、HUD 拦截、8 px、70°/58°、透视重建、actor 池复用与锁定状态空间输入；
+- [ ] legacy 2D 报告验证共享 surface intent，且不伪报任何 3D raycast/镜头/对象池证据；
+- [ ] Windows/macOS 各运行默认 3D 当前工程、导出、ZIP 往返和一次 legacy 2D 源码整局，共八次唯一成功标记；
+- [ ] `BUILD_INFO.txt` 精确标识 Gate 4A；artifact 使用 `SomeCardGameShit-gate4a-windows-x86_64` 与 `SomeCardGameShit-gate4a-macos-arm64`；
+- [ ] 最终实现提交与包含实测报告的分支尖端均完成四项 CI，run、job、字节与 digest 记录到 `TEST_REPORT.md`。
+
 ## 视觉与人工验收
 
-- [ ] 1600×900 与 1280×720 的主要选择/响应/结算/换手状态无重叠，中文完整可读；
-- [ ] 两名真人完成一局并确认直接操作可理解、公共结算不泄露、每次实际换手完全遮挡；
+- [ ] 1600×900 与 1280×720 的 3D 战场/HUD、主要选择、响应、结算和换手状态无重叠，中文完整可读；
+- [ ] 两名真人完成一局并确认空间拾取/拖拽可理解、HUD 不误穿透、公共结算不泄露、每次实际换手完全遮挡；
 - [ ] 物理 Apple Silicon Mac 完成整局、退出和重开；
 - [ ] 未安装 Visual Studio 的 Windows x86-64 机器启动导出包并完成整局；
 - [ ] 人工发现的问题加入回归并重跑完整矩阵；以上完成后才允许 `v0.4-hotseat-alpha.1` 标签。
 
-## Gate 3C 之外
+## Gate 4A 之外
 
 正式卡图/音效/复杂动画、触摸/手柄、主战技、普通主动能力、同时触发人工排序、固定牌组未使用关键词、独立正式表现 JSON、Developer ID 签名/公证、Web/Linux 正式客户端、联机、录像和卡组编辑均延后。同一玩家同时触发继续使用确定性场地顺序，并作为 Alpha 限制公开记录。

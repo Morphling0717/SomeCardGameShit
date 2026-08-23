@@ -104,7 +104,9 @@ internal static class HotseatTestModel
         IReadOnlyList<CardView?>? player0Units = null,
         IReadOnlyList<CardView?>? player1Units = null,
         IReadOnlyList<CardView?>? player0Tactics = null,
-        IReadOnlyList<CardView?>? player1Tactics = null)
+        IReadOnlyList<CardView?>? player1Tactics = null,
+        IReadOnlyList<CardView>? player0Standby = null,
+        IReadOnlyList<CardView>? player1Standby = null)
     {
         ownHand ??= [];
         PlayerView MakePlayer(PlayerId player) => new()
@@ -147,7 +149,7 @@ internal static class HotseatTestModel
                 new CardView?[3],
             Graveyard = [],
             Archive = [],
-            Standby = [],
+            Standby = (player == PlayerId.Player0 ? player0Standby : player1Standby)?.ToArray() ?? [],
         };
 
         bool pending = phase == MatchPhase.Reaction;

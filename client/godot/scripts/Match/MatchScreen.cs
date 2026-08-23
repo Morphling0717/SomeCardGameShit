@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using Godot;
 using Scgs.Client;
+using Scgs.GodotClient.Battlefield;
 using Scgs.GodotClient.Presentation;
 using Scgs.GodotClient.UI;
 using Scgs.Hotseat;
@@ -18,9 +19,13 @@ public sealed partial class MatchScreen : Control
     private readonly Dictionary<Container, List<SnapshotSlot>> _slotPools = new();
     private readonly Dictionary<SnapshotSlot, SlotBinding> _slotBindings = new();
     private HotseatMatchController? _controller;
+    private HotseatSurfaceInteractionCoordinator? _surfaceCoordinator;
+    private Battlefield3DPresenter _battlefield3d = null!;
     private CountingSession? _countingSession;
     private PassDeviceOverlay _privacyOverlay = null!;
     private MatchInteractionDock _dock = null!;
+    private CardDetailPanel _battlefieldDetails = null!;
+    private Control _battlefieldControlRail = null!;
     private DirectActionPanel _directActions = null!;
     private ReactionPanel _reactionOverlay = null!;
     private DirectDropButton _ownLeader = null!;
@@ -69,6 +74,22 @@ public sealed partial class MatchScreen : Control
     private bool _ciPrivacySentinelFrameAuditPending;
     private string? _ciResolvingScreenshotPath;
     private bool _ciResolvingScreenshotCaptured;
+    private bool _ciSurfaceIntentE2e;
+    private bool _legacy2dBoard;
+    private PlayerId? _renderedPerspectiveViewer;
+    private int _ciPerspectiveRebuilds;
+    private int _ciActorPoolReuses;
+    private int _ciHudRaycastBlocks;
+    private int _ciBlockedSpatialInputs;
+    private int _ciSpatialPrivateLeaks;
+    private bool _hasRendered3d;
+    private bool _ciRaycastE2e;
+    private bool _ciPhysicalDragSubmitted;
+    private bool _ciKeyboardE2e;
+    private bool _ciExternalStandbyDrag;
+
+    private CardDetailPanel ActiveCardDetails =>
+        _legacy2dBoard ? _dock.CardDetails : _battlefieldDetails;
 
     public event Action? ExitRequested;
 
@@ -131,6 +152,43 @@ public sealed partial class MatchScreen : Control
 
     internal bool CiResolvingScreenshotCaptured => _ciResolvingScreenshotCaptured;
 
+    internal bool CiSurfaceIntentE2e => _ciSurfaceIntentE2e;
+
+    internal string CiPresentationMode => _legacy2dBoard ? "legacy-2d" : "3d";
+
+    internal bool CiRaycastE2e => !_legacy2dBoard && _ciRaycastE2e;
+
+    internal bool CiKeyboardE2e => _legacy2dBoard || _ciKeyboardE2e;
+
+    internal bool CiExternalStandbyDrag => _legacy2dBoard || _ciExternalStandbyDrag;
+
+    internal bool CiPhysicalDragSubmitted => _legacy2dBoard || _ciPhysicalDragSubmitted;
+
+    internal bool CiHasTransientDragData =>
+        _dragSourceSlot is not null || _dragStartRevision.HasValue;
+
+    internal int CiHudRaycastBlocks => _legacy2dBoard ? 0 : _ciHudRaycastBlocks;
+
+    internal int CiDragThresholdPixels => _legacy2dBoard
+        ? 0
+        : (int)BattlefieldRaycastInput.DragThresholdPixels;
+
+    internal int CiCameraFovDegrees => _legacy2dBoard
+        ? 0
+        : (int)BattlefieldPerspective.CameraFovDegrees;
+
+    internal int CiCameraPitchDegrees => _legacy2dBoard
+        ? 0
+        : (int)BattlefieldPerspective.CameraPitchDegrees;
+
+    internal int CiPerspectiveRebuilds => _legacy2dBoard ? 0 : _ciPerspectiveRebuilds;
+
+    internal int CiActorPoolReuses => _legacy2dBoard ? 0 : _ciActorPoolReuses;
+
+    internal int CiBlockedSpatialInputs => _legacy2dBoard ? 0 : _ciBlockedSpatialInputs;
+
+    internal int CiSpatialPrivateLeaks => _ciSpatialPrivateLeaks;
+
     internal int CiPrematureViewerCallCount => _countingSession?.PrematureViewerCallCount ?? 0;
 
     internal bool CiSawReaction => _sawReaction;
@@ -141,8 +199,14 @@ public sealed partial class MatchScreen : Control
 
     public override void _Ready()
     {
+        _legacy2dBoard = OS.GetCmdlineUserArgs().Contains(
+            "--legacy-2d-board",
+            StringComparer.Ordinal);
+        _battlefield3d = GetNode<Battlefield3DPresenter>("%Battlefield3D");
         _privacyOverlay = GetNode<PassDeviceOverlay>("%PassDeviceOverlay");
         _dock = GetNode<MatchInteractionDock>("%InteractionDock");
+        _battlefieldDetails = GetNode<CardDetailPanel>("%BattlefieldCardDetails");
+        _battlefieldControlRail = GetNode<Control>("%BattlefieldControlRail");
         _directActions = GetNode<DirectActionPanel>("%DirectActionPanel");
         _reactionOverlay = GetNode<ReactionPanel>("%ReactionOverlay");
         _ownLeader = GetNode<DirectDropButton>("%OwnLeaderButton");
@@ -153,6 +217,19 @@ public sealed partial class MatchScreen : Control
         _standbyTray = GetNode<Control>("%StandbyTray");
         _resultOverlay = GetNode<ResultOverlay>("%ResultOverlay");
         _errorOverlay = GetNode<ErrorOverlay>("%ErrorOverlay");
+
+        _battlefield3d.Visible = !_legacy2dBoard;
+        _battlefieldDetails.Visible = !_legacy2dBoard;
+        _dock.CardDetails.Visible = _legacy2dBoard;
+        _battlefield3d.SurfaceGestureRequested += OnBattlefieldSurfaceGestureRequested;
+        _battlefield3d.SurfaceHovered += OnBattlefieldSurfaceHovered;
+        _battlefield3d.SurfaceSecondaryRequested += OnBattlefieldSurfaceSecondaryRequested;
+        _battlefield3d.ProjectionChanged += OnBattlefieldProjectionChanged;
+        _battlefield3d.SetGuiBlocker(IsGuiBlockingBattlefield);
+        _battlefield3d.SetViewportObstructions(
+            _legacy2dBoard ? null : _battlefieldDetails,
+            _legacy2dBoard ? null : _battlefieldControlRail);
+        ConfigurePresentationLayout();
 
         _privacyOverlay.RevealRequested += OnRevealRequested;
         _privacyOverlay.ExitRequested += RequestExit;
@@ -188,6 +265,207 @@ public sealed partial class MatchScreen : Control
         GetNode<Button>("%SurrenderButton").Pressed += OnSurrenderRequested;
     }
 
+    private void ConfigurePresentationLayout()
+    {
+        ColorRect background = GetNode<ColorRect>("Background");
+        background.Color = _legacy2dBoard
+            ? new Color(0.028f, 0.045f, 0.075f, 1.0f)
+            : new Color(0.028f, 0.045f, 0.075f, 0.16f);
+        SetLegacyBoardPanelsVisible(_legacy2dBoard, showMulliganHand: false);
+    }
+
+    private void OnBattlefieldProjectionChanged(object? sender, EventArgs eventArgs)
+    {
+        if (_legacy2dBoard || !_directActions.Visible || !IsInsideTree())
+        {
+            return;
+        }
+
+        Callable.From(RepositionDirectPanelAfterProjectionChange).CallDeferred();
+    }
+
+    private void RepositionDirectPanelAfterProjectionChange()
+    {
+        if (!_legacy2dBoard && _directActions.Visible && _controller?.State is { } state &&
+            state.Mode is HotseatUiMode.Action or HotseatUiMode.Reaction)
+        {
+            PositionDirectPanel(state);
+        }
+    }
+
+    private void SetLegacyBoardPanelsVisible(bool showLegacyBoard, bool showMulliganHand)
+    {
+        GetNode<Control>("SafeMargin/Layout/OpponentPanel").Visible = showLegacyBoard;
+        GetNode<Control>("SafeMargin/Layout/Board").Visible = showLegacyBoard;
+        GetNode<Control>("SafeMargin/Layout/OwnPanel").Visible = showLegacyBoard;
+        GetNode<Control>("SafeMargin/Layout/HandPanel").Visible =
+            showLegacyBoard || showMulliganHand;
+    }
+
+    private void OnBattlefieldSurfaceGestureRequested(
+        object? sender,
+        BattlefieldSurfaceGestureEventArgs eventArgs)
+    {
+        if (_legacy2dBoard || _controller?.State is not { } state ||
+            state.Mode is not HotseatUiMode.Action and not HotseatUiMode.Reaction)
+        {
+            _ciBlockedSpatialInputs++;
+            return;
+        }
+
+        if (eventArgs.Source.Kind == BattlefieldSurfaceKind.StandbyPile)
+        {
+            if (eventArgs.Gesture == BattlefieldSurfaceGesture.Click &&
+                eventArgs.Destination is null && eventArgs.Source.Player is { } pileOwner &&
+                state.Snapshot is { } pileView && eventArgs.Revision == pileView.Revision)
+            {
+                OpenStandby(own: pileOwner == pileView.Viewer);
+                _ciRaycastE2e = true;
+            }
+            else
+            {
+                _ciBlockedSpatialInputs++;
+            }
+            return;
+        }
+
+        if (eventArgs.Destination is { Kind: BattlefieldSurfaceKind.StandbyPile })
+        {
+            _ciBlockedSpatialInputs++;
+            return;
+        }
+
+        RunUiAction(() =>
+        {
+            var intent = new HotseatSurfaceIntent(
+                eventArgs.Revision,
+                (HotseatSurfaceGesture)(uint)eventArgs.Gesture,
+                eventArgs.Source.ToHotseat())
+            {
+                Destination = eventArgs.Destination?.ToHotseat(),
+            };
+            HotseatSurfaceIntentResult result = ApplySurfaceIntent(intent);
+            if (result.Accepted)
+            {
+                _ciRaycastE2e = true;
+            }
+        });
+    }
+
+    private void OnBattlefieldSurfaceHovered(
+        object? sender,
+        BattlefieldSurfaceHoverEventArgs eventArgs)
+    {
+        if (_legacy2dBoard || _detailsPinned ||
+            _controller?.State is not
+            {
+                Mode: HotseatUiMode.Action or HotseatUiMode.Reaction,
+                Snapshot: { } view,
+            })
+        {
+            return;
+        }
+
+        ulong? instanceId = eventArgs.Card?.InstanceId ?? eventArgs.Surface?.InstanceId;
+        if (instanceId is not { } knownId)
+        {
+            ActiveCardDetails.ShowPlaceholder();
+            return;
+        }
+
+        CardView? card = FindCard(view, knownId);
+        if (card is not null && !CardPresentation.IsIdentityHidden(card))
+        {
+            ActiveCardDetails.ShowCard(card, "卡牌详情（右键固定）");
+            return;
+        }
+
+        ActiveCardDetails.ShowPlaceholder();
+    }
+
+    private void OnBattlefieldSurfaceSecondaryRequested(
+        object? sender,
+        BattlefieldSurfaceHoverEventArgs eventArgs)
+    {
+        ulong? instanceId = eventArgs.Card?.InstanceId ?? eventArgs.Surface?.InstanceId;
+        if (_legacy2dBoard || instanceId is not { } knownId ||
+            _controller?.State.Snapshot is not { } view)
+        {
+            OnStepBackRequested();
+            return;
+        }
+
+        CardView? card = FindCard(view, knownId);
+        if (card is null || CardPresentation.IsIdentityHidden(card))
+        {
+            return;
+        }
+
+        if (_detailsPinned && _pinnedCardId == knownId)
+        {
+            _detailsPinned = false;
+            _pinnedCardId = null;
+            ActiveCardDetails.ShowPlaceholder();
+            return;
+        }
+
+        _detailsPinned = true;
+        _pinnedCardId = knownId;
+        ActiveCardDetails.ShowCard(card, "已固定卡牌详情（再次右键取消）");
+    }
+
+    private bool IsGuiBlockingBattlefield(Vector2 position)
+    {
+        if (_legacy2dBoard || _controller?.State.Mode is HotseatUiMode.Covered or
+                HotseatUiMode.Resolving or HotseatUiMode.Finished or
+                HotseatUiMode.Faulted or HotseatUiMode.Disposed)
+        {
+            return true;
+        }
+
+        foreach (Control control in new Control[]
+                 {
+                     _privacyOverlay,
+                     _resolvingShield,
+                     _resultOverlay,
+                     _errorOverlay,
+                     _reactionOverlay,
+                     _directActions,
+                     _standbyTray,
+                     _dock,
+                     _battlefieldDetails,
+                     GetNode<Control>("%BattlefieldControlRail"),
+                     GetNode<Control>("SafeMargin/Layout/HandPanel"),
+                 })
+        {
+            if (control.IsVisibleInTree() && control.GetGlobalRect().HasPoint(position) &&
+                control.MouseFilter != MouseFilterEnum.Ignore)
+            {
+                _ciHudRaycastBlocks++;
+                return true;
+            }
+        }
+
+        for (Control? hovered = GetViewport().GuiGetHoveredControl();
+             hovered is not null && hovered != this;
+             hovered = hovered.GetParentOrNull<Control>())
+        {
+            if (hovered == GetNode<Control>("Background") ||
+                hovered == GetNode<Control>("SafeMargin") ||
+                hovered == GetNode<Control>("SafeMargin/Layout"))
+            {
+                continue;
+            }
+            if (hovered.IsVisibleInTree() && hovered.MouseFilter != MouseFilterEnum.Ignore)
+            {
+                _ciHudRaycastBlocks++;
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     public override void _UnhandledInput(InputEvent @event)
     {
         if (!@event.IsActionPressed("ui_cancel") ||
@@ -211,6 +489,17 @@ public sealed partial class MatchScreen : Control
             return;
         }
 
+        if (!_legacy2dBoard && @event is InputEventMouseButton mouse &&
+            _battlefield3d.InputEnabled &&
+            _battlefield3d.TryGetSurfaceAtScreen(
+                mouse.Position,
+                out BattlefieldSurfaceRef _))
+        {
+            // Let BattlefieldRaycastInput deliver the physical card's
+            // secondary-click detail event. Only true 3D blank space steps back.
+            return;
+        }
+
         for (Node? hovered = GetViewport().GuiGetHoveredControl();
              hovered is not null && hovered != this;
              hovered = hovered.GetParent())
@@ -229,6 +518,10 @@ public sealed partial class MatchScreen : Control
     {
         if (what == NotificationDragEnd)
         {
+            if (!_legacy2dBoard && _dragSourceSlot is not null)
+            {
+                _ = TryCompleteExternalBattlefieldDrag(GetViewport().GetMousePosition());
+            }
             _dragSourceSlot = null;
             _dragStartRevision = null;
             if (_controller?.State is { } state)
@@ -240,6 +533,48 @@ public sealed partial class MatchScreen : Control
                 _targetingLine?.Stop();
             }
         }
+    }
+
+    private bool TryCompleteExternalBattlefieldDrag(Vector2 screenPosition)
+    {
+        SnapshotSlot? sourceSlot = _dragSourceSlot;
+        ulong? revision = _dragStartRevision;
+        if (sourceSlot is null || !revision.HasValue ||
+            !_slotBindings.TryGetValue(sourceSlot, out SlotBinding? binding) ||
+            !TryCreateSurfaceRef(binding, out HotseatSurfaceRef sourceSurface) ||
+            sourceSurface.Kind != HotseatSurfaceKind.StandbyCard ||
+            _controller?.State is not { Snapshot: { } view } state ||
+            state.Mode is not HotseatUiMode.Action and not HotseatUiMode.Reaction ||
+            view.Revision != revision.Value || !_battlefield3d.InputEnabled ||
+            IsGuiBlockingBattlefield(screenPosition) ||
+            !_battlefield3d.TryGetSurfaceAtScreen(
+                screenPosition,
+                out BattlefieldSurfaceRef battlefieldDestination) ||
+            battlefieldDestination.Kind == BattlefieldSurfaceKind.StandbyPile)
+        {
+            return false;
+        }
+
+        HotseatSurfaceRef destination;
+        try
+        {
+            destination = battlefieldDestination.ToHotseat();
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            return false;
+        }
+
+        _dragSourceSlot = null;
+        _dragStartRevision = null;
+        HotseatSurfaceIntentResult result = ApplySurfaceIntent(new HotseatSurfaceIntent(
+            revision.Value,
+            HotseatSurfaceGesture.Drag,
+            sourceSurface)
+        {
+            Destination = destination,
+        });
+        return result.Accepted;
     }
 
     public override void _ExitTree()
@@ -262,6 +597,8 @@ public sealed partial class MatchScreen : Control
         ResetCiMetrics();
         _countingSession = new CountingSession(session);
         _controller = new HotseatMatchController(_countingSession);
+        _surfaceCoordinator = new HotseatSurfaceInteractionCoordinator(_controller);
+        _surfaceCoordinator.CommandPreparing += OnSurfaceCommandPreparing;
         _controller.StateChanged += OnControllerStateChanged;
         _countingSession.RequireReveal(PlayerId.Player0);
         _coverPresentationCount = 1;
@@ -291,10 +628,18 @@ public sealed partial class MatchScreen : Control
         {
             throw new InvalidOperationException("Direct CI input requires a revealed, idle match state.");
         }
+        if (state.Interaction.Step != HotseatSelectionStep.None)
+        {
+            _controller.CancelSelection();
+            state = _controller.State;
+            RenderState(state);
+        }
         if (!state.LegalActions.Any(candidate => CommandsEquivalent(candidate.Command, action.Command)))
         {
             throw new ArgumentException("The CI signal action is not canonical for the current revision.", nameof(action));
         }
+        MatchView snapshot = state.Snapshot ??
+            throw new InvalidOperationException("Direct CI input lost its safe viewer snapshot.");
 
         if (action.Command.Action == ActionKind.EndTurn)
         {
@@ -319,7 +664,14 @@ public sealed partial class MatchScreen : Control
                 throw new InvalidOperationException(
                     "The centered reaction layer still intercepts battlefield target input.");
             }
-            DriveCanonicalSelectionWithSignals(action.Command);
+            if (_legacy2dBoard)
+            {
+                DriveCanonicalSelectionWithSignals(action.Command);
+            }
+            else
+            {
+                DriveCanonicalSelectionWith3dSignals(action.Command);
+            }
             if (action.Command.Target is not null)
             {
                 _ciSawSourceDestinationSignal = true;
@@ -327,8 +679,29 @@ public sealed partial class MatchScreen : Control
             return;
         }
 
+        if (!_legacy2dBoard)
+        {
+            bool beganWithExternalStandbyDrag = !_ciExternalStandbyDrag &&
+                action.Command.Action == ActionKind.Deploy &&
+                TryExternalStandbyDragForCi(action.Command);
+            bool beganWithDrag = !beganWithExternalStandbyDrag && !_ciPhysicalDragSubmitted &&
+                                  TryDragBattlefieldCommandForCi(action.Command);
+            if (!beganWithExternalStandbyDrag && !beganWithDrag &&
+                !TryClickBattlefieldSourceForCi(action.Command.Source))
+            {
+                throw new InvalidOperationException(
+                    $"No pickable 3D source exists for {action.Command.Action} source {action.Command.Source}.");
+            }
+            DriveCanonicalSelectionWith3dSignals(action.Command);
+            if (action.Command.Target is not null || action.Command.Slot.HasValue)
+            {
+                _ciSawSourceDestinationSignal = true;
+            }
+            return;
+        }
+
         SnapshotSlot? source = FindVisibleSlotForCard(action.Command.Source);
-        if (source is null && state.Snapshot.Players[(int)state.Snapshot.Viewer].Standby.Any(
+        if (source is null && snapshot.Players[(int)snapshot.Viewer].Standby.Any(
                 card => card.InstanceId == action.Command.Source))
         {
             GetNode<Button>("%OwnStandbyButton").EmitSignal(Button.SignalName.Pressed);
@@ -339,12 +712,282 @@ public sealed partial class MatchScreen : Control
             throw new InvalidOperationException(
                 $"No visible source slot exists for {action.Command.Action} source {action.Command.Source}.");
         }
+        _slotBindings.TryGetValue(source, out SlotBinding? sourceBindingBeforePress);
         source.EmitSignal(Button.SignalName.Pressed);
+        if (_controller.State.Interaction.Source != action.Command.Source)
+        {
+            throw new InvalidOperationException(
+                "The legacy source signal selected a different card: " +
+                $"expected={action.Command.Source}, actual={_controller.State.Interaction.Source}, " +
+                $"binding={sourceBindingBeforePress}, disabled={source.Disabled}, " +
+                $"visible={source.IsVisibleInTree()}.");
+        }
         DriveCanonicalSelectionWithSignals(action.Command);
         if (action.Command.Target is not null || action.Command.Slot.HasValue)
         {
             _ciSawSourceDestinationSignal = true;
         }
+    }
+
+    private bool TryClickBattlefieldSourceForCi(ulong source)
+    {
+        if (_controller?.State.Snapshot is not { } view ||
+            !TryFindSurfaceRef(view, source, out HotseatSurfaceRef surface))
+        {
+            return false;
+        }
+
+        BattlefieldSurfaceRef battlefieldSurface = BattlefieldSurfaceRef.FromHotseat(surface);
+        if (!_battlefield3d.CiTryGetScreenAnchor(battlefieldSurface, out Vector2 screen))
+        {
+            bool ownStandbySource = surface.Kind == HotseatSurfaceKind.StandbyCard &&
+                surface.Player == view.Viewer &&
+                view.Players[(int)view.Viewer].Standby.Any(card => card.InstanceId == source);
+            BattlefieldSurfaceRef standbyPile = BattlefieldSurfaceRef.StandbyPile(view.Viewer);
+            if (!ownStandbySource ||
+                !_battlefield3d.CiTryGetScreenAnchor(standbyPile, out Vector2 pileScreen) ||
+                !_battlefield3d.CiRaycastInput.CiClickAt(pileScreen))
+            {
+                return false;
+            }
+
+            SnapshotSlot traySource = FindVisibleSlotForCard(source) ??
+                throw new InvalidOperationException(
+                    $"The 3D standby pile did not expose source {source} in its public tray.");
+            traySource.EmitSignal(Button.SignalName.Pressed);
+            _ciRaycastE2e = true;
+            return _controller.State.Selection.Source == source;
+        }
+
+        return _battlefield3d.CiRaycastInput.CiClickAt(screen);
+    }
+
+    private bool TryExternalStandbyDragForCi(GameCommandRequest command)
+    {
+        HotseatUiState state = _controller?.State ??
+            throw new InvalidOperationException("The external standby drag has no controller.");
+        MatchView view = state.Snapshot ??
+            throw new InvalidOperationException("The external standby drag requires a snapshot.");
+        if (command.Slot is not { } slot || slot > int.MaxValue ||
+            !view.Players[(int)view.Viewer].Standby.Any(card => card.InstanceId == command.Source))
+        {
+            return false;
+        }
+
+        BattlefieldSurfaceRef pile = BattlefieldSurfaceRef.StandbyPile(view.Viewer);
+        if (!_battlefield3d.CiTryGetScreenAnchor(pile, out Vector2 pileScreen) ||
+            !_battlefield3d.CiRaycastInput.CiClickAt(pileScreen))
+        {
+            return false;
+        }
+
+        SnapshotSlot traySource = FindVisibleSlotForCard(command.Source) ??
+            throw new InvalidOperationException(
+                $"The standby tray did not expose deploy source {command.Source}.");
+        Variant payload = traySource.BeginDragForSmoke();
+        if (payload.VariantType != Variant.Type.Dictionary)
+        {
+            return false;
+        }
+
+        BattlefieldSurfaceRef destination = new(
+            BattlefieldSurfaceKind.UnitSlot,
+            command.Player,
+            (int)slot);
+        if (!_battlefield3d.CiTryGetScreenAnchor(destination, out Vector2 destinationScreen) ||
+            !TryCompleteExternalBattlefieldDrag(destinationScreen))
+        {
+            _dragSourceSlot = null;
+            _dragStartRevision = null;
+            return false;
+        }
+
+        _ciExternalStandbyDrag = true;
+        _ciPhysicalDragSubmitted = true;
+        _ciRaycastE2e = true;
+        return true;
+    }
+
+    private bool TryDragBattlefieldCommandForCi(GameCommandRequest command)
+    {
+        HotseatUiState before = _controller?.State ??
+            throw new InvalidOperationException("The 3D drag smoke has no controller.");
+        MatchView view = before.Snapshot ??
+            throw new InvalidOperationException("The 3D drag smoke requires a snapshot.");
+        if (!TryFindSurfaceRef(view, command.Source, out HotseatSurfaceRef source) ||
+            !TryCreateCommandDestinationSurface(view, command, out HotseatSurfaceRef destination) ||
+            !_battlefield3d.CiTryGetScreenAnchor(
+                BattlefieldSurfaceRef.FromHotseat(source),
+                out Vector2 sourceScreen) ||
+            !_battlefield3d.CiTryGetScreenAnchor(
+                BattlefieldSurfaceRef.FromHotseat(destination),
+                out Vector2 destinationScreen) ||
+            sourceScreen.DistanceTo(destinationScreen) <
+                BattlefieldRaycastInput.DragThresholdPixels)
+        {
+            return false;
+        }
+
+        if (!_battlefield3d.CiRaycastInput.CiDragAt(sourceScreen, destinationScreen))
+        {
+            return false;
+        }
+
+        HotseatUiState after = _controller.State;
+        bool accepted = after.Mode == HotseatUiMode.Resolving ||
+                        after.Selection.Source == command.Source;
+        if (accepted)
+        {
+            _ciPhysicalDragSubmitted = true;
+            _ciRaycastE2e = true;
+        }
+        return accepted;
+    }
+
+    private void DriveCanonicalSelectionWith3dSignals(GameCommandRequest command)
+    {
+        for (int step = 0; step < 10; step++)
+        {
+            HotseatUiState state = _controller?.State ??
+                throw new InvalidOperationException("The 3D CI selection controller is unavailable.");
+            if (state.Mode == HotseatUiMode.Resolving)
+            {
+                return;
+            }
+            RenderState(state);
+
+            switch (state.Interaction.Step)
+            {
+                case HotseatSelectionStep.ChooseAction:
+                    if (_ciSuppressAutoPrepare)
+                    {
+                        _controller.ChooseAction(command.Action);
+                    }
+                    else
+                    {
+                        _directActions.PressChoiceForSmoke(ActionPresentation.FormatAction(command.Action));
+                    }
+                    break;
+                case HotseatSelectionStep.ChooseDonor:
+                    if (_ciSuppressAutoPrepare)
+                    {
+                        _controller.SelectDonor(command.ComponentDonor);
+                        break;
+                    }
+                    if (command.ComponentDonor is { } donor)
+                    {
+                        ClickBattlefieldSurfaceForCi(
+                            SurfaceForCardForCi(state.Snapshot!, donor),
+                            "deployment donor");
+                    }
+                    else
+                    {
+                        _directActions.PressChoiceForSmoke("不使用组件");
+                    }
+                    AssertExplicitSelectionAutoPrepared(HotseatSelectionStep.ChooseDonor);
+                    break;
+                case HotseatSelectionStep.ChooseSlot:
+                    if (command.Slot is not { } slot || slot > int.MaxValue)
+                    {
+                        throw new InvalidOperationException("The canonical 3D placement has no slot.");
+                    }
+                    HotseatSurfaceRef slotSurface = command.Action switch
+                    {
+                        ActionKind.PlayUnit or ActionKind.Deploy =>
+                            HotseatSurfaceRef.UnitSlot(command.Player, (int)slot),
+                        ActionKind.PlayTactic =>
+                            HotseatSurfaceRef.TacticSlot(command.Player, (int)slot),
+                        _ => throw new InvalidOperationException(
+                            $"{command.Action} cannot use a 3D placement slot."),
+                    };
+                    if (_ciSuppressAutoPrepare)
+                    {
+                        _controller.SelectSlot(slot);
+                    }
+                    else
+                    {
+                        ClickBattlefieldSurfaceForCi(slotSurface, "placement slot");
+                    }
+                    AssertExplicitSelectionAutoPrepared(HotseatSelectionStep.ChooseSlot);
+                    break;
+                case HotseatSelectionStep.ChooseTarget:
+                    if (_ciSuppressAutoPrepare)
+                    {
+                        _controller.SelectTarget(command.Target);
+                        break;
+                    }
+                    if (command.Target is null)
+                    {
+                        ClickBattlefieldSurfaceForCi(
+                            HotseatSurfaceRef.CastZone(),
+                            "no-target spell cast zone");
+                    }
+                    else
+                    {
+                        if (!TryCreateTargetSurface(
+                                state.Snapshot!,
+                                command.Target,
+                                out HotseatSurfaceRef targetSurface))
+                        {
+                            throw new InvalidOperationException("The canonical 3D target is unavailable.");
+                        }
+                        ClickBattlefieldSurfaceForCi(targetSurface, "effect or attack target");
+                    }
+                    AssertExplicitSelectionAutoPrepared(HotseatSelectionStep.ChooseTarget);
+                    break;
+                case HotseatSelectionStep.ChooseAdvance:
+                    if (_ciSuppressAutoPrepare)
+                    {
+                        _controller.SelectAdvance(command.UseAdvance);
+                    }
+                    else
+                    {
+                        _directActions.PressChoiceForSmoke(command.UseAdvance ? "使用预支" : "正常支付");
+                    }
+                    AssertExplicitSelectionAutoPrepared(HotseatSelectionStep.ChooseAdvance);
+                    break;
+                case HotseatSelectionStep.Ready:
+                    if (_ciSuppressAutoPrepare)
+                    {
+                        return;
+                    }
+                    _directActions.PressChoiceForSmoke(ActionPresentation.FormatAction(command.Action));
+                    break;
+                default:
+                    throw new InvalidOperationException(
+                        $"The 3D signal path stopped at unexpected step {state.Interaction.Step}.");
+            }
+        }
+
+        throw new InvalidOperationException("The canonical 3D signal path exceeded its selection-step limit.");
+    }
+
+    private HotseatSurfaceRef SurfaceForCardForCi(MatchView view, ulong instanceId) =>
+        TryFindSurfaceRef(view, instanceId, out HotseatSurfaceRef surface)
+            ? surface
+            : throw new InvalidOperationException($"Card {instanceId} has no visible 3D surface.");
+
+    private void ClickBattlefieldSurfaceForCi(HotseatSurfaceRef surface, string role)
+    {
+        BattlefieldSurfaceRef battlefieldSurface = BattlefieldSurfaceRef.FromHotseat(surface);
+        if (!_battlefield3d.CiTryGetScreenAnchor(battlefieldSurface, out Vector2 screen))
+        {
+            throw new InvalidOperationException($"The 3D {role} has no screen anchor.");
+        }
+        bool blocked = IsGuiBlockingBattlefield(screen);
+        bool pickedOk = _battlefield3d.CiRaycastInput.CiTryPick(
+            screen,
+            out BattlefieldSurfaceRef picked) && picked == battlefieldSurface;
+        if (blocked || !pickedOk || !_battlefield3d.CiRaycastInput.CiClickAt(screen))
+        {
+            Control? hovered = GetViewport().GuiGetHoveredControl();
+            throw new InvalidOperationException(
+                $"The 3D raycast could not activate the {role}; blocked={blocked}, " +
+                $"picked={pickedOk}:{picked}, expected={battlefieldSurface}, " +
+                $"screen={screen}, hovered={hovered?.Name}, " +
+                $"panel={_directActions.GetGlobalRect()}.");
+        }
+        _ciRaycastE2e = true;
     }
 
     internal bool VerifyClickDragParityForCi(LegalAction action)
@@ -355,6 +998,77 @@ public sealed partial class MatchScreen : Control
             action.Command.ComponentDonor.HasValue)
         {
             return false;
+        }
+
+        if (!_legacy2dBoard)
+        {
+            if (action.Command.Target is null || !action.Command.Slot.HasValue)
+            {
+                return false;
+            }
+
+            HotseatUiState state = _controller?.State ??
+                throw new InvalidOperationException("The 3D parity probe has no controller.");
+            MatchView view = state.Snapshot ??
+                throw new InvalidOperationException("The 3D parity probe requires a snapshot.");
+            if (!TryFindSurfaceRef(view, action.Command.Source, out HotseatSurfaceRef source) ||
+                !TryCreateCommandDestinationSurface(view, action.Command, out HotseatSurfaceRef destination))
+            {
+                return false;
+            }
+
+            BattlefieldSurfaceRef source3d = BattlefieldSurfaceRef.FromHotseat(source);
+            BattlefieldSurfaceRef destination3d = BattlefieldSurfaceRef.FromHotseat(destination);
+            if (!_battlefield3d.CiTryGetScreenAnchor(source3d, out Vector2 sourceScreen) ||
+                !_battlefield3d.CiTryGetScreenAnchor(destination3d, out Vector2 destinationScreen) ||
+                sourceScreen.DistanceTo(destinationScreen) < BattlefieldRaycastInput.DragThresholdPixels)
+            {
+                return false;
+            }
+
+            _ciSuppressAutoPrepare = true;
+            try
+            {
+                if (!_battlefield3d.CiRaycastInput.CiClickAt(sourceScreen))
+                {
+                    return false;
+                }
+                DriveCanonicalSelectionWith3dSignals(action.Command);
+                GameCommandRequest clickCommand = _controller.State.Interaction.CanonicalAction?.Command ??
+                    throw new InvalidOperationException(
+                        "The physical 3D click path did not converge to a canonical command.");
+                _controller.CancelSelection();
+                RenderState(_controller.State);
+
+                if (!_battlefield3d.CiRaycastInput.CiDragAt(sourceScreen, destinationScreen) ||
+                    _controller.State.Mode == HotseatUiMode.Resolving)
+                {
+                    return false;
+                }
+                DriveCanonicalSelectionWith3dSignals(action.Command);
+                GameCommandRequest dragCommand = _controller.State.Interaction.CanonicalAction?.Command ??
+                    throw new InvalidOperationException(
+                        "The physical 3D drag path did not converge to a canonical command.");
+                _controller.CancelSelection();
+                RenderState(_controller.State);
+
+                _ciClickDragParityVerified = CommandsEquivalent(clickCommand, dragCommand) &&
+                                             CommandsEquivalent(clickCommand, action.Command);
+                _ciRaycastE2e |= _ciClickDragParityVerified;
+                return _ciClickDragParityVerified;
+            }
+            finally
+            {
+                _ciSuppressAutoPrepare = false;
+                if (_controller?.State is
+                    {
+                        Mode: HotseatUiMode.Action or HotseatUiMode.Reaction,
+                    } cleanup && cleanup.Interaction.Step != HotseatSelectionStep.None)
+                {
+                    _controller.CancelSelection();
+                    RenderState(_controller.State);
+                }
+            }
         }
 
         _ciSuppressAutoPrepare = true;
@@ -393,7 +1107,75 @@ public sealed partial class MatchScreen : Control
         finally
         {
             _ciSuppressAutoPrepare = false;
+            if (_controller?.State is { Mode: HotseatUiMode.Action or HotseatUiMode.Reaction } cleanup &&
+                cleanup.Interaction.Step != HotseatSelectionStep.None)
+            {
+                _controller.CancelSelection();
+                RenderState(_controller.State);
+            }
         }
+    }
+
+    internal async Task<bool> VerifyKeyboardNavigationForCiAsync()
+    {
+        if (_legacy2dBoard)
+        {
+            return true;
+        }
+
+        HotseatUiState before = _controller?.State ??
+            throw new InvalidOperationException("The keyboard probe has no controller.");
+        if (before.Mode != HotseatUiMode.Action || before.Snapshot is null ||
+            before.Interaction.Step != HotseatSelectionStep.None || !_battlefield3d.InputEnabled)
+        {
+            return false;
+        }
+
+        int submissionsBefore = _submissionCount;
+        GetViewport().GuiReleaseFocus();
+        ParseKeyForCi(Key.Tab);
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        BattlefieldSurfaceRef? focused = _battlefield3d.CiKeyboardFocusedSurface;
+        if (focused is not { InstanceId: { } source })
+        {
+            return false;
+        }
+
+        ParseKeyForCi(Key.Enter);
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        HotseatUiState selected = _controller.State;
+        bool selectedThroughKeyboard =
+            selected.Mode == before.Mode &&
+            selected.Snapshot?.Revision == before.Snapshot.Revision &&
+            selected.Selection.Source == source &&
+            selected.Interaction.Step != HotseatSelectionStep.None &&
+            selected.EventCursors == before.EventCursors &&
+            _submissionCount == submissionsBefore;
+        if (selected.Mode is HotseatUiMode.Action or HotseatUiMode.Reaction &&
+            selected.Interaction.Step != HotseatSelectionStep.None)
+        {
+            _controller.CancelSelection();
+            RenderState(_controller.State);
+        }
+
+        _ciKeyboardE2e |= selectedThroughKeyboard;
+        return selectedThroughKeyboard;
+    }
+
+    private static void ParseKeyForCi(Key keycode)
+    {
+        Input.ParseInputEvent(new InputEventKey
+        {
+            Keycode = keycode,
+            Pressed = true,
+            Echo = false,
+        });
+        Input.ParseInputEvent(new InputEventKey
+        {
+            Keycode = keycode,
+            Pressed = false,
+            Echo = false,
+        });
     }
 
     internal bool VerifyCancelledDragNoSideEffectsForCi(LegalAction action)
@@ -403,6 +1185,75 @@ public sealed partial class MatchScreen : Control
             throw new InvalidOperationException("The cancelled-drag probe has no controller.");
         MatchView view = before.Snapshot ??
             throw new InvalidOperationException("The cancelled-drag probe requires a visible snapshot.");
+        if (!_legacy2dBoard)
+        {
+            if (!TryFindSurfaceRef(view, action.Command.Source, out HotseatSurfaceRef surface) ||
+                !_battlefield3d.CiTryGetScreenAnchor(
+                    BattlefieldSurfaceRef.FromHotseat(surface),
+                    out Vector2 sourceScreen))
+            {
+                return false;
+            }
+
+            BattlefieldRaycastInput input = _battlefield3d.CiRaycastInput;
+            input._Input(new InputEventMouseButton
+            {
+                ButtonIndex = MouseButton.Left,
+                Pressed = true,
+                Position = sourceScreen,
+            });
+            input._Input(new InputEventMouseMotion
+            {
+                Position = sourceScreen + new Vector2(
+                    BattlefieldRaycastInput.DragThresholdPixels - 1.0f,
+                    0.0f),
+            });
+            bool belowThreshold = !input.IsDragging;
+            input._Input(new InputEventMouseMotion
+            {
+                Position = sourceScreen + new Vector2(
+                    BattlefieldRaycastInput.DragThresholdPixels,
+                    0.0f),
+            });
+            bool atThreshold = input.IsDragging;
+            bool expectedDragVisual = surface.Kind switch
+            {
+                HotseatSurfaceKind.Unit => _battlefield3d.CiTargetArrowVisible,
+                HotseatSurfaceKind.HandCard or HotseatSurfaceKind.StandbyCard =>
+                    _battlefield3d.CiPlacementGhostVisible,
+                _ => true,
+            };
+            input._Input(new InputEventMouseButton
+            {
+                ButtonIndex = MouseButton.Left,
+                Pressed = false,
+                Position = new Vector2(-500.0f, -500.0f),
+            });
+
+            HotseatUiState after3d = _controller.State;
+            bool pileDropSafe = true;
+            BattlefieldSurfaceRef pile = BattlefieldSurfaceRef.StandbyPile(view.Viewer);
+            if (_battlefield3d.CiTryGetScreenAnchor(pile, out Vector2 pileScreen))
+            {
+                HotseatUiState beforePileDrop = _controller.State;
+                bool gestureDelivered = input.CiDragAt(sourceScreen, pileScreen);
+                HotseatUiState afterPileDrop = _controller.State;
+                pileDropSafe = gestureDelivered && ReferenceEquals(beforePileDrop, afterPileDrop) &&
+                               afterPileDrop.Snapshot?.Revision == view.Revision &&
+                               afterPileDrop.Selection == beforePileDrop.Selection &&
+                               afterPileDrop.EventCursors == beforePileDrop.EventCursors;
+            }
+            _ciCancelledDragNoSideEffects = belowThreshold && atThreshold &&
+                expectedDragVisual && !_battlefield3d.CiTargetArrowVisible &&
+                !_battlefield3d.CiPlacementGhostVisible &&
+                pileDropSafe && !input.HasActiveDrag && after3d.Mode == before.Mode &&
+                after3d.Snapshot?.Revision == view.Revision &&
+                Equals(after3d.Selection, before.Selection) &&
+                after3d.EventCursors == before.EventCursors;
+            _ciRaycastE2e |= belowThreshold && atThreshold;
+            return _ciCancelledDragNoSideEffects;
+        }
+
         SnapshotSlot source = FindVisibleSlotForCard(action.Command.Source) ??
             throw new InvalidOperationException("The cancelled-drag source is not visible.");
 
@@ -423,16 +1274,191 @@ public sealed partial class MatchScreen : Control
         return _ciCancelledDragNoSideEffects;
     }
 
+    private static bool TryCreateCommandDestinationSurface(
+        MatchView view,
+        GameCommandRequest command,
+        out HotseatSurfaceRef surface)
+    {
+        if (TryCreateTargetSurface(view, command.Target, out surface))
+        {
+            return true;
+        }
+        if (command.Slot is { } slot && slot <= int.MaxValue)
+        {
+            surface = command.Action switch
+            {
+                ActionKind.PlayUnit or ActionKind.Deploy =>
+                    HotseatSurfaceRef.UnitSlot(command.Player, (int)slot),
+                ActionKind.PlayTactic =>
+                    HotseatSurfaceRef.TacticSlot(command.Player, (int)slot),
+                _ => default,
+            };
+            return surface.Player.HasValue;
+        }
+        if (command.Action == ActionKind.CastSpell && command.Target is null)
+        {
+            surface = HotseatSurfaceRef.CastZone();
+            return true;
+        }
+
+        surface = default;
+        return false;
+    }
+
     internal bool VerifyDockCollapseForCi()
     {
         MarginContainer safe = GetNode<MarginContainer>("SafeMargin");
         _dock.ToggleForSmoke();
-        bool collapsed = _dock.IsCollapsed && !_dock.CardDetails.Visible &&
-                         !_dock.EventLog.Visible &&
+        bool collapsed = _dock.IsCollapsed && !_dock.EventLog.Visible &&
                          safe.GetThemeConstant("margin_right") == 96;
         _dock.ToggleForSmoke();
-        return collapsed && !_dock.IsCollapsed && _dock.CardDetails.Visible &&
+        bool detailsCorrect = _legacy2dBoard
+            ? _dock.CardDetails.Visible
+            : !_dock.CardDetails.Visible && _battlefieldDetails.Visible;
+        return collapsed && !_dock.IsCollapsed && detailsCorrect &&
                _dock.EventLog.Visible && safe.GetThemeConstant("margin_right") == 420;
+    }
+
+    internal bool VerifyGate4PresentationForCi()
+    {
+        if (_legacy2dBoard)
+        {
+            return !_battlefield3d.Visible &&
+                   GetNode<Control>("SafeMargin/Layout/Board").Visible;
+        }
+
+        HotseatUiState state = _controller?.State ??
+            throw new InvalidOperationException("The Gate 4A presentation probe has no controller.");
+        MatchView view = state.Snapshot ??
+            throw new InvalidOperationException("The Gate 4A presentation probe requires a snapshot.");
+        int reuseBefore = _ciActorPoolReuses;
+        RenderBattlefieldPrivate(view, state);
+
+        bool hudBlocked = IsGuiBlockingBattlefield(_dock.GetGlobalRect().GetCenter());
+        bool minimumApplied = _battlefield3d.CiSetCameraZoom(-100.0f) &&
+                              Mathf.IsEqualApprox(
+                                  _battlefield3d.CiCameraZoom,
+                                  BattlefieldPerspective.MinimumZoom);
+        bool maximumApplied = _battlefield3d.CiSetCameraZoom(100.0f) &&
+                              Mathf.IsEqualApprox(
+                                  _battlefield3d.CiCameraZoom,
+                                  BattlefieldPerspective.MaximumZoom);
+        _battlefield3d.CiSetCameraZoom(1.0f);
+
+        bool perspective = _battlefield3d.CiPerspectiveViewer == view.Viewer &&
+                           BattlefieldPerspective.IsNear(view.Viewer, view.Viewer) &&
+                           !BattlefieldPerspective.IsNear(Other(view.Viewer), view.Viewer) &&
+                           BattlefieldPerspective.VisualSlotIndex(
+                               Other(view.Viewer),
+                               view.Viewer,
+                               0,
+                               BattlefieldPerspective.UnitSlotCount) ==
+                           BattlefieldPerspective.UnitSlotCount - 1;
+        bool actorPool = _battlefield3d.CiActiveCardCount > 0 &&
+                         _battlefield3d.CiActiveSlotCount > 0 &&
+                         _ciActorPoolReuses > reuseBefore;
+        bool tripleAffordance = _battlefield3d.CiSawTripleAffordance &&
+                                _battlefield3d.CiTripleAffordanceSurfaceCount > 0 &&
+                                _battlefield3d.CiOutlineVisibleCount > 0;
+        return _battlefield3d.Visible && _battlefield3d.InputEnabled && hudBlocked &&
+               minimumApplied && maximumApplied && perspective && actorPool &&
+               tripleAffordance &&
+               Mathf.IsEqualApprox(
+                   _battlefield3d.CiCameraPitch,
+                   BattlefieldPerspective.CameraPitchDegrees);
+    }
+
+    internal bool VerifySpatialInputLockedForCi()
+    {
+        if (_legacy2dBoard)
+        {
+            return true;
+        }
+
+        HotseatUiState before = _controller?.State ??
+            throw new InvalidOperationException("The spatial-lock probe has no controller.");
+        if (before.Mode != HotseatUiMode.Resolving || before.PublicBoard is null ||
+            _battlefield3d.InputEnabled)
+        {
+            return false;
+        }
+
+        int submissions = _submissionCount;
+        Vector2 center = GetViewportRect().Size / 2.0f;
+        BattlefieldRaycastInput input = _battlefield3d.CiRaycastInput;
+        input._Input(new InputEventMouseButton
+        {
+            ButtonIndex = MouseButton.Left,
+            Pressed = true,
+            Position = center,
+        });
+        input._Input(new InputEventMouseMotion
+        {
+            Position = center + new Vector2(32.0f, 0.0f),
+        });
+        input._Input(new InputEventMouseButton
+        {
+            ButtonIndex = MouseButton.Left,
+            Pressed = false,
+            Position = center + new Vector2(32.0f, 0.0f),
+        });
+
+        HotseatUiState after = _controller.State;
+        bool locked = ReferenceEquals(before, after) &&
+                      after.Mode == HotseatUiMode.Resolving &&
+                      after.PublicBoard?.Revision == before.PublicBoard.Revision &&
+                      after.EventCursors == before.EventCursors &&
+                      _submissionCount == submissions && !input.HasActiveDrag &&
+                      !_battlefield3d.InputEnabled;
+        if (locked)
+        {
+            _ciBlockedSpatialInputs++;
+        }
+        return locked;
+    }
+
+    internal bool VerifyReactionChoiceModalBlocksSpatialInputForCi()
+    {
+        if (_legacy2dBoard)
+        {
+            return true;
+        }
+
+        HotseatUiState before = _controller?.State ??
+            throw new InvalidOperationException("The reaction modal probe has no controller.");
+        MatchView view = before.Snapshot ??
+            throw new InvalidOperationException("The reaction modal probe requires a snapshot.");
+        if (before.Mode != HotseatUiMode.Reaction ||
+            before.Interaction.Step != HotseatSelectionStep.None ||
+            _battlefield3d.InputEnabled)
+        {
+            return false;
+        }
+
+        LegalAction? trap = before.LegalActions.FirstOrDefault(action =>
+            action.Command.Action == ActionKind.ActivateTrap && action.Command.Source != 0);
+        if (trap is null ||
+            !TryFindSurfaceRef(view, trap.Command.Source, out HotseatSurfaceRef trapSurface) ||
+            !_battlefield3d.CiTryGetScreenAnchor(
+                BattlefieldSurfaceRef.FromHotseat(trapSurface),
+                out Vector2 trapScreen))
+        {
+            return false;
+        }
+
+        bool trapRejected = !_battlefield3d.CiRaycastInput.CiClickAt(trapScreen);
+        BattlefieldSurfaceRef pile = BattlefieldSurfaceRef.StandbyPile(view.Viewer);
+        bool pileRejected = !_battlefield3d.CiTryGetScreenAnchor(pile, out Vector2 pileScreen) ||
+                            !_battlefield3d.CiRaycastInput.CiClickAt(pileScreen);
+        HotseatUiState after = _controller.State;
+        bool locked = trapRejected && pileRejected && ReferenceEquals(before, after) &&
+                      after.EventCursors == before.EventCursors &&
+                      after.Selection == before.Selection;
+        if (locked)
+        {
+            _ciBlockedSpatialInputs += 2;
+        }
+        return locked;
     }
 
     internal static bool ValidateReferenceLayoutForCi(int width, int height)
@@ -441,15 +1467,71 @@ public sealed partial class MatchScreen : Control
         {
             return false;
         }
-        const float expandedDock = 420.0f;
-        const float outerMargins = 56.0f;
-        const float fiveBoardSlots = 5 * 118.0f + 4 * 12.0f;
-        const float fixedVerticalChrome = 56.0f + 112.0f + 96.0f + 112.0f + 42.0f;
-        float availableBoardWidth = width - expandedDock - outerMargins;
-        float availableBoardHeight = height - fixedVerticalChrome;
-        float directPanelWidth = Math.Min(540.0f, availableBoardWidth - 32.0f);
-        return availableBoardWidth >= fiveBoardSlots &&
-               availableBoardHeight >= 200.0f && directPanelWidth >= 460.0f;
+        const float leftDetails = 278.0f;
+        const float rightControls = 400.0f;
+        const float safeGutters = 48.0f;
+        float availableBoardWidth = width - leftDetails - rightControls - safeGutters;
+        float availableBoardHeight = height - 120.0f;
+        float directPanelWidth = Math.Min(420.0f, availableBoardWidth - 24.0f);
+        return availableBoardWidth >= 520.0f &&
+               availableBoardHeight >= 600.0f && directPanelWidth >= 360.0f;
+    }
+
+    internal bool ValidateRenderedLayoutForCi()
+    {
+        if (_legacy2dBoard)
+        {
+            return GetNode<Control>("SafeMargin/Layout/Board").IsVisibleInTree();
+        }
+
+        Vector2 viewport = GetViewportRect().Size;
+        Rect2 left = _battlefieldDetails.GetGlobalRect();
+        Rect2 right = _battlefieldControlRail.GetGlobalRect();
+        if (!_battlefieldDetails.IsVisibleInTree() || !_battlefieldControlRail.IsVisibleInTree() ||
+            left.Position.X < 0.0f || left.End.X >= right.Position.X || right.End.X > viewport.X + 1.0f)
+        {
+            return false;
+        }
+
+        float safeLeft = left.End.X + 8.0f;
+        float safeRight = right.Position.X - 8.0f;
+        if (safeRight - safeLeft < 500.0f)
+        {
+            return false;
+        }
+
+        var surfaces = new List<BattlefieldSurfaceRef>();
+        foreach (PlayerId player in Enum.GetValues<PlayerId>())
+        {
+            surfaces.Add(new BattlefieldSurfaceRef(BattlefieldSurfaceKind.Leader, player));
+            surfaces.Add(BattlefieldSurfaceRef.StandbyPile(player));
+            for (int slot = 0; slot < BattlefieldPerspective.UnitSlotCount; slot++)
+            {
+                surfaces.Add(new BattlefieldSurfaceRef(BattlefieldSurfaceKind.UnitSlot, player, slot));
+            }
+            for (int slot = 0; slot < BattlefieldPerspective.TacticSlotCount; slot++)
+            {
+                surfaces.Add(new BattlefieldSurfaceRef(BattlefieldSurfaceKind.TacticSlot, player, slot));
+            }
+        }
+        surfaces.Add(new BattlefieldSurfaceRef(BattlefieldSurfaceKind.CastZone));
+
+        int visibleAnchors = 0;
+        foreach (BattlefieldSurfaceRef surface in surfaces)
+        {
+            if (!_battlefield3d.CiTryGetScreenAnchor(surface, out Vector2 anchor))
+            {
+                continue;
+            }
+            visibleAnchors++;
+            if (anchor.X < safeLeft || anchor.X > safeRight ||
+                anchor.Y < 36.0f || anchor.Y > viewport.Y - 36.0f)
+            {
+                return false;
+            }
+        }
+
+        return visibleAnchors >= 19;
     }
 
     internal void ConfirmCurrentSelectionForCi()
@@ -554,7 +1636,18 @@ public sealed partial class MatchScreen : Control
                     AssertExplicitSelectionAutoPrepared(HotseatSelectionStep.ChooseSlot);
                     break;
                 case HotseatSelectionStep.ChooseTarget:
-                    if (command.Target is { Kind: TargetKind.Leader } leader)
+                    if (command.Target is null)
+                    {
+                        if (!state.Interaction.Targets.Any(target => target is null))
+                        {
+                            throw new InvalidOperationException(
+                                "The canonical no-target action was filtered from the current candidates: " +
+                                $"action={command.Action}, source={command.Source}, " +
+                                $"selection={state.Selection}, candidates={string.Join(';', state.CandidateOptions.Actions.Select(candidate => candidate.Command))}.");
+                        }
+                        _directActions.PressChoiceForSmoke("不指定目标 / 直接发动");
+                    }
+                    else if (command.Target is { Kind: TargetKind.Leader } leader)
                     {
                         DirectDropButton button = leader.Player == state.Snapshot!.Viewer
                             ? _ownLeader
@@ -564,7 +1657,12 @@ public sealed partial class MatchScreen : Control
                     else
                     {
                         (FindTargetSlot(command) ??
-                            throw new InvalidOperationException("The canonical unit target is not visible."))
+                            throw new InvalidOperationException(
+                                "The canonical unit target is not visible: " +
+                                $"target={command.Target}, viewer={state.Snapshot?.Viewer}, " +
+                                $"bindings={string.Join(';', _slotBindings.Values.Select(binding =>
+                                    $"{binding.Player}/{binding.Zone}/{binding.Index}/" +
+                                    $"{binding.Card?.InstanceId?.ToString() ?? "empty"}"))}."))
                             .EmitSignal(Button.SignalName.Pressed);
                     }
                     AssertExplicitSelectionAutoPrepared(HotseatSelectionStep.ChooseTarget);
@@ -785,7 +1883,10 @@ public sealed partial class MatchScreen : Control
 
         MatchView view = state.Snapshot ??
             throw new InvalidOperationException("A visible hot-seat state is missing its viewer snapshot.");
-        _privacyOverlay.CompleteReveal();
+        SetLegacyBoardPanelsVisible(
+            _legacy2dBoard,
+            !_legacy2dBoard && state.Mode is HotseatUiMode.MulliganSelecting or
+                HotseatUiMode.MulliganReview);
         _resolvingShield.Visible = false;
         _lastVisibleViewer = view.Viewer;
         _resultOverlay.Dismiss();
@@ -831,6 +1932,9 @@ public sealed partial class MatchScreen : Control
                 throw new InvalidOperationException($"Unsupported visible hot-seat mode {state.Mode}.");
         }
 
+        // Keep the hand-off cover opaque until the new viewer's private 2D/3D
+        // projection has been rebuilt in the same call stack.
+        _privacyOverlay.CompleteReveal();
         HasPresentedSnapshot = true;
         if (!_firstSnapshotRaised)
         {
@@ -842,6 +1946,7 @@ public sealed partial class MatchScreen : Control
     private void RenderCoveredState(HotseatUiState state)
     {
         HasPresentedSnapshot = false;
+        SetLegacyBoardPanelsVisible(_legacy2dBoard, showMulliganHand: false);
         ClearSensitiveVisuals();
         _resolvingShield.Visible = false;
         _resultOverlay.Dismiss();
@@ -860,6 +1965,7 @@ public sealed partial class MatchScreen : Control
     private void RenderResolvingState(HotseatUiState state)
     {
         HasPresentedSnapshot = false;
+        SetLegacyBoardPanelsVisible(_legacy2dBoard, showMulliganHand: false);
         _privacyOverlay.CompleteReveal();
         _resultOverlay.Dismiss();
         _errorOverlay.Dismiss();
@@ -873,7 +1979,13 @@ public sealed partial class MatchScreen : Control
         _reactionOverlay.ClearSensitive();
         _standbyTray.Visible = false;
         _dock.ClearSensitive();
+        _battlefieldDetails.ClearSensitive();
         ClearPrivateSlotState();
+        if (!_legacy2dBoard)
+        {
+            _battlefield3d.ClearSensitive();
+            _battlefield3d.SetInputEnabled(false);
+        }
 
         HotseatPublicBoardView board = state.PublicBoard ??
             throw new InvalidOperationException("Resolving state is missing its public board projection.");
@@ -943,9 +2055,7 @@ public sealed partial class MatchScreen : Control
                     "选择这张牌要执行的行动：",
                     context.Actions,
                     ActionPresentation.FormatAction,
-                    action => SelectAndMaybePrepare(
-                        () => _controller!.ChooseAction(action),
-                        autoPrepareWhenReady: true),
+                    ChooseSurfaceAction,
                     context.Revision,
                     payment,
                     context.CanStepBack);
@@ -1035,27 +2145,71 @@ public sealed partial class MatchScreen : Control
     private void PositionDirectPanel(HotseatUiState state)
     {
         Vector2 viewport = GetViewportRect().Size;
-        float reservedRight = _dock.IsCollapsed ? 96.0f : 418.0f;
-        float availableWidth = Math.Max(460.0f, viewport.X - reservedRight - 36.0f);
+        float reservedRight = _legacy2dBoard
+            ? (_dock.IsCollapsed ? 96.0f : 418.0f)
+            : Math.Max(18.0f, viewport.X - _battlefieldControlRail.GetGlobalRect().Position.X + 16.0f);
+        float reservedLeft = _legacy2dBoard
+            ? 18.0f
+            : Math.Max(18.0f, _battlefieldDetails.GetGlobalRect().End.X + 16.0f);
+        float availableWidth = Math.Max(360.0f, viewport.X - reservedRight - reservedLeft - 18.0f);
         Vector2 panelSize = new(
-            Math.Min(540.0f, availableWidth),
-            Math.Max(100.0f, _directActions.GetCombinedMinimumSize().Y));
-        float maxX = Math.Max(18.0f, viewport.X - reservedRight - panelSize.X);
+            Math.Min(420.0f, availableWidth),
+            Mathf.Clamp(_directActions.GetCombinedMinimumSize().Y, 100.0f, 220.0f));
+        float maxX = Math.Max(reservedLeft, viewport.X - reservedRight - panelSize.X);
         float maxY = Math.Max(70.0f, viewport.Y - panelSize.Y - 112.0f);
         Vector2 position;
 
-        SnapshotSlot? source = state.Interaction.Source is { } sourceId
-            ? FindVisibleSlotForCard(sourceId)
-            : null;
-        if (source is null)
+        SnapshotSlot? source = null;
+        Vector2? sourceAnchor = null;
+        if (state.Interaction.Source is { } sourceId)
+        {
+            if (!_legacy2dBoard && state.Snapshot is { } view &&
+                TryFindSurfaceRef(view, sourceId, out HotseatSurfaceRef surface) &&
+                _battlefield3d.CiTryGetScreenAnchor(
+                    BattlefieldSurfaceRef.FromHotseat(surface),
+                    out Vector2 screenAnchor))
+            {
+                sourceAnchor = screenAnchor;
+            }
+            else
+            {
+                source = FindVisibleSlotForCard(sourceId);
+            }
+        }
+
+        if (source is null && !sourceAnchor.HasValue)
         {
             position = new Vector2(
-                Mathf.Clamp((viewport.X - reservedRight - panelSize.X) / 2.0f, 18.0f, maxX),
+                Mathf.Clamp((viewport.X - reservedRight - panelSize.X) / 2.0f, reservedLeft, maxX),
                 maxY);
+        }
+        else if (sourceAnchor is { } anchor)
+        {
+            Vector2[] candidates =
+            [
+                new(anchor.X - panelSize.X / 2.0f, anchor.Y - panelSize.Y - 18.0f),
+                new(anchor.X - panelSize.X / 2.0f, anchor.Y + 24.0f),
+                new(anchor.X - panelSize.X - 24.0f, anchor.Y - panelSize.Y / 2.0f),
+                new(anchor.X + 24.0f, anchor.Y - panelSize.Y / 2.0f),
+            ];
+            Vector2[] destinationAnchors = CurrentBattlefieldDestinationAnchors(state).ToArray();
+            int BestScore(Vector2 candidate)
+            {
+                Vector2 clamped = new(
+                    Mathf.Clamp(candidate.X, reservedLeft, maxX),
+                    Mathf.Clamp(candidate.Y, 70.0f, maxY));
+                var rect = new Rect2(clamped - new Vector2(10.0f, 10.0f),
+                    panelSize + new Vector2(20.0f, 20.0f));
+                return destinationAnchors.Count(rect.HasPoint);
+            }
+            Vector2 chosen = candidates.OrderBy(BestScore).First();
+            position = new Vector2(
+                Mathf.Clamp(chosen.X, reservedLeft, maxX),
+                Mathf.Clamp(chosen.Y, 70.0f, maxY));
         }
         else
         {
-            Rect2 sourceRect = source.GetGlobalRect();
+            Rect2 sourceRect = source!.GetGlobalRect();
             float y = sourceRect.Position.Y - panelSize.Y - 12.0f;
             if (y < 70.0f)
             {
@@ -1086,10 +2240,87 @@ public sealed partial class MatchScreen : Control
             _ciSourceAdjacentPanelVerified |=
                 horizontalOverlap && verticalGap <= 14.0f && insideSafeArea;
         }
+        else if (sourceAnchor is { } anchor)
+        {
+            Rect2 panelRect = _directActions.GetGlobalRect();
+            bool horizontallyAdjacent = anchor.X >= panelRect.Position.X - 1.0f &&
+                                        anchor.X <= panelRect.End.X + 1.0f;
+            float verticalGap = Math.Min(
+                Math.Abs(panelRect.End.Y - anchor.Y),
+                Math.Abs(anchor.Y - panelRect.Position.Y));
+            _ciSourceAdjacentPanelVerified |= horizontallyAdjacent && verticalGap <= 30.0f;
+        }
+    }
+
+    private IEnumerable<Vector2> CurrentBattlefieldDestinationAnchors(HotseatUiState state)
+    {
+        if (_legacy2dBoard || state.Snapshot is not { } view)
+        {
+            yield break;
+        }
+
+        var surfaces = new HashSet<HotseatSurfaceRef>();
+        switch (state.Interaction.Step)
+        {
+            case HotseatSelectionStep.ChooseDonor:
+                foreach (ulong donor in state.Interaction.Donors.OfType<ulong>())
+                {
+                    if (TryFindSurfaceRef(view, donor, out HotseatSurfaceRef surface))
+                    {
+                        surfaces.Add(surface);
+                    }
+                }
+                break;
+            case HotseatSelectionStep.ChooseSlot when state.Interaction.Action.HasValue:
+                foreach (ulong slot in state.Interaction.Slots.OfType<ulong>())
+                {
+                    if (slot > int.MaxValue)
+                    {
+                        continue;
+                    }
+                    HotseatSurfaceRef surface = state.Interaction.Action.Value switch
+                    {
+                        ActionKind.PlayUnit or ActionKind.Deploy =>
+                            HotseatSurfaceRef.UnitSlot(view.Viewer, (int)slot),
+                        ActionKind.PlayTactic =>
+                            HotseatSurfaceRef.TacticSlot(view.Viewer, (int)slot),
+                        _ => default,
+                    };
+                    if (surface.Player.HasValue)
+                    {
+                        surfaces.Add(surface);
+                    }
+                }
+                break;
+            case HotseatSelectionStep.ChooseTarget:
+                foreach (Target target in state.Interaction.Targets.OfType<Target>())
+                {
+                    if (TryCreateTargetSurface(view, target, out HotseatSurfaceRef surface))
+                    {
+                        surfaces.Add(surface);
+                    }
+                }
+                break;
+        }
+
+        foreach (HotseatSurfaceRef surface in surfaces)
+        {
+            if (_battlefield3d.CiTryGetScreenAnchor(
+                    BattlefieldSurfaceRef.FromHotseat(surface),
+                    out Vector2 anchor))
+            {
+                yield return anchor;
+            }
+        }
     }
 
     private void OnDockCollapsedChanged(bool collapsed)
     {
+        if (!_legacy2dBoard)
+        {
+            _dock.CardDetails.Visible = false;
+            _battlefieldDetails.Visible = true;
+        }
         _dock.OffsetLeft = collapsed ? -78.0f : -400.0f;
         GetNode<MarginContainer>("SafeMargin")
             .AddThemeConstantOverride("margin_right", collapsed ? 96 : 420);
@@ -1252,9 +2483,16 @@ public sealed partial class MatchScreen : Control
 
     private void OnReactionTrapRequested(ulong instanceId)
     {
-        SelectAndMaybePrepare(
-            () => _controller!.BeginSourceSelection(instanceId),
-            autoPrepareWhenReady: false);
+        if (_controller?.State is not { Snapshot: { } view } state ||
+            !TryFindSurfaceRef(view, instanceId, out HotseatSurfaceRef surface))
+        {
+            return;
+        }
+
+        RunUiAction(() => ApplySurfaceIntent(new HotseatSurfaceIntent(
+            state.Interaction.Revision,
+            HotseatSurfaceGesture.Click,
+            surface)));
     }
 
     private void OnReactionPassRequested()
@@ -1305,6 +2543,111 @@ public sealed partial class MatchScreen : Control
         });
     }
 
+    private void ChooseSurfaceAction(ActionKind action)
+    {
+        if (_ciSuppressAutoPrepare)
+        {
+            SelectAndMaybePrepare(
+                () => _controller!.ChooseAction(action),
+                autoPrepareWhenReady: true);
+            return;
+        }
+
+        if (_controller?.State is not { Snapshot: { } view } state ||
+            state.Interaction.Source is not { } source ||
+            !TryFindSurfaceRef(view, source, out HotseatSurfaceRef surface))
+        {
+            return;
+        }
+
+        RunUiAction(() => ApplySurfaceIntent(new HotseatSurfaceIntent(
+            state.Interaction.Revision,
+            HotseatSurfaceGesture.Click,
+            surface)
+        {
+            Action = action,
+        }));
+    }
+
+    private static bool TryFindSurfaceRef(
+        MatchView view,
+        ulong instanceId,
+        out HotseatSurfaceRef surface)
+    {
+        foreach (PlayerView player in view.Players)
+        {
+            for (int index = 0; index < player.Hand.Length; index++)
+            {
+                if (player.Hand[index].InstanceId == instanceId)
+                {
+                    surface = HotseatSurfaceRef.HandCard(player.Player, index, instanceId);
+                    return true;
+                }
+            }
+            for (int index = 0; index < player.Units.Length; index++)
+            {
+                if (player.Units[index]?.InstanceId == instanceId)
+                {
+                    surface = HotseatSurfaceRef.Unit(player.Player, index, instanceId);
+                    return true;
+                }
+            }
+            for (int index = 0; index < player.Tactics.Length; index++)
+            {
+                if (player.Tactics[index]?.InstanceId == instanceId)
+                {
+                    surface = HotseatSurfaceRef.Tactic(player.Player, index, instanceId);
+                    return true;
+                }
+            }
+            for (int index = 0; index < player.Standby.Length; index++)
+            {
+                if (player.Standby[index].InstanceId == instanceId)
+                {
+                    surface = HotseatSurfaceRef.StandbyCard(player.Player, index, instanceId);
+                    return true;
+                }
+            }
+        }
+
+        surface = default;
+        return false;
+    }
+
+    private HotseatSurfaceIntentResult ApplySurfaceIntent(HotseatSurfaceIntent intent)
+    {
+        if (_submitting || _surfaceCoordinator is null || _controller is null)
+        {
+            throw new InvalidOperationException("The surface coordinator is unavailable or busy.");
+        }
+
+        bool confirmationVisible = _dock.Confirmation.Visible;
+        HotseatSurfaceIntentResult result = _surfaceCoordinator.ApplyIntent(intent);
+        if (!result.Accepted)
+        {
+            return result;
+        }
+
+        _ciSurfaceIntentE2e = true;
+        if (result.CommandPrepared)
+        {
+            ActionKind action = result.CanonicalCommand?.Action ??
+                throw new InvalidOperationException(
+                    "A prepared surface intent lost its canonical action.");
+            BeginPreparedSubmission(action, confirmationVisible);
+        }
+
+        return result;
+    }
+
+    private void OnSurfaceCommandPreparing()
+    {
+        if (_ciPrivacySentinelArmed)
+        {
+            InjectMaliciousPrivateDtoForCi();
+        }
+    }
+
     private void PrepareAndSubmitSelection()
     {
         if (_submitting || _controller is null)
@@ -1325,20 +2668,34 @@ public sealed partial class MatchScreen : Control
                 return;
             }
 
-            _preparedActionKind = action ??
-                throw new InvalidOperationException("A prepared command lost its action kind.");
-            if (action is not ActionKind.Mulligan and not ActionKind.Surrender)
-            {
-                _ciSelectionConfirmationViolation |= confirmationVisible;
-            }
-
-            RenderResolvingState(_controller.State);
-            SubmitPreparedAfterPublicFrames();
+            BeginPreparedSubmission(
+                action ?? throw new InvalidOperationException(
+                    "A prepared command lost its action kind."),
+                confirmationVisible);
         }
         catch (Exception exception)
         {
             HandleFatal(exception);
         }
+    }
+
+    private void BeginPreparedSubmission(ActionKind action, bool confirmationVisible)
+    {
+        if (_controller?.State.Mode != HotseatUiMode.Resolving ||
+            _controller.State.PublicBoard is null)
+        {
+            throw new InvalidOperationException(
+                "A prepared command did not enter the public resolving state.");
+        }
+
+        _preparedActionKind = action;
+        if (action is not ActionKind.Mulligan and not ActionKind.Surrender)
+        {
+            _ciSelectionConfirmationViolation |= confirmationVisible;
+        }
+
+        RenderResolvingState(_controller.State);
+        SubmitPreparedAfterPublicFrames();
     }
 
     private async void SubmitPreparedAfterPublicFrames()
@@ -1530,17 +2887,189 @@ public sealed partial class MatchScreen : Control
         GetNode<Label>("%OpponentZones").Text = FormatZoneSummary(opponent);
         GetNode<Label>("%OwnSummary").Text = FormatPlayerSummary(own, "己方");
         GetNode<Label>("%OwnZones").Text = FormatZoneSummary(own);
+        GetNode<Label>("%OpponentResourceLabel").Text = FormatRailResources(opponent, "对手");
+        GetNode<Label>("%OwnResourceLabel").Text = FormatRailResources(own, "己方");
 
-        PopulateSlots(GetNode<Container>("%OpponentTactics"), opponent.Tactics, "策略", opponent.Player, Zone.Tactic, state);
-        PopulateSlots(GetNode<Container>("%OpponentUnits"), opponent.Units, "单位", opponent.Player, Zone.Unit, state);
-        PopulateSlots(GetNode<Container>("%OwnUnits"), own.Units, "单位", own.Player, Zone.Unit, state);
-        PopulateSlots(GetNode<Container>("%OwnTactics"), own.Tactics, "策略", own.Player, Zone.Tactic, state);
+        if (_legacy2dBoard)
+        {
+            PopulateSlots(GetNode<Container>("%OpponentTactics"), opponent.Tactics, "策略", opponent.Player, Zone.Tactic, state);
+            PopulateSlots(GetNode<Container>("%OpponentUnits"), opponent.Units, "单位", opponent.Player, Zone.Unit, state);
+            PopulateSlots(GetNode<Container>("%OwnUnits"), own.Units, "单位", own.Player, Zone.Unit, state);
+            PopulateSlots(GetNode<Container>("%OwnTactics"), own.Tactics, "策略", own.Player, Zone.Tactic, state);
+        }
+        else
+        {
+            ClearLegacyBoardPools(keepHand: state.Mode is HotseatUiMode.MulliganSelecting or
+                HotseatUiMode.MulliganReview);
+            RenderBattlefieldPrivate(view, state);
+        }
         PopulateOpponentHandBacks(GetNode<Container>("%OpponentHandBacks"), opponent.HandCount);
-        PopulateHand(GetNode<Container>("%HandCards"), own.Hand, state);
+        if (_legacy2dBoard || state.Mode is HotseatUiMode.MulliganSelecting or
+                HotseatUiMode.MulliganReview)
+        {
+            PopulateHand(GetNode<Container>("%HandCards"), own.Hand, state);
+        }
         ConfigureLeaderAndStandbyButtons(view, state);
 
         GetNode<Label>("%PrivacyProof").Text =
             $"隐私校验：对手手牌仅显示数量 {opponent.HandCount}；安全快照中的对手 hand 数组为 {opponent.Hand.Length}。";
+    }
+
+    private void RenderBattlefieldPrivate(MatchView view, HotseatUiState state)
+    {
+        int cardsBefore = _battlefield3d.CiCardPoolSize;
+        int slotsBefore = _battlefield3d.CiSlotPoolSize;
+        if (_renderedPerspectiveViewer.HasValue && _renderedPerspectiveViewer.Value != view.Viewer)
+        {
+            _ciPerspectiveRebuilds++;
+        }
+
+        _renderedPerspectiveViewer = view.Viewer;
+        _battlefield3d.RenderPrivate(view, state.Interaction);
+        if (_hasRendered3d && cardsBefore > 0 && slotsBefore > 0 &&
+            _battlefield3d.CiCardPoolSize == cardsBefore &&
+            _battlefield3d.CiSlotPoolSize == slotsBefore)
+        {
+            _ciActorPoolReuses++;
+        }
+        _hasRendered3d = true;
+
+        bool responseChoiceModal = state.Mode == HotseatUiMode.Reaction &&
+                                   state.Interaction.Step == HotseatSelectionStep.None;
+        if (responseChoiceModal)
+        {
+            _battlefield3d.TryConfigureInteraction(
+                view.Revision,
+                Array.Empty<BattlefieldInteractionSurface>());
+        }
+        else
+        {
+            ConfigureBattlefieldInteraction(view, state);
+        }
+        bool inputEnabled = state.Mode == HotseatUiMode.Action ||
+                            state.Mode == HotseatUiMode.Reaction && !responseChoiceModal;
+        _battlefield3d.SetInputEnabled(inputEnabled);
+    }
+
+    private void ConfigureBattlefieldInteraction(MatchView view, HotseatUiState state)
+    {
+        var surfaces = new Dictionary<HotseatSurfaceRef, BattlefieldHighlightKind>();
+        IReadOnlyList<LegalAction> actions = state.Interaction.Step == HotseatSelectionStep.None
+            ? state.LegalActions
+            : state.CandidateOptions.Actions;
+
+        foreach (LegalAction legal in actions)
+        {
+            GameCommandRequest command = legal.Command;
+            if (command.Source != 0 &&
+                TryFindSurfaceRef(view, command.Source, out HotseatSurfaceRef source))
+            {
+                AddSurfaceHighlight(surfaces, source, BattlefieldHighlightKind.Legal);
+            }
+
+            if (state.Interaction.Step == HotseatSelectionStep.ChooseDonor &&
+                command.ComponentDonor is { } donor &&
+                TryFindSurfaceRef(view, donor, out HotseatSurfaceRef donorSurface))
+            {
+                AddSurfaceHighlight(surfaces, donorSurface, BattlefieldHighlightKind.Destination);
+            }
+            if (state.Interaction.Step == HotseatSelectionStep.ChooseSlot &&
+                command.Slot is { } slot && slot <= int.MaxValue)
+            {
+                HotseatSurfaceRef slotSurface = command.Action switch
+                {
+                    ActionKind.PlayUnit or ActionKind.Deploy =>
+                        HotseatSurfaceRef.UnitSlot(command.Player, (int)slot),
+                    ActionKind.PlayTactic =>
+                        HotseatSurfaceRef.TacticSlot(command.Player, (int)slot),
+                    _ => default,
+                };
+                if (slotSurface.Player.HasValue)
+                {
+                    AddSurfaceHighlight(surfaces, slotSurface, BattlefieldHighlightKind.Destination);
+                }
+            }
+            if (state.Interaction.Step == HotseatSelectionStep.ChooseTarget &&
+                TryCreateTargetSurface(view, command.Target, out HotseatSurfaceRef targetSurface))
+            {
+                AddSurfaceHighlight(surfaces, targetSurface, BattlefieldHighlightKind.Destination);
+            }
+            if (state.Interaction.Step == HotseatSelectionStep.ChooseTarget &&
+                command.Action == ActionKind.CastSpell && command.Target is null &&
+                !command.Slot.HasValue)
+            {
+                AddSurfaceHighlight(
+                    surfaces,
+                    HotseatSurfaceRef.CastZone(),
+                    BattlefieldHighlightKind.Destination);
+            }
+        }
+
+        BattlefieldSurfaceRef? selected = null;
+        if (state.Selection.Source is { } selectedId &&
+            TryFindSurfaceRef(view, selectedId, out HotseatSurfaceRef selectedSurface))
+        {
+            selected = BattlefieldSurfaceRef.FromHotseat(selectedSurface);
+        }
+
+        BattlefieldSurfaceRef? targetingSource =
+            state.Interaction.Action == ActionKind.Attack && selected.HasValue
+                ? selected
+                : null;
+        _battlefield3d.TryConfigureInteraction(
+            state.Interaction.Revision,
+            surfaces.Select(pair => new BattlefieldInteractionSurface(
+                BattlefieldSurfaceRef.FromHotseat(pair.Key),
+                pair.Value)),
+            selected,
+            targetingSource);
+    }
+
+    private static void AddSurfaceHighlight(
+        IDictionary<HotseatSurfaceRef, BattlefieldHighlightKind> surfaces,
+        HotseatSurfaceRef surface,
+        BattlefieldHighlightKind highlight)
+    {
+        if (!surfaces.TryGetValue(surface, out BattlefieldHighlightKind existing) ||
+            (uint)highlight > (uint)existing)
+        {
+            surfaces[surface] = highlight;
+        }
+    }
+
+    private static bool TryCreateTargetSurface(
+        MatchView view,
+        Target? target,
+        out HotseatSurfaceRef surface)
+    {
+        if (target is { Kind: TargetKind.Leader })
+        {
+            surface = HotseatSurfaceRef.Leader(target.Player);
+            return true;
+        }
+        if (target is { Kind: TargetKind.Unit, Unit: { } unit } &&
+            TryFindSurfaceRef(view, unit, out surface))
+        {
+            return true;
+        }
+
+        surface = default;
+        return false;
+    }
+
+    private void ClearLegacyBoardPools(bool keepHand)
+    {
+        foreach (string path in new[]
+                 {
+                     "%OpponentTactics", "%OpponentUnits", "%OwnUnits", "%OwnTactics",
+                 })
+        {
+            ClearPool(GetNode<Container>(path));
+        }
+        if (!keepHand)
+        {
+            ClearPool(GetNode<Container>("%HandCards"));
+        }
     }
 
     private void PopulateSlots(
@@ -1681,27 +3210,66 @@ public sealed partial class MatchScreen : Control
             return;
         }
 
-        switch (binding.Surface)
+        if (binding.Surface == SlotSurface.Hand &&
+            _controller?.State.Mode == HotseatUiMode.MulliganSelecting)
         {
-            case SlotSurface.Hand:
-                OnHandCardRequested(slot, binding.Card!);
-                break;
-            case SlotSurface.Board:
-                OnBoardSlotRequested(
-                    slot,
-                    binding.Player,
-                    binding.Zone,
-                    binding.Index,
-                    binding.Card);
-                break;
-            case SlotSurface.Standby:
-                if (binding.Card?.InstanceId is { } source &&
-                    binding.Player == _controller?.State.Viewer)
-                {
-                    TrySelectSource(source);
-                }
-                break;
+            OnHandCardRequested(slot, binding.Card!);
+            return;
         }
+
+        if (_ciSuppressAutoPrepare)
+        {
+            switch (binding.Surface)
+            {
+                case SlotSurface.Hand when binding.Card is not null:
+                    OnHandCardRequested(slot, binding.Card);
+                    return;
+                case SlotSurface.Board:
+                    OnBoardSlotRequested(
+                        slot,
+                        binding.Player,
+                        binding.Zone,
+                        binding.Index,
+                        binding.Card);
+                    return;
+                case SlotSurface.Standby when binding.Card?.InstanceId is { } source:
+                    TrySelectSourceLegacyForCi(source);
+                    return;
+            }
+        }
+
+        if (_controller?.State is not { } state ||
+            state.Mode is not HotseatUiMode.Action and not HotseatUiMode.Reaction ||
+            !TryCreateInteractionSurfaceRef(state, binding, out HotseatSurfaceRef surface))
+        {
+            slot.SetSelected(false);
+            return;
+        }
+
+        RunUiAction(() => ApplySurfaceIntent(new HotseatSurfaceIntent(
+            state.Interaction.Revision,
+            HotseatSurfaceGesture.Click,
+            surface)));
+    }
+
+    private static bool TryCreateInteractionSurfaceRef(
+        HotseatUiState state,
+        SlotBinding binding,
+        out HotseatSurfaceRef surface)
+    {
+        if (state.Interaction.Step == HotseatSelectionStep.ChooseSlot &&
+            state.Interaction.Action.HasValue &&
+            binding.Player == state.Viewer &&
+            state.Interaction.Slots.Contains((ulong)binding.Index) &&
+            IsSlotZoneForAction(state.Interaction.Action.Value, binding.Zone))
+        {
+            surface = binding.Zone == Zone.Unit
+                ? HotseatSurfaceRef.UnitSlot(binding.Player, binding.Index)
+                : HotseatSurfaceRef.TacticSlot(binding.Player, binding.Index);
+            return true;
+        }
+
+        return TryCreateSurfaceRef(binding, out surface);
     }
 
     private void OnBoundSlotHovered(SnapshotSlot slot)
@@ -1712,7 +3280,7 @@ public sealed partial class MatchScreen : Control
             return;
         }
 
-        _dock.CardDetails.ShowCard(card, "卡牌详情（右键固定）");
+        ActiveCardDetails.ShowCard(card, "卡牌详情（右键固定）");
     }
 
     private void OnBoundSlotSecondaryActivated(SnapshotSlot slot)
@@ -1729,13 +3297,13 @@ public sealed partial class MatchScreen : Control
         {
             _detailsPinned = false;
             _pinnedCardId = null;
-            _dock.CardDetails.ShowPlaceholder();
+            ActiveCardDetails.ShowPlaceholder();
             return;
         }
 
         _detailsPinned = true;
         _pinnedCardId = id;
-        _dock.CardDetails.ShowCard(card, "已固定卡牌详情（再次右键取消）");
+        ActiveCardDetails.ShowCard(card, "已固定卡牌详情（再次右键取消）");
     }
 
     private void OnBoundSlotDragStarted(SnapshotSlot slot)
@@ -1759,15 +3327,64 @@ public sealed partial class MatchScreen : Control
     {
         if (_dragSourceSlot is null ||
             !_slotBindings.TryGetValue(_dragSourceSlot, out SlotBinding? source) ||
-            source.Card?.InstanceId is not { } sourceId ||
+            source.Card?.InstanceId is null ||
             !_slotBindings.TryGetValue(destination, out SlotBinding? target))
         {
             return;
         }
 
-        ResolveDragAction(sourceId, target);
+        if (_controller?.State is { } state &&
+            TryCreateSurfaceRef(source, out HotseatSurfaceRef sourceSurface) &&
+            TryCreateSurfaceRef(target, out HotseatSurfaceRef destinationSurface))
+        {
+            if (_ciSuppressAutoPrepare && source.Card?.InstanceId is { } sourceId)
+            {
+                ResolveDragAction(sourceId, target);
+            }
+            else
+            {
+                RunUiAction(() => ApplySurfaceIntent(new HotseatSurfaceIntent(
+                    state.Interaction.Revision,
+                    HotseatSurfaceGesture.Drag,
+                    sourceSurface)
+                {
+                    Destination = destinationSurface,
+                }));
+            }
+        }
         _dragSourceSlot = null;
         _dragStartRevision = null;
+    }
+
+    private static bool TryCreateSurfaceRef(
+        SlotBinding binding,
+        out HotseatSurfaceRef surface)
+    {
+        ulong? instanceId = binding.Card?.InstanceId;
+        switch (binding.Surface, binding.Zone, instanceId)
+        {
+            case (SlotSurface.Hand, Zone.Hand, { } id):
+                surface = HotseatSurfaceRef.HandCard(binding.Player, binding.Index, id);
+                return true;
+            case (SlotSurface.Board, Zone.Unit, { } id):
+                surface = HotseatSurfaceRef.Unit(binding.Player, binding.Index, id);
+                return true;
+            case (SlotSurface.Board, Zone.Unit, null):
+                surface = HotseatSurfaceRef.UnitSlot(binding.Player, binding.Index);
+                return true;
+            case (SlotSurface.Board, Zone.Tactic, { } id):
+                surface = HotseatSurfaceRef.Tactic(binding.Player, binding.Index, id);
+                return true;
+            case (SlotSurface.Board, Zone.Tactic, null):
+                surface = HotseatSurfaceRef.TacticSlot(binding.Player, binding.Index);
+                return true;
+            case (SlotSurface.Standby, Zone.Standby, { } id):
+                surface = HotseatSurfaceRef.StandbyCard(binding.Player, binding.Index, id);
+                return true;
+            default:
+                surface = default;
+                return false;
+        }
     }
 
     private void ResolveDragAction(ulong source, SlotBinding destination)
@@ -1938,7 +3555,14 @@ public sealed partial class MatchScreen : Control
 
         if (state.Mode is HotseatUiMode.Action or HotseatUiMode.Reaction)
         {
-            TrySelectSource(id.Value);
+            if (_ciSuppressAutoPrepare)
+            {
+                TrySelectSourceLegacyForCi(id.Value);
+            }
+            else
+            {
+                TrySelectSource(id.Value);
+            }
         }
         else
         {
@@ -1996,7 +3620,14 @@ public sealed partial class MatchScreen : Control
 
         if (cardId.HasValue)
         {
-            TrySelectSource(cardId.Value);
+            if (_ciSuppressAutoPrepare)
+            {
+                TrySelectSourceLegacyForCi(cardId.Value);
+            }
+            else
+            {
+                TrySelectSource(cardId.Value);
+            }
         }
         else
         {
@@ -2007,19 +3638,16 @@ public sealed partial class MatchScreen : Control
     private void OnLeaderRequested(bool own)
     {
         if (_controller?.State is not { Snapshot: { } view } state ||
-            state.Mode is not HotseatUiMode.Action and not HotseatUiMode.Reaction ||
-            state.Interaction.Step != HotseatSelectionStep.ChooseTarget)
+            state.Mode is not HotseatUiMode.Action and not HotseatUiMode.Reaction)
         {
             return;
         }
 
-        Target target = Target.Leader(own ? view.Viewer : Other(view.Viewer));
-        if (state.Interaction.Targets.Any(option => Equals(option, target)))
-        {
-            SelectAndMaybePrepare(
-                () => _controller.SelectTarget(target),
-                autoPrepareWhenReady: true);
-        }
+        PlayerId targetPlayer = own ? view.Viewer : Other(view.Viewer);
+        RunUiAction(() => ApplySurfaceIntent(new HotseatSurfaceIntent(
+            state.Interaction.Revision,
+            HotseatSurfaceGesture.Click,
+            HotseatSurfaceRef.Leader(targetPlayer))));
     }
 
     private void OnLeaderDropped(bool own)
@@ -2027,7 +3655,7 @@ public sealed partial class MatchScreen : Control
         if (_controller?.State is not { Snapshot: { } view } state ||
             _dragSourceSlot is null ||
             !_slotBindings.TryGetValue(_dragSourceSlot, out SlotBinding? binding) ||
-            binding.Card?.InstanceId is not { } source)
+            binding.Card?.InstanceId is null)
         {
             return;
         }
@@ -2039,8 +3667,17 @@ public sealed partial class MatchScreen : Control
             return;
         }
 
-        Target target = Target.Leader(own ? view.Viewer : Other(view.Viewer));
-        ResolveDragTarget(source, target);
+        if (TryCreateSurfaceRef(binding, out HotseatSurfaceRef sourceSurface))
+        {
+            PlayerId targetPlayer = own ? view.Viewer : Other(view.Viewer);
+            RunUiAction(() => ApplySurfaceIntent(new HotseatSurfaceIntent(
+                state.Interaction.Revision,
+                HotseatSurfaceGesture.Drag,
+                sourceSurface)
+            {
+                Destination = HotseatSurfaceRef.Leader(targetPlayer),
+            }));
+        }
         _dragSourceSlot = null;
         _dragStartRevision = null;
     }
@@ -2049,7 +3686,7 @@ public sealed partial class MatchScreen : Control
     {
         if (_controller?.State is not { } state || _dragSourceSlot is null ||
             !_slotBindings.TryGetValue(_dragSourceSlot, out SlotBinding? binding) ||
-            binding.Card?.InstanceId is not { } source)
+            binding.Card?.InstanceId is null)
         {
             return;
         }
@@ -2061,32 +3698,19 @@ public sealed partial class MatchScreen : Control
             return;
         }
 
-        ActionKind[] actions = state.LegalActions
-            .Where(action => action.Command.Source == source &&
-                             action.Command.Target is null &&
-                             !action.Command.Slot.HasValue &&
-                             !action.Command.ComponentDonor.HasValue)
-            .Select(action => action.Command.Action)
-            .Distinct()
-            .ToArray();
-        if (actions.Length != 1)
+        if (!TryCreateSurfaceRef(binding, out HotseatSurfaceRef sourceSurface))
         {
             return;
         }
 
-        RunUiAction(() =>
+        RunUiAction(() => ApplySurfaceIntent(new HotseatSurfaceIntent(
+            state.Interaction.Revision,
+            HotseatSurfaceGesture.Drag,
+            sourceSurface)
         {
-            _controller.BeginSourceSelection(source);
-            if (_controller.State.Interaction.Step == HotseatSelectionStep.ChooseAction)
-            {
-                _controller.ChooseAction(actions[0]);
-            }
-            if (!_ciSuppressAutoPrepare &&
-                _controller.State.Interaction.Step == HotseatSelectionStep.Ready)
-            {
-                PrepareAndSubmitSelection();
-            }
-        });
+            Destination = HotseatSurfaceRef.CastZone(),
+            Action = ActionKind.CastSpell,
+        }));
         _dragSourceSlot = null;
         _dragStartRevision = null;
     }
@@ -2178,7 +3802,7 @@ public sealed partial class MatchScreen : Control
 
     private void TrySelectSource(ulong source)
     {
-        if (_controller?.State is not { } state ||
+        if (_controller?.State is not { Snapshot: { } view } state ||
             state.Mode is not HotseatUiMode.Action and not HotseatUiMode.Reaction)
         {
             return;
@@ -2191,6 +3815,24 @@ public sealed partial class MatchScreen : Control
             .OrderBy(action => (uint)action)
             .ToArray();
         if (actions.Length == 0)
+        {
+            return;
+        }
+
+        if (TryFindSurfaceRef(view, source, out HotseatSurfaceRef surface))
+        {
+            RunUiAction(() => ApplySurfaceIntent(new HotseatSurfaceIntent(
+                state.Interaction.Revision,
+                HotseatSurfaceGesture.Click,
+                surface)));
+        }
+    }
+
+    private void TrySelectSourceLegacyForCi(ulong source)
+    {
+        if (_controller?.State is not { } state ||
+            state.Mode is not HotseatUiMode.Action and not HotseatUiMode.Reaction ||
+            !state.LegalActions.Any(action => action.Command.Source == source))
         {
             return;
         }
@@ -2322,6 +3964,12 @@ public sealed partial class MatchScreen : Control
 
     private void UpdateTargetingLine(HotseatUiState state)
     {
+        if (!_legacy2dBoard)
+        {
+            _targetingLine.Stop();
+            return;
+        }
+
         if (state.Interaction.Action != ActionKind.Attack ||
             state.Interaction.Step != HotseatSelectionStep.ChooseTarget ||
             state.Interaction.Source is not { } source)
@@ -2363,13 +4011,32 @@ public sealed partial class MatchScreen : Control
         GetNode<Label>("%OpponentZones").Text = FormatPublicZoneSummary(opponent);
         GetNode<Label>("%OwnSummary").Text = FormatPublicPlayerSummary(own, "己方");
         GetNode<Label>("%OwnZones").Text = FormatPublicZoneSummary(own);
+        GetNode<Label>("%OpponentResourceLabel").Text = FormatPublicRailResources(opponent, "对手");
+        GetNode<Label>("%OwnResourceLabel").Text = FormatPublicRailResources(own, "己方");
         GetNode<Label>("%PrivacyProof").Text =
             $"结算隐私：玩家 0 手牌 {board.Players[0].HandCount}，玩家 1 手牌 {board.Players[1].HandCount}；身份均未保留。";
 
-        PopulatePublicSlots(GetNode<Container>("%OpponentTactics"), opponent.Tactics, "策略");
-        PopulatePublicSlots(GetNode<Container>("%OpponentUnits"), opponent.Units, "单位");
-        PopulatePublicSlots(GetNode<Container>("%OwnUnits"), own.Units, "单位");
-        PopulatePublicSlots(GetNode<Container>("%OwnTactics"), own.Tactics, "策略");
+        if (_legacy2dBoard)
+        {
+            PopulatePublicSlots(GetNode<Container>("%OpponentTactics"), opponent.Tactics, "策略");
+            PopulatePublicSlots(GetNode<Container>("%OpponentUnits"), opponent.Units, "单位");
+            PopulatePublicSlots(GetNode<Container>("%OwnUnits"), own.Units, "单位");
+            PopulatePublicSlots(GetNode<Container>("%OwnTactics"), own.Tactics, "策略");
+        }
+        else
+        {
+            ClearLegacyBoardPools(keepHand: false);
+            int cardPoolSize = _battlefield3d.CiCardPoolSize;
+            int slotPoolSize = _battlefield3d.CiSlotPoolSize;
+            _battlefield3d.RenderPublic(board, ownPlayer);
+            if (cardPoolSize > 0 && slotPoolSize > 0 &&
+                _battlefield3d.CiCardPoolSize == cardPoolSize &&
+                _battlefield3d.CiSlotPoolSize == slotPoolSize)
+            {
+                _ciActorPoolReuses++;
+            }
+            _battlefield3d.SetInputEnabled(false);
+        }
         PopulateOpponentHandBacks(GetNode<Container>("%OpponentHandBacks"), opponent.HandCount);
         ClearPool(GetNode<Container>("%HandCards"));
 
@@ -2419,6 +4086,16 @@ public sealed partial class MatchScreen : Control
         $"当前 PP {player.CurrentPp} / 容量 {player.PpCapacity}    " +
         $"裂痕 {player.Cracks}    进化能量 {player.EvolutionEnergy}";
 
+    private static string FormatRailResources(PlayerView player, string relation) =>
+        $"{relation} · 生命 {player.LeaderHealth}/{player.MaximumLeaderHealth} · " +
+        $"PP {player.CurrentPp}/{player.PpCapacity} · 裂痕 {player.Cracks} · 进化 {player.EvolutionEnergy}";
+
+    private static string FormatPublicRailResources(
+        HotseatPublicPlayerView player,
+        string relation) =>
+        $"{relation} · 生命 {player.LeaderHealth}/{player.MaximumLeaderHealth} · " +
+        $"PP {player.CurrentPp}/{player.PpCapacity} · 裂痕 {player.Cracks} · 进化 {player.EvolutionEnergy}";
+
     private static string FormatPublicZoneSummary(HotseatPublicPlayerView player) =>
         $"手牌 {player.HandCount} · 牌组 {player.DeckCount} · " +
         $"战备 {player.Standby.Count} · 墓地 {player.Graveyard.Count} · 封存 {player.Archive.Count}";
@@ -2438,6 +4115,9 @@ public sealed partial class MatchScreen : Control
     private int CountResolvingPrivateLeaks(HotseatUiState state)
     {
         int leaks = 0;
+        int spatialLeaks = CountSpatialPrivateLeaks(requireEmpty: false);
+        _ciSpatialPrivateLeaks += spatialLeaks;
+        leaks += spatialLeaks;
         if (state.Snapshot is not null || state.Viewer.HasValue || state.AwaitingPlayer.HasValue ||
             state.LegalActions.Count != 0 || state.Events.Count != 0 || state.PendingEvents.Count != 0)
         {
@@ -2453,6 +4133,7 @@ public sealed partial class MatchScreen : Control
         if (_directActions.HasSensitiveContentForSmoke ||
             _reactionOverlay.HasSensitiveContentForSmoke ||
             _dock.CardDetails.HasSensitiveContentForSmoke ||
+            _battlefieldDetails.HasSensitiveContentForSmoke ||
             _dock.EventLog.HasSensitiveContentForSmoke ||
             _dock.Actions.HasSensitiveContentForSmoke ||
             _dock.Confirmation.HasSensitiveContentForSmoke ||
@@ -2540,7 +4221,7 @@ public sealed partial class MatchScreen : Control
             GrantedComponent = template.GrantedComponent,
         };
 
-        _dock.CardDetails.ShowCard(malicious, PrivacySentinel);
+        ActiveCardDetails.ShowCard(malicious, PrivacySentinel);
         _dock.Actions.Present(PrivacySentinel, [ActionKind.Surrender], canCancel: true);
         _directActions.Present(
             PrivacySentinel,
@@ -2550,10 +4231,21 @@ public sealed partial class MatchScreen : Control
         _directCallbacks[PrivacySentinel] = () =>
             throw new InvalidOperationException("A private sentinel callback survived resolving.");
 
-        SnapshotSlot handSlot = _slotPools[GetNode<Container>("%HandCards")]
-            .First(slot => slot.Visible);
-        handSlot.ShowCard(malicious, PrivacySentinel, 0, selectable: true);
-        handSlot.ArmPrivacySentinelForSmoke(PrivacySentinel);
+        Container handContainer = GetNode<Container>("%HandCards");
+        SnapshotSlot? handSlot = _slotPools.TryGetValue(
+            handContainer,
+            out List<SnapshotSlot>? handSlots)
+            ? handSlots.FirstOrDefault(slot => slot.Visible)
+            : null;
+        if (handSlot is not null)
+        {
+            handSlot.ShowCard(malicious, PrivacySentinel, 0, selectable: true);
+            handSlot.ArmPrivacySentinelForSmoke(PrivacySentinel);
+        }
+        if (!_legacy2dBoard)
+        {
+            _battlefield3d.CiArmPrivacySentinel(PrivacySentinel);
+        }
     }
 
     private static int CountPrivacySentinelLeaks(Node root)
@@ -2735,6 +4427,7 @@ public sealed partial class MatchScreen : Control
     {
         _directCallbacks.Clear();
         _dragSourceSlot = null;
+        _dragStartRevision = null;
         _detailsPinned = false;
         _pinnedCardId = null;
         _targetingLine.Stop();
@@ -2742,6 +4435,13 @@ public sealed partial class MatchScreen : Control
         _standbyTray.Visible = false;
         _directActions.ClearSensitive();
         _reactionOverlay.ClearSensitive();
+        if (!_legacy2dBoard && _battlefield3d is not null &&
+            GodotObject.IsInstanceValid(_battlefield3d))
+        {
+            _battlefield3d.ClearSensitive();
+            _battlefield3d.SetInputEnabled(false);
+            _ciSpatialPrivateLeaks += CountSpatialPrivateLeaks(requireEmpty: true);
+        }
 
         foreach (string path in new[]
                  {
@@ -2759,6 +4459,7 @@ public sealed partial class MatchScreen : Control
         foreach (string path in new[]
                  {
                      "%OpponentSummary", "%OpponentZones", "%OwnSummary", "%OwnZones", "%PrivacyProof",
+                     "%OpponentResourceLabel", "%OwnResourceLabel",
                  })
         {
             GetNode<Label>(path).Text = string.Empty;
@@ -2780,6 +4481,33 @@ public sealed partial class MatchScreen : Control
         }
 
         _dock.ClearSensitive();
+        _battlefieldDetails.ClearSensitive();
+    }
+
+    private int CountSpatialPrivateLeaks(bool requireEmpty)
+    {
+        if (_legacy2dBoard || _battlefield3d is null ||
+            !GodotObject.IsInstanceValid(_battlefield3d))
+        {
+            return 0;
+        }
+
+        int leaks = 0;
+        leaks += _battlefield3d.InputEnabled ? 1 : 0;
+        leaks += _battlefield3d.CiHasActiveDrag ? 1 : 0;
+        leaks += _battlefield3d.CiStableSurfaceLookupCount;
+        leaks += _battlefield3d.CiCollisionEnabledCount;
+        leaks += _battlefield3d.CiCountForbiddenToken(PrivacySentinel);
+        leaks += _battlefield3d.CiTargetArrowVisible ? 1 : 0;
+        leaks += _battlefield3d.CiPlacementGhostVisible ? 1 : 0;
+        leaks += _battlefield3d.CiOutlineVisibleCount;
+        if (requireEmpty)
+        {
+            leaks += _battlefield3d.Revision != 0 ? 1 : 0;
+            leaks += _battlefield3d.CiActiveCardCount;
+            leaks += _battlefield3d.CiActiveSlotCount;
+        }
+        return leaks;
     }
 
     private void ShowFault(string safeMessage, bool canRetry)
@@ -2793,7 +4521,7 @@ public sealed partial class MatchScreen : Control
 
     private void HandleFatal(Exception exception)
     {
-        GD.PushError($"Gate 3C match flow failed: {exception}");
+        GD.PushError($"Gate 4A match flow failed: {exception}");
         ShowFault(
             "客户端无法安全地继续这局比赛。已清除观看者数据；可重新开始或返回主菜单。",
             canRetry: true);
@@ -2824,6 +4552,7 @@ public sealed partial class MatchScreen : Control
             _controller.StateChanged -= OnControllerStateChanged;
             _controller.Dispose();
             _controller = null;
+            _surfaceCoordinator = null;
             _disposedSessionCount++;
         }
 
@@ -2835,6 +4564,7 @@ public sealed partial class MatchScreen : Control
         _preparedActionKind = null;
         _lastVisibleViewer = null;
         _dragSourceSlot = null;
+        _dragStartRevision = null;
         _minimumResolvingFrames = int.MaxValue;
         _currentResolvingFrames = 0;
         _resolvingPrivateLeakCount = 0;
@@ -2852,6 +4582,18 @@ public sealed partial class MatchScreen : Control
         _ciPrivacySentinelFrameAuditPending = false;
         _ciResolvingScreenshotPath = null;
         _ciResolvingScreenshotCaptured = false;
+        _ciSurfaceIntentE2e = false;
+        _renderedPerspectiveViewer = null;
+        _ciPerspectiveRebuilds = 0;
+        _ciActorPoolReuses = 0;
+        _ciHudRaycastBlocks = 0;
+        _ciBlockedSpatialInputs = 0;
+        _ciSpatialPrivateLeaks = 0;
+        _hasRendered3d = false;
+        _ciRaycastE2e = false;
+        _ciPhysicalDragSubmitted = false;
+        _ciKeyboardE2e = false;
+        _ciExternalStandbyDrag = false;
         _successfulActionKinds.Clear();
         _coverPresentationCount = 0;
         _revealRequestCount = 0;

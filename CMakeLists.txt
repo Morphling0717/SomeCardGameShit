@@ -223,6 +223,11 @@ if(SCGS_ENABLE_LEGACY_YGO2_TESTS)
         COMMAND ${Python3_EXECUTABLE} -m unittest scripts.tests.test_validate_gate3c_report
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
+    add_test(
+        NAME scgs_gate4a_report_contract
+        COMMAND ${Python3_EXECUTABLE} -m unittest scripts.tests.test_validate_gate4a_report
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
 endif()
 
 install(

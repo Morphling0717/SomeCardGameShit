@@ -4,7 +4,8 @@
 
 [node name="DirectActionPanel" type="PanelContainer"]
 visible = false
-custom_minimum_size = Vector2(540, 100)
+custom_minimum_size = Vector2(360, 92)
+mouse_filter = 2
 script = ExtResource("1_script")
 
 [node name="Margin" type="MarginContainer" parent="."]
@@ -25,7 +26,7 @@ theme_override_colors/font_color = Color(0.62, 0.91, 0.86, 1)
 theme_override_font_sizes/font_size = 17
 text = "选择行动"
 horizontal_alignment = 1
-autowrap_mode = 2
+text_overrun_behavior = 3
 
 [node name="DirectPayment" type="Label" parent="Margin/Layout"]
 unique_name_in_owner = true
@@ -34,7 +35,7 @@ layout_mode = 2
 theme_override_colors/font_color = Color(0.98, 0.71, 0.34, 1)
 theme_override_font_sizes/font_size = 14
 horizontal_alignment = 1
-autowrap_mode = 2
+text_overrun_behavior = 3
 
 [node name="Row" type="HBoxContainer" parent="Margin/Layout"]
 layout_mode = 2

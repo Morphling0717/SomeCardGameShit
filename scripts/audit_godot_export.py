@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit a finalized Gate 3C Windows or macOS Godot export."""
+"""Audit a finalized Gate 4A Windows or macOS Godot export."""
 
 from __future__ import annotations
 
@@ -101,8 +101,8 @@ def _audit_licenses(directory: Path, expected_commit: str | None = None) -> None
             raise ExportAuditError(f"packaged notice has unexpected content: {path}")
     build_info = (directory / "BUILD_INFO.txt").read_text(encoding="utf-8")
     lines = build_info.splitlines()
-    if not lines or lines[0] != "SomeCardGameShit Gate 3C":
-        raise ExportAuditError("packaged build info does not identify Gate 3C")
+    if not lines or lines[0] != "SomeCardGameShit Gate 4A":
+        raise ExportAuditError("packaged build info does not identify Gate 4A")
     entries: dict[str, str] = {}
     for line in lines[1:]:
         if line.count("=") != 1:

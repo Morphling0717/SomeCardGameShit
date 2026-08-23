@@ -1,4 +1,4 @@
-# 工程交接：Gate 3B 完整热座 → Gate 3C 直接交互
+# 工程交接：Gate 3C 直接交互 → Gate 4A 默认 3D/2.5D
 
 > 现行交接文档。旧 [`DSH-HANDOFF.md`](DSH-HANDOFF.md) 与 [`ygopro-integration.md`](ygopro-integration.md) 是历史归档，不是执行指令。
 
@@ -12,23 +12,25 @@
 - Gate 3B 已验收尖端：`codex/godot-hotseat-gate3b@dd38e93`
 - Gate 3B 被测实现：`9845a3fc89442e2f2066ae0265e8478e03b52632`
 - Gate 3B 自动验收：GitHub Actions run [`32583321294`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32583321294)，4/4 jobs 全绿
-- Gate 3C 工作分支：`codex/godot-hotseat-gate3c`
-- Gate 3C 最终被测提交与 CI：实现完成后只按 [`../TEST_REPORT.md`](../TEST_REPORT.md) 的真实结果填写，不沿用 Gate 3B run
+- Gate 3C 已验收尖端：`codex/godot-hotseat-gate3c@a29dd14`
+- Gate 3C 被测实现：`087d53a5dad3285478e78381914d34acfcaa79f3`；自动验收 run `32592594368`
+- Gate 4A 工作分支：`codex/godot-hotseat-gate4a`
+- Gate 4A 最终被测提交与 CI：完成后只按 [`../TEST_REPORT.md`](../TEST_REPORT.md) 的真实结果填写，不沿用 Gate 3C run
 - 规则真值：[`rules-v0.4.md`](rules-v0.4.md)，用户最新明确决定优先于旧文档歧义
 - 客户端架构：[`godot-client-architecture.md`](godot-client-architecture.md)
 - UI 状态：[`ui-state-map.md`](ui-state-map.md)
 - 验收清单：[`hotseat-acceptance.md`](hotseat-acceptance.md)
 - 真实构建/测试/CI：[`../TEST_REPORT.md`](../TEST_REPORT.md)
 
-Gate 3C 保留 Gate 3B 的完整对局、原生与导出基线，把开发式“右栏行动 → 通用确认 → 每次全屏遮挡”改为战场直接操作、复杂分支上下文提示和中立公开结算投影。本文描述源码职责和必须保持的约束；详细命令、数量、制品摘要和未完成边界只以 `TEST_REPORT.md` 为准。
+Gate 4A 保留 Gate 3C 的完整对局、直接交互、公共投影、原生与导出基线，只把战场表现升级为默认 3D/2.5D，并保留隐藏 legacy 2D 回归。本文描述源码职责和必须保持的约束；详细命令、数量、制品摘要和未完成边界只以 `TEST_REPORT.md` 为准。
 
 本 Gate 不修改 legacy v1 wire 字节，不改变 `scgs_v04` ABI 1.0/schema 1/精确 14 导出，不提交原生 DLL/dylib，不创建 PR、不合并、不打标签。
 
 ## 1. 不可推翻的架构决定
 
 ```text
-Godot 4.7.2 .NET Match/观看者 UI（net8.0，主线程）
-        ↓ 只渲染状态并传递点击
+Godot 4.7.2 .NET 默认 3D / hidden legacy 2D（net8.0，主线程）
+        ↓ 只渲染状态并传递 surface intent
 Scgs.Hotseat（net8.0 + net10.0，无 Godot 依赖）
         ↓ 只依赖接口
 IScgsGameSession / Scgs.Client（net8.0 + net10.0）
@@ -69,7 +71,7 @@ Game / C++20 规则引擎（唯一规则真值）
 - `SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认开启；开启时必须找到 Python 3.10+，不得静默少跑。
 - legacy v1 wire 的 ID、字段顺序、长度、字节序和金标保持不变。
 
-## 3. Gate 3B 引擎/API 基线（Gate 3C 不修改）
+## 3. Gate 3B 引擎/API 基线（Gate 3C/4A 不修改）
 
 - `PaymentPreview` 与实际支付共享费用投影，只描述 PP、容量、裂痕、进化能量与费用组成；它不结算效果，也不因隐藏伏策存在与否改变结果。
 - 部署、进化和普通卡牌支付都走同一投影；提交时仍进行完整规则验证。
@@ -133,15 +135,17 @@ client/
 
 调度 review 是隐私流程的一部分：替换手牌只向刚提交调度的 viewer 展示。`CompleteMulliganReview()` 之后才允许切到下一席。
 
-所有命令采用两阶段提交：`PrepareSelectedCommand()` 只冻结规范命令并清空 viewer 私密状态，发布仅含公开信息的 `Resolving`；Godot 完整绘制至少两帧后才调用 `SubmitPreparedCommand()`。同一操作者继续时刷新原 viewer，操作者变化时转入完全不透明的 `Covered(PassingDevice)`，不得偷读新 viewer。
+所有命令采用两阶段提交：`PrepareSelectedCommand()` 只冻结规范命令并清空 viewer 私密状态，发布仅含公开信息的 `Resolving`；显示环境经过至少两个 `FramePostDraw`（headless 使用两次 process-frame 栅栏）后才调用 `SubmitPreparedCommand()`。同一操作者继续时刷新原 viewer，操作者变化时转入完全不透明的 `Covered(PassingDevice)`，不得偷读新 viewer。
 
 ## 6. Godot 场景与交互
 
-主场景仍为 `Bootstrap`、`MainMenu`、`Match`、`PassDeviceOverlay`。Gate 3C 的交互层直接连接手牌、单位/策略、战备、主战者和空位，并以来源旁上下文动作、居中响应、详情/日志和投降确认承载复杂分支。
+主场景仍为 `Bootstrap`、`MainMenu`、`Match`、`PassDeviceOverlay`。Gate 4A 默认由 3D presenter 绘制战场，`CanvasLayer` HUD 承载资源、详情、日志、上下文动作、响应和投降确认；只有精确参数 `--legacy-2d-board` 启用旧 2D presenter，且主菜单不得提供该切换。
 
 Gate 3B 的 `ActionPromptPanel` / `ConfirmationPanel` 场景可以暂留作源码兼容，但 Gate 3C 的常规行动不得再经它们完成；专用调度与投降确认不受此限制。
 
-`Match` 结构化渲染双方生命、PP、容量、裂痕、进化能量、牌组/手牌数量、战备、墓地/封存、5 个单位位、3 个策略位、己方真实手牌和对方无身份牌背。点击或拖拽只产生选择 intent 并过滤引擎候选，不直接修改战场。单一动作自动进入下一必要步骤，多动作才在来源旁弹出按钮；无效拖放原位回弹且不调用 native。
+`Match` 结构化渲染双方生命、PP、容量、裂痕、进化能量、牌组/手牌数量、战备、墓地/封存、5 个单位位、3 个策略位、己方真实手牌和对方无身份牌背。3D 与 legacy 2D 都把命中映射为 `HotseatSurfaceRef`，再由共同协调器产生选择 intent 并过滤引擎候选，不直接修改战场。单一动作自动进入下一必要步骤，多动作才在来源旁弹出按钮；无效拖放原位回弹且不调用 native。
+
+3D 相机固定 70° FOV、约 58° 俯角，当前 viewer 在近端且透视只在完全遮挡内重建。HUD hit-test 优先于空间 raycast；移动达到 8 px 才成为拖拽。`Covered`、`Resolving`、调度、终局、错误和销毁状态均锁死空间输入。actor 归还池时必须清空文字、材质、tooltip、metadata、碰撞、signal/callback、拖拽 token 和 DTO 引用。
 
 响应页显示公开 origin、响应深度、responder、可发动伏策和“不过”。事件日志由 DTO 转为中文，并在完成渲染后 ACK；隐藏事件文本仍由 native 保证无卡名/稳定 ID。
 
@@ -160,12 +164,12 @@ Gate 3B 的 `ActionPromptPanel` / `ConfirmationPanel` 场景可以暂留作源�
 
 - Windows 产品 DLL 使用 `/MT`，审计禁止动态 MSVC runtime。
 - macOS CI 使用派生 arm64 template，放置 dylib 后重新 ad-hoc codesign，所有 Mach-O 必须 arm64-only。
-- 两个平台导出包携带 GPL、Godot/.NET/nlohmann/Noto 和第三方声明；`BUILD_INFO.txt` 必须精确记录 Gate 3C、锁定工具链和当前 CI checkout commit。
+- 两个平台导出包携带 GPL、Godot/.NET/nlohmann/Noto 和第三方声明；`BUILD_INFO.txt` 必须精确记录 Gate 4A、锁定工具链和当前 CI checkout commit。
 - smoke 必须有超时、只出现一次 `SCGS_GODOT_CI_SMOKE_OK`，并拒绝 Godot error/C# exception。
-- Gate 3C 结构化报告使用 schema version 2 固定字段白名单；强制真实 signal E2E 覆盖 `ActionKind` 0～10、点击/拖拽规范命令一致、最后必要选择后无通用确认、每次公共投影至少两个完整帧、结果页真实重开及第二局投降终局，且 `premature_view_calls` 与 `resolving_private_leaks` 都为 0、两局 session 均释放。
+- Gate 4A 结构化报告使用 schema version 3 固定字段白名单；它完整继承 Gate 3C 的 `ActionKind` 0～10、真实 signal 两局、选择、公共投影、viewer 和释放约束，并新增 presentation、surface/raycast、HUD、8 px、70°/58°、透视、actor 池、锁定输入与空间隐私证据。
 - zip 必须解包到新目录后重新审计并真实启动，不能只验证压缩前目录。
 
-Gate 3B run `32583321294` 只是回归基线。Gate 3C 必须在最终分支尖端重新验证唯一 marker、严格 v2 整局报告、Windows/macOS 导出及 ZIP 解包后再次审计/启动，并上传 `SomeCardGameShit-gate3c-*` 制品。不能在真实 run 完成前把 Gate 3B 的数量、摘要或全绿结论复制为 Gate 3C 结果。
+Gate 3C run `32592594368` 只是回归基线。Gate 4A 必须在最终分支尖端验证严格 v3 报告：Windows/macOS 各运行默认 3D 当前工程、默认 3D 导出、默认 3D ZIP 往返和一次 legacy 2D 源码整局，并上传 `SomeCardGameShit-gate4a-*` 制品。不能在真实 run 完成前把 Gate 3C 的数量、摘要或全绿结论复制为 Gate 4A 结果。
 
 ## 8. 接手者必须完成的发布前硬门
 

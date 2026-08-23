@@ -1,4 +1,4 @@
-[gd_scene load_steps=10 format=3]
+[gd_scene load_steps=12 format=3]
 
 [ext_resource type="Script" path="res://scripts/Match/MatchScreen.cs" id="1_script"]
 [ext_resource type="PackedScene" path="res://scenes/overlays/PassDeviceOverlay.tscn" id="2_privacy"]
@@ -9,6 +9,8 @@
 [ext_resource type="PackedScene" path="res://scenes/panels/ReactionPanel.tscn" id="7_reaction"]
 [ext_resource type="Script" path="res://scripts/UI/DirectDropButton.cs" id="8_drop"]
 [ext_resource type="Script" path="res://scripts/UI/TargetingLine.cs" id="9_line"]
+[ext_resource type="PackedScene" path="res://scenes/battlefield/Battlefield3D.tscn" id="10_battlefield"]
+[ext_resource type="PackedScene" path="res://scenes/panels/CardDetailPanel.tscn" id="11_card_details"]
 
 [node name="Match" type="Control"]
 layout_mode = 3
@@ -19,6 +21,15 @@ grow_horizontal = 2
 grow_vertical = 2
 script = ExtResource("1_script")
 
+[node name="Battlefield3D" parent="." instance=ExtResource("10_battlefield")]
+unique_name_in_owner = true
+
+[node name="HudLayer" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="ModalLayer" type="CanvasLayer" parent="."]
+layer = 20
+
 [node name="Background" type="ColorRect" parent="."]
 layout_mode = 1
 anchors_preset = 15
@@ -26,7 +37,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.028, 0.045, 0.075, 1)
+color = Color(0.028, 0.045, 0.075, 0.16)
 mouse_filter = 2
 
 [node name="SafeMargin" type="MarginContainer" parent="."]
@@ -45,49 +56,75 @@ theme_override_constants/margin_bottom = 12
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="Header" type="PanelContainer" parent="SafeMargin/Layout"]
-custom_minimum_size = Vector2(0, 56)
-layout_mode = 2
+[node name="BattlefieldControlRail" type="PanelContainer" parent="HudLayer"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -400.0
+offset_top = 12.0
+offset_right = -18.0
+offset_bottom = 340.0
+grow_horizontal = 0
 
-[node name="HeaderMargin" type="MarginContainer" parent="SafeMargin/Layout/Header"]
+[node name="HeaderMargin" type="MarginContainer" parent="HudLayer/BattlefieldControlRail"]
 layout_mode = 2
-theme_override_constants/margin_left = 22
-theme_override_constants/margin_right = 18
+theme_override_constants/margin_left = 14
+theme_override_constants/margin_top = 10
+theme_override_constants/margin_right = 14
+theme_override_constants/margin_bottom = 10
 
-[node name="HeaderRow" type="HBoxContainer" parent="SafeMargin/Layout/Header/HeaderMargin"]
+[node name="HeaderRow" type="VBoxContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin"]
 layout_mode = 2
-theme_override_constants/separation = 10
+theme_override_constants/separation = 5
 
-[node name="Title" type="Label" parent="SafeMargin/Layout/Header/HeaderMargin/HeaderRow"]
+[node name="Title" type="Label" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.46, 0.86, 0.81, 1)
 theme_override_font_sizes/font_size = 22
 text = "热座对战"
 vertical_alignment = 1
 
-[node name="ViewerLabel" type="Label" parent="SafeMargin/Layout/Header/HeaderMargin/HeaderRow"]
+[node name="ViewerLabel" type="Label" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "观看者：—"
 vertical_alignment = 1
 
-[node name="PhaseLabel" type="Label" parent="SafeMargin/Layout/Header/HeaderMargin/HeaderRow"]
+[node name="PhaseLabel" type="Label" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "阶段：—"
 vertical_alignment = 1
 
-[node name="RevisionLabel" type="Label" parent="SafeMargin/Layout/Header/HeaderMargin/HeaderRow"]
+[node name="RevisionLabel" type="Label" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
 unique_name_in_owner = true
 layout_mode = 2
 text = "Revision —"
 vertical_alignment = 1
 
-[node name="HeaderSpacer" type="Control" parent="SafeMargin/Layout/Header/HeaderMargin/HeaderRow"]
+[node name="OpponentResourceLabel" type="Label" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
+unique_name_in_owner = true
 layout_mode = 2
-size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.78, 0.83, 0.9, 1)
+theme_override_font_sizes/font_size = 14
+text = "对手资源：—"
+autowrap_mode = 2
 
-[node name="SurrenderButton" type="Button" parent="SafeMargin/Layout/Header/HeaderMargin/HeaderRow"]
+[node name="OwnResourceLabel" type="Label" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.91, 0.86, 1)
+theme_override_font_sizes/font_size = 14
+text = "己方资源：—"
+autowrap_mode = 2
+
+[node name="HeaderSpacer" type="Control" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="SurrenderButton" type="Button" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(82, 42)
 layout_mode = 2
@@ -96,7 +133,7 @@ disabled = true
 theme_override_font_sizes/font_size = 15
 text = "投降"
 
-[node name="EndTurnButton" type="Button" parent="SafeMargin/Layout/Header/HeaderMargin/HeaderRow"]
+[node name="EndTurnButton" type="Button" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(112, 46)
 layout_mode = 2
@@ -105,7 +142,7 @@ disabled = true
 theme_override_font_sizes/font_size = 17
 text = "结束回合"
 
-[node name="ReturnButton" type="Button" parent="SafeMargin/Layout/Header/HeaderMargin/HeaderRow"]
+[node name="ReturnButton" type="Button" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(126, 46)
 layout_mode = 2
@@ -347,7 +384,19 @@ unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 12
 
-[node name="InteractionDock" parent="." instance=ExtResource("3_dock")]
+[node name="BattlefieldCardDetails" parent="HudLayer" instance=ExtResource("11_card_details")]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 9
+anchor_bottom = 1.0
+offset_left = 16.0
+offset_top = 78.0
+offset_right = 278.0
+offset_bottom = -18.0
+grow_vertical = 2
+
+[node name="InteractionDock" parent="HudLayer" instance=ExtResource("3_dock")]
 unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 6
@@ -355,13 +404,13 @@ anchor_left = 1.0
 anchor_right = 1.0
 anchor_bottom = 1.0
 offset_left = -400.0
-offset_top = 12.0
+offset_top = 350.0
 offset_right = -18.0
 offset_bottom = -12.0
 grow_horizontal = 0
 grow_vertical = 2
 
-[node name="DirectActionPanel" parent="." instance=ExtResource("6_direct")]
+[node name="DirectActionPanel" parent="HudLayer" instance=ExtResource("6_direct")]
 unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 12
@@ -374,7 +423,7 @@ offset_bottom = -118.0
 grow_horizontal = 2
 grow_vertical = 0
 
-[node name="StandbyTray" type="PanelContainer" parent="."]
+[node name="StandbyTray" type="PanelContainer" parent="HudLayer"]
 unique_name_in_owner = true
 visible = false
 layout_mode = 1
@@ -388,21 +437,21 @@ offset_bottom = -116.0
 grow_horizontal = 2
 grow_vertical = 0
 
-[node name="Margin" type="MarginContainer" parent="StandbyTray"]
+[node name="Margin" type="MarginContainer" parent="HudLayer/StandbyTray"]
 layout_mode = 2
 theme_override_constants/margin_left = 12
 theme_override_constants/margin_top = 8
 theme_override_constants/margin_right = 12
 theme_override_constants/margin_bottom = 8
 
-[node name="Layout" type="VBoxContainer" parent="StandbyTray/Margin"]
+[node name="Layout" type="VBoxContainer" parent="HudLayer/StandbyTray/Margin"]
 layout_mode = 2
 theme_override_constants/separation = 6
 
-[node name="Header" type="HBoxContainer" parent="StandbyTray/Margin/Layout"]
+[node name="Header" type="HBoxContainer" parent="HudLayer/StandbyTray/Margin/Layout"]
 layout_mode = 2
 
-[node name="StandbyTrayTitle" type="Label" parent="StandbyTray/Margin/Layout/Header"]
+[node name="StandbyTrayTitle" type="Label" parent="HudLayer/StandbyTray/Margin/Layout/Header"]
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
@@ -410,23 +459,23 @@ theme_override_colors/font_color = Color(0.62, 0.91, 0.86, 1)
 theme_override_font_sizes/font_size = 17
 text = "战备区"
 
-[node name="CloseStandbyButton" type="Button" parent="StandbyTray/Margin/Layout/Header"]
+[node name="CloseStandbyButton" type="Button" parent="HudLayer/StandbyTray/Margin/Layout/Header"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(72, 34)
 layout_mode = 2
 text = "收起"
 
-[node name="StandbyScroll" type="ScrollContainer" parent="StandbyTray/Margin/Layout"]
+[node name="StandbyScroll" type="ScrollContainer" parent="HudLayer/StandbyTray/Margin/Layout"]
 layout_mode = 2
 horizontal_scroll_mode = 2
 vertical_scroll_mode = 0
 
-[node name="StandbyCards" type="HBoxContainer" parent="StandbyTray/Margin/Layout/StandbyScroll"]
+[node name="StandbyCards" type="HBoxContainer" parent="HudLayer/StandbyTray/Margin/Layout/StandbyScroll"]
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_constants/separation = 8
 
-[node name="ReactionOverlay" parent="." instance=ExtResource("7_reaction")]
+[node name="ReactionOverlay" parent="ModalLayer" instance=ExtResource("7_reaction")]
 unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 8
@@ -441,7 +490,7 @@ offset_bottom = 132.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="ResolvingShield" type="ColorRect" parent="."]
+[node name="ResolvingShield" type="ColorRect" parent="ModalLayer"]
 unique_name_in_owner = true
 visible = false
 layout_mode = 1
@@ -453,7 +502,7 @@ grow_vertical = 2
 color = Color(0.015, 0.025, 0.04, 0.42)
 mouse_filter = 0
 
-[node name="ResolvingLabel" type="Label" parent="ResolvingShield"]
+[node name="ResolvingLabel" type="Label" parent="ModalLayer/ResolvingShield"]
 unique_name_in_owner = true
 layout_mode = 1
 anchors_preset = 8
@@ -473,7 +522,7 @@ text = "正在结算…"
 horizontal_alignment = 1
 vertical_alignment = 1
 
-[node name="TargetingLine" type="Control" parent="."]
+[node name="TargetingLine" type="Control" parent="HudLayer"]
 unique_name_in_owner = true
 visible = false
 layout_mode = 1
@@ -485,14 +534,14 @@ grow_vertical = 2
 mouse_filter = 2
 script = ExtResource("9_line")
 
-[node name="ResultOverlay" parent="." instance=ExtResource("4_result")]
+[node name="ResultOverlay" parent="ModalLayer" instance=ExtResource("4_result")]
 unique_name_in_owner = true
 layout_mode = 1
 
-[node name="ErrorOverlay" parent="." instance=ExtResource("5_error")]
+[node name="ErrorOverlay" parent="ModalLayer" instance=ExtResource("5_error")]
 unique_name_in_owner = true
 layout_mode = 1
 
-[node name="PassDeviceOverlay" parent="." instance=ExtResource("2_privacy")]
+[node name="PassDeviceOverlay" parent="ModalLayer" instance=ExtResource("2_privacy")]
 unique_name_in_owner = true
 layout_mode = 1

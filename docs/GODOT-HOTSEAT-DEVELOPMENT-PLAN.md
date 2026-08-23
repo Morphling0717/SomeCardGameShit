@@ -6,20 +6,21 @@
 **Gate 2 实现分支：** `codex/godot-hotseat-gate2`
 **Gate 3A 已验收尖端：** `codex/godot-hotseat-gate3@5158409`
 **Gate 3B 已验收尖端：** `codex/godot-hotseat-gate3b@dd38e93`
-**Gate 3C 工作分支：** `codex/godot-hotseat-gate3c`
+**Gate 3C 已验收尖端：** `codex/godot-hotseat-gate3c@a29dd14`
+**Gate 4A 工作分支：** `codex/godot-hotseat-gate4a`
 **规则基线：** `docs/rules-v0.4.md`  
-**目标客户端：** Godot 4.7.2 .NET（Gate 3C 直接交互与公共结算投影）
+**目标客户端：** Godot 4.7.2 .NET（Gate 4A 默认 3D/2.5D 占位战场）
 **.NET SDK：** 10.0.400
 **目标平台：** macOS Apple Silicon、Windows x86-64  
 **M1-G 总目标：** 从完整无界面引擎推进到人类可以完整打一局的单机热座版本
 
-> Gate 3B 已建立纯托管 `Scgs.Hotseat` 与完整调度/行动/响应/终局/重开闭环。Gate 3C 把开发式菜单确认流程升级为点击/拖拽战场直操、复杂动作上下文选择与中立公开 `Resolving` 投影；最终自动化、导出和 CI 结果只以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 的同提交实测为准。物理 Apple Silicon 与两名真人热座仍是发布标签前硬门。项目不支持 Web，不修改 legacy v1 wire 字节，也不在本 Gate 创建 PR、合并或标签。
+> Gate 3C 已建立点击/拖拽战场直操、复杂动作上下文选择与中立公开 `Resolving` 投影。Gate 4A 只把表现后端升级为默认 3D/2.5D，并以隐藏 `--legacy-2d-board` 保留同源 2D 回归；最终自动化、导出和 CI 结果只以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 的同提交实测为准。物理 Apple Silicon、目标分辨率视觉遍历与两名真人热座仍是发布标签前硬门。项目不支持 Web，不修改 legacy v1 wire 字节，也不在本 Gate 创建 PR、合并或标签。
 
 ---
 
 ## 一、开工基线与当前交付
 
-> 本节的“已经完成/尚未完成”首先记录 `main@cfdf695` 的开工审计，便于解释 Gate 1 的来源。Gate 1 已关闭规则边界与客户端安全 API 缺口，Gate 2 完成稳定原生消费边界，Gate 3A 完成 Godot 桌面骨架与首张安全快照，Gate 3B 接入完整操作流程，Gate 3C 负责直接交互加固；真人/物理设备验收仍未完成。
+> 本节的“已经完成/尚未完成”首先记录 `main@cfdf695` 的开工审计，便于解释 Gate 1 的来源。Gate 1 已关闭规则边界与客户端安全 API 缺口，Gate 2 完成稳定原生消费边界，Gate 3A 完成 Godot 桌面骨架与首张安全快照，Gate 3B 接入完整操作流程，Gate 3C 完成直接交互加固；Gate 4A 推进默认 3D 表现，真人/物理设备验收仍未完成。
 
 ### 1. 已经完成的部分
 
@@ -384,7 +385,7 @@ docs/ui-state-map.md
 docs/hotseat-acceptance.md
 ```
 
-Gate 0+1+2+3A+3B 的已实现架构和验收边界统一记录在 `docs/architecture.md`、`docs/testing.md`、`docs/native-api-v04.md`、上述 UI 专项文档、路线图与现行交接中。
+Gate 0+1+2+3A+3B+3C 的已实现架构和验收边界、以及 Gate 4A 的待验收表现契约，统一记录在 `docs/architecture.md`、`docs/testing.md`、`docs/native-api-v04.md`、上述 UI 专项文档、路线图与现行交接中。
 
 清理明确的一次性遗留：
 
@@ -1076,8 +1077,8 @@ Gate 3B 被测实现 `9845a3f` 的 run [`32583321294`](https://github.com/Morphl
 | GODOT-001 | 完成 | P0 | 创建 Godot 4 .NET 工程 | ABI-003、CI-001 |
 | GODOT-002 | 完成 | P0 | C# P/Invoke 与库解析 | ABI-002 |
 | UI-001 | 完成 | P0 | 主战场静态布局 | GODOT-001 |
-| HOTSEAT-001 | Gate 3C 开发中 | P0 | 双 TFM 热座状态机、公共结算投影、换手遮挡与独立 cursor/ACK | GODOT-002、ENG-004～008 |
-| UI-002 | Gate 3C 开发中 | P0 | 初始/持续换手遮挡与中立公开结算投影 | HOTSEAT-001 |
+| HOTSEAT-001 | 完成 | P0 | 双 TFM 热座状态机、公共结算投影、换手遮挡与独立 cursor/ACK | GODOT-002、ENG-004～008 |
+| UI-002 | 完成 | P0 | 初始/持续换手遮挡与中立公开结算投影 | HOTSEAT-001 |
 | UI-003 | 完成 | P0 | 基础出牌/攻击/结束回合/投降 | GODOT-002、ENG-005 |
 | UI-004 | 完成 | P0 | 双方调度与替换手牌 review | UI-002、ABI-003 |
 | UI-005 | 完成 | P0 | 预支/燃耗支付预览 | ENG-007、UI-003 |
@@ -1088,7 +1089,9 @@ Gate 3B 被测实现 `9845a3f` 的 run [`32583321294`](https://github.com/Morphl
 | CI-001 | 完成 | P0 | 动态库三平台构建 | ABI-003 |
 | CI-002 | 完成 | P0 | dotnet 与 Godot headless | GODOT-002 |
 | CI-003 | 完成 | P0 | macOS/Windows 导出产物 | CI-002 |
-| CI-004 | 完成 | P0 | Gate 3B 整局报告、唯一 marker、解包复审/启动 | UI-002～009 |
+| CI-004 | 完成 | P0 | Gate 3C schema v2 整局报告、唯一 marker、解包复审/启动 | UI-002～009 |
+| UI-010 | Gate 4A 开发中 | P0 | 默认 3D presenter、HUD/射线闸门、透视与 actor 池 | HOTSEAT-001 |
+| CI-005 | Gate 4A 开发中 | P0 | schema v3、3D 导出/往返与 legacy 2D 源码 smoke | UI-010、CI-004 |
 | QA-001 | 待办 | P0 | Mac 实机完整一局 | CI-003 |
 | QA-002 | 待办 | P0 | Windows 两台机器完整一局 | CI-003 |
 | REL-001 | 待办 | P0 | 标记 `v0.4-hotseat-alpha.1` | QA-001、QA-002 |
@@ -1097,9 +1100,9 @@ Gate 3B 被测实现 `9845a3f` 的 run [`32583321294`](https://github.com/Morphl
 
 ## 十一、提交策略
 
-长期每个 Gate 应独立提交。Gate 0+1 曾按要求只创建本地提交；Gate 2、Gate 3A 与 Gate 3B 均已获得明确推送授权，分别在对应 `codex/godot-hotseat-*` 分支检查 CI，但仍不创建 PR、不合并或打标签。
+长期每个 Gate 应独立提交。Gate 0+1 曾按要求只创建本地提交；Gate 2、Gate 3A、Gate 3B 与 Gate 3C 均已获得明确推送授权，分别在对应 `codex/godot-hotseat-*` 分支检查 CI，但仍不创建 PR、不合并或打标签。Gate 4A 继续使用独立分支，并在真实 CI 完成前不填写结果。
 
-已产生的 Gate 0～3A 主题提交包括：
+已产生的 Gate 0～3C 主题提交包括：
 
 ```text
 docs: align repository with v0.4 Godot route
@@ -1113,7 +1116,7 @@ feat(godot): deliver Gate 3A desktop snapshot shell
 fix(ci): stabilize Gate 3A Godot exports
 fix(godot): make cold imports deterministic
 
-# Gate 3B 已拆分/后续主题
+# Gate 3B/3C 已拆分主题
 fix(engine): harden Gate 3B client previews
 test(ci): enforce Gate 3B package smoke contracts
 feat(client): add safe hot-seat match controller
@@ -1121,6 +1124,8 @@ feat(godot): add Gate 3B interaction presentation
 feat(godot): connect the complete hot-seat match loop
 test(godot): verify complete hot-seat flows and exports
 docs: record Gate 3B implementation and measured validation
+feat(godot): add Gate 3C direct interactions
+docs: record Gate 3C validation
 ```
 
 获得推送授权后：
@@ -1276,5 +1281,25 @@ Gate 3C 基于 `codex/godot-hotseat-gate3b@dd38e93`，不修改 C++ 规则、C A
 - Godot full-match 必须通过真实控件 signal 覆盖 `ActionKind` 0～10：第一局自然终局后真实触发结果页重开，第二局再以真实投降 signal 终局；不得直接注入最终 `LegalAction`。
 - Gate 3C smoke 报告使用独立 schema version 2；唯一 marker 仍为 `SCGS_GODOT_CI_SMOKE_OK`。
 - Windows/macOS artifact 改用 `SomeCardGameShit-gate3c-*`；最终真实 run、数量和摘要只写入 `TEST_REPORT.md`。
+
+## 十六、Gate 4A：默认 3D/2.5D 占位战场
+
+Gate 4A 基于 `codex/godot-hotseat-gate3c@a29dd14`。本轮不修改 C++ 规则、C ABI、schema 1、14 个导出、固定牌组或 legacy v1 wire，只替换 Godot 表现与空间输入边界。
+
+### Presenter 与输入
+
+- 无启动参数时创建固定透视 3D presenter；只有精确 `--legacy-2d-board` 启用旧 2D 回归，主菜单不暴露切换。
+- 两个 presenter 都只产生 `HotseatSurfaceRef` / `HotseatSurfaceIntent`，并共享 `HotseatSurfaceInteractionCoordinator`；不能各自拼装命令。
+- 3D 相机固定 70° FOV、约 58° 俯角，当前 viewer 在近端；透视只在完全遮挡内重建。
+- HUD hit-test 优先于空间射线；拖拽阈值固定 8 px，无效落点和锁定状态不调用 native。
+- actor 池回收必须清除文字、材质、tooltip、metadata、碰撞、回调、拖拽 token 和 DTO 引用。
+
+### 隐私与自动验收
+
+- `Covered` 完全不透明，`Resolving` 只含中立公开投影；显示环境至少两个 `FramePostDraw`，headless 使用两次 process-frame 栅栏后才提交。
+- Gate 4A schema v3 完整继承 Gate 3C 的 22 个字段/整局约束，并新增 presentation、surface、raycast、HUD、镜头、透视、actor 池、锁定输入和空间泄露证据。
+- Windows/macOS 各跑默认 3D 当前工程、默认 3D 导出、默认 3D ZIP 往返与一次 legacy 2D 源码整局；唯一 marker 保持 `SCGS_GODOT_CI_SMOKE_OK`。
+- 导出 `BUILD_INFO.txt` 标识 Gate 4A，artifact 使用 `SomeCardGameShit-gate4a-*`。在真实 run 完成前不得在 `TEST_REPORT.md` 填写 Gate 4A 数量、摘要或全绿结论。
+- 1600×900、1280×720 人工视觉遍历、两名真人热座、物理 Apple Silicon 与无 Visual Studio Windows 仍是发布标签前硬门。
 
 **历史决策与持续约束：Gate 0+1 先完成文档纠偏、规则回归和客户端查询接口，再进入 UI；后续也必须保持 Godot 只是表现层，不让 C# 逐步长成第二套规则引擎。**

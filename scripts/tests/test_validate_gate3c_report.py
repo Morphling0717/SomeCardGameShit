@@ -13,6 +13,21 @@ from scripts.ci.validate_gate3c_report import EXPECTED_FIELDS, ReportError, vali
 ROOT = Path(__file__).resolve().parents[2]
 
 
+def _record_body(source: str, record_name: str) -> str:
+    marker = f"private sealed record {record_name}"
+    start = source.index(marker)
+    opening = source.index("{", start)
+    depth = 0
+    for index in range(opening, len(source)):
+        if source[index] == "{":
+            depth += 1
+        elif source[index] == "}":
+            depth -= 1
+            if depth == 0:
+                return source[opening:index + 1]
+    raise AssertionError(f"unterminated C# record: {record_name}")
+
+
 def valid_report() -> dict[str, object]:
     return {
         "schema_version": 2,
@@ -70,9 +85,7 @@ class Gate3cReportTests(unittest.TestCase):
         source = (ROOT / "client/godot/scripts/Bootstrap/BootstrapController.cs").read_text(
             encoding="utf-8"
         )
-        report_source = source.split(
-            "private sealed record Gate3CSmokeReport", maxsplit=1
-        )[1]
+        report_source = _record_body(source, "Gate3CSmokeReport")
         fields = set(re.findall(r'JsonPropertyName\("([^"]+)"\)', report_source))
         self.assertEqual(EXPECTED_FIELDS, fields)
         self.assertIn("public int SchemaVersion { get; init; } = 2;", report_source)

@@ -20,9 +20,11 @@ MatchView / LegalAction / Preview       expected_revision
                     │
        Scgs.Client 纯托管边界（Gate 3A）
                      │
-      Scgs.Hotseat 热座与直接交互编排（Gate 3C）
+      Scgs.Hotseat 热座与 surface intent 编排（Gate 4A）
                      │
-        Godot 4.7.2 .NET 桌面层（Gate 3C）
+     Godot 4.7.2 .NET presenter 边界（Gate 4A）
+          ┌──────────┴──────────┐
+       默认 3D/2.5D        隐藏 legacy 2D
 ```
 
 客户端不能直接读取 `PlayerState`、自行扣费或复算目标。它只能读取安全快照和查询结果，提交带 revision 的命令，再按观看者读取脱敏事件。legacy YGOPro2/Unity 代码不在现行调用链中。
@@ -42,6 +44,16 @@ Native 适配层只序列化 Gate 1 的安全 DTO，并且只经 `make_view`、�
 所有 native 调用在 Godot 主线程顺序执行。动态库只从显式绝对路径加载：编辑器使用 `client/godot/native/<target>` 暂存目录，Windows 导出将 DLL 放在 EXE 同目录，macOS 导出将 dylib 放在 `.app/Contents/Frameworks`。详细约束见 [`godot-client-architecture.md`](godot-client-architecture.md)。
 
 Gate 3C 把“结算”和“交接”拆为两种状态。准备命令后先进入不可交互的 `Resolving`，只保留不含 viewer 私有对象的中立公开战场，至少完整绘制两帧后才提交；初始揭示或操作者变化才进入完全不透明的 `Covered`。事件批次只有在相同 viewer/sequence 的日志完成绘制后才 ACK；换人时不得预取下一 viewer 的快照、查询或事件。
+
+## Gate 4A 表现边界
+
+Gate 4A 只替换 Godot 战场 presenter，不改变热座控制器、`IScgsGameSession`、C++ 规则、C ABI、schema 1 或 legacy wire。`HotseatSurfaceInteractionCoordinator` 是 3D 与 2D 唯一共同操作入口：手牌、单位、策略、格位、战备、主战者和施放区都先转换为 `HotseatSurfaceRef`，点击与拖拽再转换为同一 `HotseatSurfaceIntent`。presenter 不能直接拼命令、扣费或推导目标。
+
+产品默认使用 3D/2.5D 战场；仅测试/排障可通过精确参数 `--legacy-2d-board` 启用旧 2D presenter，该路径不是面向玩家的模式选择。两种 presenter 必须消费同一 `HotseatUiState`，并保持相同选择、响应、`Resolving`、换手与终局状态机。
+
+3D 场景把空间战场与 `CanvasLayer` HUD 分开：固定透视相机采用 70° FOV、约 58° 俯角，靠近当前 viewer 的一侧只在完全遮挡期间重建；HUD 命中会阻止空间拾取，空间射线只在允许输入的 Action/Reaction 状态工作。拖拽超过 8 px 才成立，未达到阈值仍按点击处理；无效落点只恢复表现，不调用 native。
+
+卡牌 actor 使用有限池复用。归还池前必须清除文字、材质参数、Godot metadata、tooltip、碰撞掩码、signal/callback、拖拽 token 与 viewer DTO 引用；从池中取出时再从当前公开/观看者安全状态完整赋值。进入 `Covered` 或 `Resolving` 时先执行同一清理，再由公共投影重建允许显示的 actor。Gate 4A 的显示提交屏障以至少两次 `FramePostDraw` 为准；无渲染循环的 headless smoke 使用两次 process-frame 栅栏作为专用回退。屏障期间禁止 raycast、事件 ACK、重复提交和旧 revision 回调。
 
 ## 规则域
 

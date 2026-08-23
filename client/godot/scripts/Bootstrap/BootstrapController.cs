@@ -50,7 +50,7 @@ public sealed partial class BootstrapController : Control
         }
         catch (Exception exception)
         {
-            GD.PushError($"Gate 3C startup option validation failed: {exception}");
+            GD.PushError($"Gate 4A startup option validation failed: {exception}");
             if (_ciSmoke)
             {
                 FailCiSmoke($"启动参数无效：{exception.Message}");
@@ -80,7 +80,7 @@ public sealed partial class BootstrapController : Control
         }
         catch (Exception exception)
         {
-            GD.PushError($"Gate 3C native preflight failed: {exception}");
+            GD.PushError($"Gate 4A native preflight failed: {exception}");
             if (_ciSmoke)
             {
                 FailCiSmoke($"原生引擎预检失败：{exception.Message}");
@@ -214,7 +214,7 @@ public sealed partial class BootstrapController : Control
 
     private static void OnFirstSnapshotPresented(MatchView view)
     {
-        GD.Print($"Gate 3C first snapshot: viewer={view.Viewer}, phase={view.Phase}, revision={view.Revision}");
+        GD.Print($"Gate 4A first snapshot: viewer={view.Viewer}, phase={view.Phase}, revision={view.Revision}");
     }
 
     private void OnCiSnapshotPresented(MatchView view)
@@ -273,7 +273,7 @@ public sealed partial class BootstrapController : Control
 
         if (_ciSurrenderPhaseStarted)
         {
-            throw new InvalidOperationException("The Gate 3C surrender phase was started more than once.");
+            throw new InvalidOperationException("The Gate 4A surrender phase was started more than once.");
         }
         _ciSurrenderPhaseStarted = true;
         RunCiSurrenderPhase(view);
@@ -283,7 +283,7 @@ public sealed partial class BootstrapController : Control
     {
         if (_ciRunStarted)
         {
-            throw new InvalidOperationException("The Gate 3C full-match smoke was started more than once.");
+            throw new InvalidOperationException("The Gate 4A full-match smoke was started more than once.");
         }
 
         _ciRunStarted = true;
@@ -295,7 +295,7 @@ public sealed partial class BootstrapController : Control
         try
         {
             MatchScreen match = _match ??
-                throw new InvalidOperationException("The Gate 3C match screen is unavailable.");
+                throw new InvalidOperationException("The Gate 4A match screen is unavailable.");
             var runner = new Gate3CFullMatchSmoke(
                 match,
                 NextProcessFrameAsync,
@@ -334,7 +334,7 @@ public sealed partial class BootstrapController : Control
             Gate3CSmokeOutcome natural = _ciNaturalOutcome ??
                 throw new InvalidOperationException("The natural terminal outcome is unavailable.");
             MatchScreen match = _match ??
-                throw new InvalidOperationException("The restarted Gate 3C match screen is unavailable.");
+                throw new InvalidOperationException("The restarted Gate 4A match screen is unavailable.");
             if (firstView.RandomSeed != natural.FinalView.RandomSeed ||
                 firstView.FirstPlayer != natural.FinalView.FirstPlayer ||
                 firstView.Phase != MatchPhase.Mulligan)
@@ -365,6 +365,13 @@ public sealed partial class BootstrapController : Control
                 ResolvingPrivateLeaks = natural.ResolvingPrivateLeaks + surrender.ResolvingPrivateLeaks,
                 Restarts = 1,
                 SurrenderTerminals = 1,
+                SurfaceIntentE2e = natural.SurfaceIntentE2e || match.CiSurfaceIntentE2e,
+                RaycastE2e = natural.RaycastE2e || match.CiRaycastE2e,
+                HudRaycastBlocks = natural.HudRaycastBlocks + match.CiHudRaycastBlocks,
+                PerspectiveRebuilds = natural.PerspectiveRebuilds + match.CiPerspectiveRebuilds,
+                ActorPoolReuses = natural.ActorPoolReuses + match.CiActorPoolReuses,
+                BlockedSpatialInputs = natural.BlockedSpatialInputs + match.CiBlockedSpatialInputs,
+                SpatialPrivateLeaks = natural.SpatialPrivateLeaks + match.CiSpatialPrivateLeaks,
             };
             if (combined.DisposedSessions < 2 || combined.ActionKinds.Count != 11)
             {
@@ -400,7 +407,7 @@ public sealed partial class BootstrapController : Control
             Directory.CreateDirectory(directory);
         }
 
-        var report = new Gate3CSmokeReport
+        var report = new Gate4ASmokeReport
         {
             Seed = outcome.FinalView.RandomSeed,
             Player0Deck = setup.Player0Deck,
@@ -424,6 +431,17 @@ public sealed partial class BootstrapController : Control
             SurrenderTerminals = outcome.SurrenderTerminals,
             Result = checked((int)(uint)outcome.FinalView.Result),
             DisposedSessions = outcome.DisposedSessions,
+            PresentationMode = outcome.PresentationMode,
+            SurfaceIntentE2e = outcome.SurfaceIntentE2e,
+            RaycastE2e = outcome.RaycastE2e,
+            HudRaycastBlocks = outcome.HudRaycastBlocks,
+            DragThresholdPixels = outcome.DragThresholdPixels,
+            CameraFovDegrees = outcome.CameraFovDegrees,
+            CameraPitchDegrees = outcome.CameraPitchDegrees,
+            PerspectiveRebuilds = outcome.PerspectiveRebuilds,
+            ActorPoolReuses = outcome.ActorPoolReuses,
+            BlockedSpatialInputs = outcome.BlockedSpatialInputs,
+            SpatialPrivateLeaks = outcome.SpatialPrivateLeaks,
         };
         string json = JsonSerializer.Serialize(report, new JsonSerializerOptions
         {
@@ -621,5 +639,107 @@ public sealed partial class BootstrapController : Control
 
         [JsonPropertyName("disposed_sessions")]
         public required int DisposedSessions { get; init; }
+    }
+
+    private sealed record Gate4ASmokeReport
+    {
+        [JsonPropertyName("schema_version")]
+        public int SchemaVersion { get; init; } = 3;
+
+        [JsonPropertyName("gate")]
+        public string Gate { get; init; } = "4A";
+
+        [JsonPropertyName("scenario")]
+        public string Scenario { get; init; } = "full-match";
+
+        [JsonPropertyName("seed")]
+        public required uint Seed { get; init; }
+
+        [JsonPropertyName("player0_deck")]
+        public required string Player0Deck { get; init; }
+
+        [JsonPropertyName("player1_deck")]
+        public required string Player1Deck { get; init; }
+
+        [JsonPropertyName("first_player")]
+        public required int FirstPlayer { get; init; }
+
+        [JsonPropertyName("steps")]
+        public required int Steps { get; init; }
+
+        [JsonPropertyName("turns")]
+        public required int Turns { get; init; }
+
+        [JsonPropertyName("action_kinds")]
+        public required IReadOnlyList<int> ActionKinds { get; init; }
+
+        [JsonPropertyName("covers")]
+        public required int Covers { get; init; }
+
+        [JsonPropertyName("reveals")]
+        public required int Reveals { get; init; }
+
+        [JsonPropertyName("premature_view_calls")]
+        public required int PrematureViewCalls { get; init; }
+
+        [JsonPropertyName("signal_e2e")]
+        public required bool SignalE2e { get; init; }
+
+        [JsonPropertyName("click_drag_canonical_parity")]
+        public required bool ClickDragCanonicalParity { get; init; }
+
+        [JsonPropertyName("selection_commit_without_confirmation")]
+        public required bool SelectionCommitWithoutConfirmation { get; init; }
+
+        [JsonPropertyName("resolving_public_frames")]
+        public required int ResolvingPublicFrames { get; init; }
+
+        [JsonPropertyName("resolving_private_leaks")]
+        public required int ResolvingPrivateLeaks { get; init; }
+
+        [JsonPropertyName("restarts")]
+        public required int Restarts { get; init; }
+
+        [JsonPropertyName("surrender_terminals")]
+        public required int SurrenderTerminals { get; init; }
+
+        [JsonPropertyName("result")]
+        public required int Result { get; init; }
+
+        [JsonPropertyName("disposed_sessions")]
+        public required int DisposedSessions { get; init; }
+
+        [JsonPropertyName("presentation_mode")]
+        public required string PresentationMode { get; init; }
+
+        [JsonPropertyName("surface_intent_e2e")]
+        public required bool SurfaceIntentE2e { get; init; }
+
+        [JsonPropertyName("raycast_e2e")]
+        public required bool RaycastE2e { get; init; }
+
+        [JsonPropertyName("hud_raycast_blocks")]
+        public required int HudRaycastBlocks { get; init; }
+
+        [JsonPropertyName("drag_threshold_pixels")]
+        public required int DragThresholdPixels { get; init; }
+
+        [JsonPropertyName("camera_fov_degrees")]
+        public required int CameraFovDegrees { get; init; }
+
+        [JsonPropertyName("camera_pitch_degrees")]
+        public required int CameraPitchDegrees { get; init; }
+
+        [JsonPropertyName("perspective_rebuilds")]
+        public required int PerspectiveRebuilds { get; init; }
+
+        [JsonPropertyName("actor_pool_reuses")]
+        public required int ActorPoolReuses { get; init; }
+
+        [JsonPropertyName("blocked_spatial_inputs")]
+        public required int BlockedSpatialInputs { get; init; }
+
+        [JsonPropertyName("spatial_private_leaks")]
+        public required int SpatialPrivateLeaks { get; init; }
     }
 }

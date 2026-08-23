@@ -43,11 +43,15 @@ Godot headless 验证项目 import、无警告 C# build、场景/节点路径、
 
 schema version 2 的字段只能是：`schema_version`、`gate`、`scenario`、`seed`、`player0_deck`、`player1_deck`、`first_player`、`steps`、`turns`、`action_kinds`、`covers`、`reveals`、`premature_view_calls`、`signal_e2e`、`click_drag_canonical_parity`、`selection_commit_without_confirmation`、`resolving_public_frames`、`resolving_private_leaks`、`restarts`、`surrender_terminals`、`result`、`disposed_sessions`。`resolving_public_frames` 是所有命令中观察到的完整公共投影帧数最小值，不是累计帧数；因此 `>=2` 证明没有单条命令绕过绘制屏障。
 
-Windows/macOS job 还必须实际导出并启动产物；只在编辑器运行不算通过。Windows 审计 DLL 与 EXE 同目录、x86-64 和静态 CRT；macOS 审计 arm64、`Contents/Frameworks`、ad-hoc codesign 与执行权限。两者的 `BUILD_INFO.txt` 都必须精确标识 Gate 3C、锁定工具链和当前 CI checkout commit。压缩后必须解包、重新审计并再次启动。每次 full-match smoke 的外部上限为 180 秒，日志不得含 C# exception 或 Godot error。
+Gate 4A 使用严格 schema version 3，并把 Gate 3C 的全部字段和不变量原样继承：报告仍须覆盖 `action_kinds` 0～10、真实 signal 两局闭环、点击/拖拽一致、无通用确认、至少两次公共投影完整绘制、零提前 viewer 调用、零 `resolving_private_leaks`、重开、投降终局和两次 session 释放。新增字段只能是：`presentation_mode`、`surface_intent_e2e`、`raycast_e2e`、`hud_raycast_blocks`、`drag_threshold_pixels`、`camera_fov_degrees`、`camera_pitch_degrees`、`perspective_rebuilds`、`actor_pool_reuses`、`blocked_spatial_inputs`、`spatial_private_leaks`。
+
+默认 3D full-match 必须报告 `presentation_mode="3d"`、`surface_intent_e2e=true`、`raycast_e2e=true`、`hud_raycast_blocks>=1`、`drag_threshold_pixels=8`、`camera_fov_degrees=70`、`camera_pitch_degrees=58`、`perspective_rebuilds>=1`、`actor_pool_reuses>=1`、`blocked_spatial_inputs>=1` 与 `spatial_private_leaks=0`。用精确参数 `--legacy-2d-board` 启动的源码回归必须报告 `presentation_mode="legacy-2d"`、`surface_intent_e2e=true`、`raycast_e2e=false`、`spatial_private_leaks=0`，其余 3D 专属计数/常量字段为 0。Gate 3B、Gate 3C 与 Gate 4A validator/CTest 必须并存，后续 Gate 不能降低历史报告契约。
+
+Windows/macOS job 还必须实际导出并启动产物；只在编辑器运行不算通过。Gate 4A 在每个平台运行四次 full-match：默认 3D 当前工程、隐藏 legacy 2D 当前工程、默认 3D 导出、默认 3D ZIP 往返。Windows 审计 DLL 与 EXE 同目录、x86-64 和静态 CRT；macOS 审计 arm64、`Contents/Frameworks`、ad-hoc codesign 与执行权限。两者的 `BUILD_INFO.txt` 都必须精确标识 Gate 4A、锁定工具链和当前 CI checkout commit。压缩后必须解包、重新审计并再次启动。每次 full-match smoke 的外部上限为 180 秒，日志不得含 C# exception 或 Godot error；唯一成功标记 `SCGS_GODOT_CI_SMOKE_OK` 必须恰好出现一次。
 
 ### legacy 兼容性
 
-`scgs_wire_frozen_golden` 固定验证 v1 消息长度、字节序、消息 ID 和金标字节。历史命名的 `SCGS_ENABLE_LEGACY_YGO2_TESTS` 当前控制整组 Python CTest：legacy overlay/协议、原生/Godot 制品审计、子进程超时以及 Gate 3B/3C 报告契约。它默认开启；开启时 CMake 必须找到 Python 3.10+，不能静默只注册部分测试。关闭会跳过整组 Python 契约，因此不能用于客户端 Gate 验收。
+`scgs_wire_frozen_golden` 固定验证 v1 消息长度、字节序、消息 ID 和金标字节。历史命名的 `SCGS_ENABLE_LEGACY_YGO2_TESTS` 当前控制整组 Python CTest：legacy overlay/协议、原生/Godot 制品审计、子进程超时以及 Gate 3B/3C/4A 报告契约。它默认开启；开启时 CMake 必须找到 Python 3.10+，不能静默只注册部分测试。关闭会跳过整组 Python 契约，因此不能用于客户端 Gate 验收。
 
 legacy 测试通过只证明历史兼容层仍可解析，不代表 YGOPro2/Unity 是现行客户端或已经实机可用。
 
@@ -81,7 +85,7 @@ git diff --check
 
 Windows MSVC 使用 `scripts/test.ps1` 或等价的 Release 配置。CI 在 GCC Release、Clang ASan/UBSan、MSVC Release 和 macOS ARM64 Release 四个 job 中固定 Python 版本，并显式设置 `SCGS_ENABLE_LEGACY_YGO2_TESTS=ON`。每个平台还安装并审计原生库，上传仅供 CI 验收的暂存 artifact。
 
-Linux 两个 job 保持纯原生。Windows 与 macOS job 在原生安装审计之后追加 locked managed restore/build/test、等待冷资源扫描完成的 Godot `--import`、目标平台导出、导出包启动与审计；macOS 从已校验的官方 universal template 临时派生 arm64 release template，并要求最终 bundle 只有一套 arm64 托管数据且所有 Mach-O 均为 arm64-only。这不构成 Web 或 Linux 客户端支持声明。
+Linux 两个 job 保持纯原生。Windows 与 macOS job 在原生安装审计之后追加 locked managed restore/build/test、等待冷资源扫描完成的 Godot `--import`、默认 3D 与 legacy 2D 源码 smoke、目标平台默认 3D 导出、导出包启动与 ZIP 往返审计；macOS 从已校验的官方 universal template 临时派生 arm64 release template，并要求最终 bundle 只有一套 arm64 托管数据且所有 Mach-O 均为 arm64-only。这不构成 Web 或 Linux 客户端支持声明。
 
 ## 报告规则
 

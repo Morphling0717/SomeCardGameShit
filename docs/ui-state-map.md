@@ -1,6 +1,6 @@
 # Godot UI 状态图
 
-Gate 3C 在 Gate 3B 的完整热座闭环上增加直接战场操作，并把命令结算与设备交接拆成不同隐私状态。`HotseatUiState` 与 `HotseatInteractionContext` 是 Godot 的输入，但不是规则真值；快照、合法行动、支付与胜负仍来自引擎。
+Gate 4A 在 Gate 3C 的完整热座闭环上把默认战场改为 3D/2.5D，同时保留隐藏的 legacy 2D 回归 presenter。`HotseatUiState` 与 `HotseatInteractionContext` 是两个 presenter 的共同输入，但不是规则真值；快照、合法行动、支付与胜负仍来自引擎。
 
 ## 应用生命周期
 
@@ -24,6 +24,8 @@ Booting ──ABI/schema 可用──> MainMenu ──开始──> CreatingMatc
 
 重开不是复用旧 handle：先 dispose 旧 controller/session，再按产品随机配置重新 create/start，并回到初始完全遮挡。重复 dispose 安全，`SafeHandle` 保证 native destroy 至多一次。
 
+表现后端只在应用启动时决定：默认进入 `3D`，精确启动参数 `--legacy-2d-board` 才进入 `legacy-2D`。它不是比赛中可切换的 UI 状态；两个后端必须走同一热座状态机与 surface intent 协调器。
+
 ## 热座与提交状态
 
 ```text
@@ -38,7 +40,8 @@ MulliganSelecting / Action / Reaction
   └─ 来源与必要选择收敛为规范 LegalAction
        └─ PrepareSelectedCommand（不调用 native）
             └─ Resolving(CommandPrepared=true, PublicBoard!=null)
-                 └─ Godot 完整绘制至少两帧
+                 └─ 显示环境至少两次 FramePostDraw
+                    （headless 使用两次 process-frame 栅栏）
                       └─ SubmitPreparedCommand
                            ├─ 调度成功 ──────> MulliganReview
                            │                    └─ CompleteMulliganReview
@@ -76,6 +79,23 @@ None
 - `StepBackSelection()` 撤销最近一个显式步骤；自动补全的共同字段不单独进入历史。完整取消才清空来源。
 - 无效拖放原位回弹，不调用 native，也不改变 revision、事件或游标。
 
+## 3D 空间输入闸门
+
+```text
+鼠标/键盘输入
+  ├─ HUD 命中或输入已被消费 ───────────> 停止；不发射空间射线
+  ├─ mode 不是 Action / Reaction ─────> 停止；不读取碰撞对象
+  └─ 允许空间输入
+       └─ Camera3D raycast → actor/slot/leader/cast-zone
+              └─ HotseatSurfaceRef → HotseatSurfaceIntent
+```
+
+- 按下到移动不足 8 px 视为点击；达到 8 px 才显示拖拽幽灵和目标反馈。
+- 空间命中只标识 surface，合法性仍由同 revision 的候选决定；无效落点不能调用 native。
+- viewer 透视只能在 `Covered` 的完全不透明帧内翻转并重建，揭示后近端始终是当前 viewer。
+- `Resolving`、`Covered`、`MulliganSelecting/Review`、`Finished`、`Faulted` 与 `Disposed` 都锁死空间输入；调度继续使用专用 HUD。
+- 3D actor 归还池时清除文字、材质、metadata、tooltip、碰撞、回调和拖拽 token，不能把上一 viewer 数据带入后续状态。
+
 ## 状态职责
 
 | 状态 | 可以访问 native | 可以显示敏感数据 | 用户动作 |
@@ -101,7 +121,7 @@ None
 2. 所有背面伏策统一匿名，没有 tooltip、详情或稳定 ID；公开单位、公开战备和公开资源可以显示。
 3. 卡牌详情、事件日志、候选、高亮、拖拽 payload、旧 signal 回调和输入焦点全部清除。
 4. `HotseatUiState.Snapshot`、`Viewer`、`LegalActions`、`PendingEvents` 在 `Resolving` 内为空。
-5. 公共投影至少完整绘制两帧后才允许提交；期间禁止 ACK、重复提交和旧 revision 回调。
+5. 显示环境的公共投影至少经过两次 `FramePostDraw` 后才允许提交；无渲染循环的 headless smoke 使用两次 process-frame 栅栏。期间禁止 raycast、ACK、重复提交和旧 revision 回调。
 6. 提交后操作者变化时，立即转入完全不透明的 `Covered(PassingDevice)`，不得短暂显示下一 viewer 数据。
 
 ## 事件读取与 ACK
@@ -129,4 +149,4 @@ Player0 与 Player1 的 cursor 独立。未完成渲染前不得 ACK；重读同
 
 ## 发布前人工硬门
 
-自动 signal smoke 可以覆盖状态遍历和导出启动，但不能替代物理 Apple Silicon Mac 整局/重开，也不能替代两名真人对每次公共结算、完全遮挡、设备交接和主动揭示的观察。
+自动 signal smoke 可以覆盖状态遍历和导出启动，但不能替代两种参考分辨率的 3D 人工视觉遍历、物理 Apple Silicon Mac 整局/重开，也不能替代两名真人对空间拾取、公共结算、完全遮挡、透视翻转、设备交接和主动揭示的观察。

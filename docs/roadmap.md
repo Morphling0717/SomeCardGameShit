@@ -111,6 +111,29 @@ Gate 3C 不改变 C++ 规则、`scgs_v04` ABI/schema、14 个导出、两副固�
 
 Gate 3C 的剩余发布硬门是：主要选择/响应/结算/换手状态的逐页人工视觉遍历、两名真人完整热座、物理 Apple Silicon Mac，以及未安装 Visual Studio 的 Windows x86-64 机器整局。完成前仍不允许 `v0.4-hotseat-alpha.1` 标签。
 
+## Gate 4A：默认 3D/2.5D 占位战场 — 开发与验收中
+
+### 表现与输入契约
+
+- [ ] 产品默认实例化固定透视 3D/2.5D 战场；旧 2D 仅能通过 `--legacy-2d-board` 隐藏参数启动
+- [ ] 3D 与 legacy 2D 共享 `HotseatSurfaceInteractionCoordinator`，点击/拖拽收敛到相同规范命令
+- [ ] 3D 战场覆盖双方主战者、单位/策略位、战备、手牌、牌堆/墓地/封存区和施放区，HUD 保持屏幕空间可读
+- [ ] 固定 70° FOV、约 58° 俯角；当前 viewer 在近端，透视只在完全遮挡中切换
+- [ ] HUD 命中阻止战场射线；8 px 拖拽阈值、无效落点回弹和所有非交互状态输入锁定
+- [ ] 卡牌 actor 池在回收时清除文字、材质、metadata、tooltip、碰撞、回调和拖拽 token
+- [ ] `Covered` 与 `Resolving` 的 3D 空间状态不泄露 viewer 私密身份；显示环境经过两个 `FramePostDraw` 后才提交
+
+### 自动化、导出与人工硬门
+
+- [ ] Gate 4A schema v3 严格继承 Gate 3C 全部整局/隐私证据，并验证 surface、raycast、HUD、镜头、透视、对象池和空间泄露字段
+- [ ] Windows/macOS 各完成默认 3D 当前工程、默认 3D 导出、默认 3D ZIP 往返和一次 legacy 2D 源码整局 smoke
+- [ ] 导出 `BUILD_INFO.txt` 标识 Gate 4A，制品命名为 `SomeCardGameShit-gate4a-windows-x86_64` 与 `SomeCardGameShit-gate4a-macos-arm64`
+- [ ] 最终分支尖端四项 CI 全绿，并将真实命令、数量、run、artifact 字节与 digest 写入 `TEST_REPORT.md`
+- [ ] 1600×900 与 1280×720 逐页视觉验收 3D 区域、中文、HUD 遮挡、目标提示与公共投影
+- [ ] 两名真人、物理 Apple Silicon Mac 与无 Visual Studio Windows 机器完成目标构建整局/重开
+
+Gate 4A 不改变 C++ 规则、`scgs_v04` ABI/schema、14 个导出、固定牌组或 legacy v1 wire。正式卡图、音效、复杂动画、触摸、手柄和网络仍不在本 Gate；上述项目未有真实证据前不得勾选，也不得据此创建发布标签。
+
 ## Alpha 后续
 
 - [ ] 主战技与普通主动能力 UI

@@ -20,7 +20,18 @@ internal sealed record Gate3CSmokeOutcome(
     int ResolvingPublicFrames,
     int ResolvingPrivateLeaks,
     int Restarts,
-    int SurrenderTerminals);
+    int SurrenderTerminals,
+    string PresentationMode,
+    bool SurfaceIntentE2e,
+    bool RaycastE2e,
+    int HudRaycastBlocks,
+    int DragThresholdPixels,
+    int CameraFovDegrees,
+    int CameraPitchDegrees,
+    int PerspectiveRebuilds,
+    int ActorPoolReuses,
+    int BlockedSpatialInputs,
+    int SpatialPrivateLeaks);
 
 internal sealed class Gate3CFullMatchSmoke
 {
@@ -47,6 +58,8 @@ internal sealed class Gate3CFullMatchSmoke
     private bool parityProbed;
     private bool layoutProbed;
     private bool privacySentinelProbed;
+    private bool keyboardProbed;
+    private bool reactionSpatialLockProbed;
 
     internal Gate3CFullMatchSmoke(
         MatchScreen match,
@@ -169,9 +182,22 @@ internal sealed class Gate3CFullMatchSmoke
         ValidateVisibleSnapshot(state);
         await WaitForRenderedEventsAsync();
         state = match.CiState;
+        if (state.Mode == HotseatUiMode.Reaction &&
+            state.Interaction.Step == HotseatSelectionStep.None &&
+            !reactionSpatialLockProbed)
+        {
+            if (!match.VerifyReactionChoiceModalBlocksSpatialInputForCi())
+            {
+                throw new InvalidOperationException(
+                    "The centered reaction chooser allowed direct 3D battlefield input.");
+            }
+            reactionSpatialLockProbed = true;
+        }
         if (!layoutProbed)
         {
             if (!match.VerifyDockCollapseForCi() ||
+                !match.VerifyGate4PresentationForCi() ||
+                !match.ValidateRenderedLayoutForCi() ||
                 !MatchScreen.ValidateReferenceLayoutForCi(1600, 900) ||
                 !MatchScreen.ValidateReferenceLayoutForCi(1280, 720))
             {
@@ -182,6 +208,18 @@ internal sealed class Gate3CFullMatchSmoke
         }
         MatchView view = state.Snapshot ??
             throw new InvalidOperationException("A command state is missing its safe snapshot.");
+        if (!keyboardProbed)
+        {
+            if (!await match.VerifyKeyboardNavigationForCiAsync())
+            {
+                throw new InvalidOperationException(
+                    "The real Tab/Enter battlefield keyboard path did not select a legal source safely.");
+            }
+            keyboardProbed = true;
+            state = match.CiState;
+            view = state.Snapshot ??
+                throw new InvalidOperationException("The keyboard probe lost the viewer snapshot.");
+        }
         LegalAction selected = SelectCommand(state.LegalActions, view, view.Viewer) ??
             throw new InvalidOperationException(
                 $"The selector found no non-surrender command at revision {view.Revision}.");
@@ -193,17 +231,22 @@ internal sealed class Gate3CFullMatchSmoke
                 action.Command.ComponentDonor is null &&
                 (action.Command.Target is { Kind: TargetKind.Unit } ||
                  action.Command.Slot.HasValue)).ToArray();
-            LegalAction? probe = dragCandidates.FirstOrDefault(action =>
-                                     action.Command.Target is { Kind: TargetKind.Unit } &&
-                                     action.Command.Slot.HasValue) ??
-                                 dragCandidates.FirstOrDefault();
+            LegalAction? multiStepProbe = dragCandidates.FirstOrDefault(action =>
+                action.Command.Target is { Kind: TargetKind.Unit } &&
+                action.Command.Slot.HasValue);
+            LegalAction? probe = match.CiPresentationMode == "3d"
+                ? multiStepProbe
+                : multiStepProbe ?? dragCandidates.FirstOrDefault();
             if (probe is not null)
             {
-                if (!match.VerifyCancelledDragNoSideEffectsForCi(probe) ||
-                    !match.VerifyClickDragParityForCi(probe))
+                bool cancelledDragSafe = match.VerifyCancelledDragNoSideEffectsForCi(probe);
+                bool clickDragParity = match.VerifyClickDragParityForCi(probe);
+                if (!cancelledDragSafe || !clickDragParity)
                 {
                     throw new InvalidOperationException(
-                        "Click/drag parity or cancelled-drag side-effect probe failed.");
+                        "Click/drag parity or cancelled-drag side-effect probe failed: " +
+                        $"cancelled_drag_safe={cancelledDragSafe}, parity={clickDragParity}, " +
+                        $"action={probe.Command}.");
                 }
                 parityProbed = true;
                 state = match.CiState;
@@ -232,6 +275,11 @@ internal sealed class Gate3CFullMatchSmoke
         {
             throw new InvalidOperationException(
                 $"{expectedAction} did not enter a leak-free public resolving projection.");
+        }
+        if (!match.VerifySpatialInputLockedForCi())
+        {
+            throw new InvalidOperationException(
+                $"{expectedAction} accepted spatial input while the public resolving view was locked.");
         }
 
         // The native command may run only after the public projection has
@@ -294,10 +342,21 @@ internal sealed class Gate3CFullMatchSmoke
             !match.CiPrivacySentinelVerified ||
             (resolvingScreenshotPath is not null && !match.CiResolvingScreenshotCaptured) ||
             !match.CiCancelledDragNoSideEffects ||
+            match.CiHasTransientDragData ||
             !match.CiSourceAdjacentPanelVerified ||
             !match.CiSignalE2e ||
             !match.CiClickDragCanonicalParity ||
             !match.CiSelectionCommitWithoutConfirmation ||
+            !match.CiSurfaceIntentE2e ||
+            match.CiSpatialPrivateLeaks != 0 ||
+            (match.CiPresentationMode == "3d" &&
+             (!match.CiRaycastE2e || !match.CiPhysicalDragSubmitted ||
+              !match.CiKeyboardE2e ||
+              !reactionSpatialLockProbed ||
+              !match.CiExternalStandbyDrag ||
+              match.CiHudRaycastBlocks < 1 ||
+              match.CiActorPoolReuses < 1 || match.CiPerspectiveRebuilds < 1 ||
+              match.CiBlockedSpatialInputs < 1)) ||
             match.CiMinimumResolvingFrames < 2 ||
             match.CiResolvingPrivateLeakCount != 0)
         {
@@ -332,7 +391,18 @@ internal sealed class Gate3CFullMatchSmoke
             match.CiMinimumResolvingFrames,
             match.CiResolvingPrivateLeakCount,
             0,
-            0);
+            0,
+            match.CiPresentationMode,
+            match.CiSurfaceIntentE2e,
+            match.CiRaycastE2e,
+            match.CiHudRaycastBlocks,
+            match.CiDragThresholdPixels,
+            match.CiCameraFovDegrees,
+            match.CiCameraPitchDegrees,
+            match.CiPerspectiveRebuilds,
+            match.CiActorPoolReuses,
+            match.CiBlockedSpatialInputs,
+            match.CiSpatialPrivateLeaks);
     }
 
     private async Task WaitForRenderedEventsAsync()
@@ -651,6 +721,7 @@ internal sealed class Gate3CSurrenderSmoke
             mulligans != 2 || match.CiRevealRequestCount < 2 ||
             match.CiMinimumResolvingFrames < 2 ||
             match.CiResolvingPrivateLeakCount != 0 ||
+            match.CiHasTransientDragData ||
             match.CiPrematureViewerCallCount != 0)
         {
             throw new InvalidOperationException(

@@ -2,7 +2,7 @@
 
 原创 1v1 数字卡牌游戏实验项目。C++20 规则引擎是唯一规则真值；正式客户端路线锁定为 **Godot 4.7.2 .NET** 的桌面单机热座版本。
 
-当前分支在 **Gate 3B 完整热座 Alpha** 之上实现 **Gate 3C 直接交互**：纯托管 C# 边界继续消费 `scgs_v04`，`Scgs.Hotseat` 从同 revision 的规范合法行动派生上下文选择，Godot 以“战场点击/拖拽为主、复杂分支提示为辅”的方式完成调度、行动、响应、终局与重开。界面仍使用授权字体和原创几何占位，不包含正式美术。
+当前分支正在 **Gate 3C 直接交互** 基线上推进 **Gate 4A 默认 3D/2.5D 战场**：纯托管 C# 边界继续消费 `scgs_v04`，`Scgs.Hotseat` 从同 revision 的规范合法行动派生统一 surface intent；Godot 的 3D 与隐藏 legacy 2D presenter 只能把点击/拖拽转换为同一 intent，不能复制规则。界面仍使用授权字体和原创几何占位，不包含正式美术。
 
 - 规则真值：[`docs/rules-v0.4.md`](docs/rules-v0.4.md)
 - Godot 热座开发计划：[`docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md`](docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md)
@@ -39,7 +39,7 @@ C ABI 不暴露 C++ 类、STL、异常或跨 CRT 内存。动态载荷使用调�
 
 Alpha 只承诺现有两副固定牌组的闭环。主战技 UI、普通主动能力、人工同时触发排序和固定牌组未使用关键词延后；同一玩家的同时触发暂按确定性场地顺序处理。
 
-Gate 3C 的确定性 Godot smoke 必须通过真实控件 signal 驱动直接交互：第一局覆盖自然终局，随后从结果页真实重开并以投降结束第二局；同时验证点击/拖拽汇入同一规范命令、无通用确认页提交以及 `Resolving` 中立公开投影的隐私边界。实际测试数量、导出与 CI 状态只以 [`TEST_REPORT.md`](TEST_REPORT.md) 为准；物理 Apple Silicon 和两名真人热座整局仍是发布标签前硬门。
+Gate 4A 保留 Gate 3C 的确定性 signal 整局、重开、投降和隐私契约，并要求默认 3D 路径真实经过空间拾取；隐藏参数 `--legacy-2d-board` 只用于同源 2D 回归。Windows/macOS 的当前工程、导出和 ZIP 往返运行默认 3D 整局，两平台另各跑一次源码级 legacy 2D 整局。实际测试数量、导出与 CI 状态只以 [`TEST_REPORT.md`](TEST_REPORT.md) 为准；物理 Apple Silicon 和两名真人热座整局仍是发布标签前硬门。
 
 ## 工具链
 
@@ -76,7 +76,7 @@ cmake --build --preset asan
 ctest --preset asan
 ```
 
-`SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认 `ON`。为保持既有 CMake/CI 基线，这个历史命名的开关当前注册整组 Python 契约测试，包括 legacy overlay/protocol、原生/导出审计、超时及 Gate 3B/3C 报告；开启时配置阶段必须找到 Python 3.10+，不能静默少注册。设为 `OFF` 会跳过整组 Python 契约，不能用这种构建宣称完成客户端验收。CMake 会按版本与 SHA-256 固定获取 JSON 依赖，不要求系统全局安装。
+`SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认 `ON`。为保持既有 CMake/CI 基线，这个历史命名的开关当前注册整组 Python 契约测试，包括 legacy overlay/protocol、原生/导出审计、超时及 Gate 3B/3C/4A 报告；开启时配置阶段必须找到 Python 3.10+，不能静默少注册。设为 `OFF` 会跳过整组 Python 契约，不能用这种构建宣称完成客户端验收。CMake 会按版本与 SHA-256 固定获取 JSON 依赖，不要求系统全局安装。
 
 Gate 2 还可安装到暂存目录以检查真正的消费产物：
 

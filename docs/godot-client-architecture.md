@@ -1,12 +1,12 @@
 # Godot 客户端架构
 
-本文描述 Gate 3C 的 Godot 4.7.2 .NET 桌面客户端边界。规则、费用、目标、响应与胜负仍完全由 C++ 引擎裁决；托管层只编排安全查询/规范命令，Godot 将点击、拖拽和键盘输入转换成同一套选择 intent。
+本文描述 Gate 4A 的 Godot 4.7.2 .NET 桌面客户端边界。规则、费用、目标、响应与胜负仍完全由 C++ 引擎裁决；托管层只编排安全查询/规范命令，Godot 的默认 3D 与隐藏 legacy 2D presenter 都只把点击、拖拽和键盘输入转换成同一套 surface intent。
 
 ## 分层
 
 ```text
-Godot Match 场景与观看者控件（net8.0，主线程）
-              │ 只依赖 HotseatUiState / HotseatMatchController
+Godot Match 场景、presenter 与观看者 HUD（net8.0，主线程）
+              │ 只依赖 HotseatUiState / surface intent
               ▼
 Scgs.Hotseat（纯托管，net8.0 / net10.0）
               │ 只依赖 IScgsGameSession
@@ -91,6 +91,22 @@ Disposed
 
 点击与拖拽必须汇入同一 intent 和同一规范命令。拖拽不能绕过候选过滤、revision 或支付预览；无效拖放不调用 native。`StepBackSelection` 只撤销最近一个显式选择，完整取消才清空来源。
 
+## 默认 3D 与 legacy 2D presenter
+
+产品默认实例化 3D/2.5D 战场。旧 2D 战场只在启动参数精确包含 `--legacy-2d-board` 时实例化，用于源码级回归和故障定位；主菜单不暴露切换项，发布验收也不能用它替代默认 3D。
+
+两种 presenter 遵守同一边界：
+
+- 只读取 `HotseatUiState` 与已脱敏的 `HotseatPublicBoardView`，不持有 `IScgsGameSession`；
+- 将命中结果映射为 `HotseatSurfaceRef`，交给 `HotseatSurfaceInteractionCoordinator` 生成点击/拖拽 intent；
+- 不自行决定合法性、支付、目标、格位、组件或命令字段；
+- 同 revision 的同一来源与目的地必须得到逐字段相等的 `GameCommandRequest`；
+- `Covered`、`Resolving`、`Finished`、`Faulted` 和 `Disposed` 都拒绝空间输入。
+
+默认 3D 使用 Compatibility renderer 下的固定透视相机：FOV 为 70°、俯角约 58°，并按当前 viewer 将己方一侧保持在近端。透视翻转只能在完全不透明遮挡中完成，不能在可见帧泄露下一位玩家的方向或对象。HUD 位于独立 `CanvasLayer`；鼠标先做 HUD hit-test，被 UI 消费时不得继续发射战场射线。空间点击/拖拽通过碰撞层命中 actor，移动达到 8 px 才进入拖拽，否则仍解释为点击。
+
+3D 卡牌 actor 使用对象池以避免同 revision 的整场销毁/重建。actor 归还池时必须清空 Label、材质参数、tooltip、metadata、碰撞层/掩码、signal/callback、拖拽 token、候选状态与 DTO 引用；取出时只从本次安全状态重新赋值。匿名牌背不能携带 definition ID、instance ID 或稳定的可关联 metadata。
+
 ## Resolving 公共投影与交接遮挡
 
 任何命令都采用“准备 → 中立投影 → 延迟提交”两阶段：
@@ -99,7 +115,7 @@ Disposed
 可见选择
   → PrepareSelectedCommand（冻结规范命令，不调用 native）
   → Resolving（清除 viewer 私有对象并绘制中立公开战场）
-  → 至少两个完整绘制帧
+  → 显示环境至少两次 FramePostDraw；headless 两次 process-frame 栅栏
   → SubmitPreparedCommand
   → 读取旧 viewer 的结果
   → 同一操作者继续，或 Covered(PassingDevice) 等待下一位主动揭示
@@ -135,13 +151,13 @@ Disposed
 
 产品启动省略 seed、随机决定先手并洗牌。测试路径可固定 seed、强制 Player0 且关闭洗牌。界面使用纯色几何和 DTO 派生的中文文本，不包含第二套正式卡牌表现 JSON。
 
-## Gate 3C 边界
+## Gate 4A 边界
 
-Gate 3C 的代码范围是在 Gate 3B 完整闭环上交付战场直接操作、点击/拖拽一致、逐步回退、上下文动作、无需通用确认的目标选择，以及中立公开 `Resolving` 投影。自动化与导出验收状态以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准，不以本文替代测试报告。
+Gate 4A 在 Gate 3C 完整交互/隐私闭环上交付默认 3D/2.5D 占位战场、HUD/射线输入闸门、viewer 透视切换和安全 actor 池；legacy 2D 仅作隐藏回归。它不增加规则、卡牌、正式卡图、音效或复杂动画，也不改变 `scgs_v04` ABI/schema、14 个导出或 legacy v1 wire。自动化与导出验收状态以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准，不以本文替代测试报告。
 
 以下仍是发布标签前的硬门，不能因 headless 或 CI smoke 通过而省略：
 
 - 在物理 Apple Silicon Mac 上启动、完成整局、退出并重开；
 - 两名真人在目标桌面构建上完成热座整局并检查遮挡/交接。
 
-Developer ID 签名、公证、正式美术/音效/复杂动画、触摸/手柄、主战技、普通主动能力、同时触发人工排序、Web 与 Linux 正式客户端不属于本 Gate。
+Developer ID 签名、公证、正式美术/音效/复杂动画、触摸/手柄、主战技、普通主动能力、同时触发人工排序、Web 与 Linux 正式客户端不属于本 Gate。Gate 4A 的源码完成也不能替代 1600×900/1280×720 人工视觉遍历、两名真人热座或物理目标机器验收。

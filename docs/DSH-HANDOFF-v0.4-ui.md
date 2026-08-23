@@ -14,8 +14,8 @@
 - Gate 3B 自动验收：GitHub Actions run [`32583321294`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32583321294)，4/4 jobs 全绿
 - Gate 3C 已验收尖端：`codex/godot-hotseat-gate3c@a29dd14`
 - Gate 3C 被测实现：`087d53a5dad3285478e78381914d34acfcaa79f3`；自动验收 run `32592594368`
-- Gate 4A 工作分支：`codex/godot-hotseat-gate4a`
-- Gate 4A 最终被测提交与 CI：完成后只按 [`../TEST_REPORT.md`](../TEST_REPORT.md) 的真实结果填写，不沿用 Gate 3C run
+- Gate 4A 自动化验收尖端：`codex/godot-hotseat-gate4a@7a6808ddcd76d2c78fd906a9235f867c11c84e7c`
+- Gate 4A 实现 CI：[run `32617860778`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32617860778)，四项 job 全绿；准确命令、数量和制品摘要见 [`../TEST_REPORT.md`](../TEST_REPORT.md)
 - 规则真值：[`rules-v0.4.md`](rules-v0.4.md)，用户最新明确决定优先于旧文档歧义
 - 客户端架构：[`godot-client-architecture.md`](godot-client-architecture.md)
 - UI 状态：[`ui-state-map.md`](ui-state-map.md)
@@ -169,7 +169,7 @@ Gate 3B 的 `ActionPromptPanel` / `ConfirmationPanel` 场景可以暂留作源�
 - Gate 4A 结构化报告使用 schema version 3 固定字段白名单；它完整继承 Gate 3C 的 `ActionKind` 0～10、真实 signal 两局、选择、公共投影、viewer 和释放约束，并新增 presentation、surface/raycast、HUD、8 px、70°/58°、透视、actor 池、锁定输入与空间隐私证据。
 - zip 必须解包到新目录后重新审计并真实启动，不能只验证压缩前目录。
 
-Gate 3C run `32592594368` 只是回归基线。Gate 4A 必须在最终分支尖端验证严格 v3 报告：Windows/macOS 各运行默认 3D 当前工程、默认 3D 导出、默认 3D ZIP 往返和一次 legacy 2D 源码整局，并上传 `SomeCardGameShit-gate4a-*` 制品。不能在真实 run 完成前把 Gate 3C 的数量、摘要或全绿结论复制为 Gate 4A 结果。
+Gate 3C run `32592594368` 只是历史回归基线。Gate 4A 实现已由 [run `32617860778`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32617860778) 在四项 job 中验证严格 v3 报告：Windows/macOS 各运行默认 3D 当前工程、默认 3D 导出、默认 3D ZIP 往返和一次 legacy 2D 源码整局，并上传 `SomeCardGameShit-gate4a-*` 制品。后续任何代码尖端都必须重新满足同一矩阵，不能沿用本次 run 冒充新提交证据。
 
 ## 8. 接手者必须完成的发布前硬门
 

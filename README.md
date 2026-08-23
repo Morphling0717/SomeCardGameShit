@@ -2,7 +2,7 @@
 
 原创 1v1 数字卡牌游戏实验项目。C++20 规则引擎是唯一规则真值；正式客户端路线锁定为 **Godot 4.7.2 .NET** 的桌面单机热座版本。
 
-当前分支正在 **Gate 3C 直接交互** 基线上推进 **Gate 4A 默认 3D/2.5D 战场**：纯托管 C# 边界继续消费 `scgs_v04`，`Scgs.Hotseat` 从同 revision 的规范合法行动派生统一 surface intent；Godot 的 3D 与隐藏 legacy 2D presenter 只能把点击/拖拽转换为同一 intent，不能复制规则。界面仍使用授权字体和原创几何占位，不包含正式美术。
+当前分支已完成 **Gate 4A 默认 3D/2.5D 战场** 的实现与自动化验收：纯托管 C# 边界继续消费 `scgs_v04`，`Scgs.Hotseat` 从同 revision 的规范合法行动派生统一 surface intent；Godot 的默认 3D 与隐藏 legacy 2D 路径只能把点击/拖拽转换为同一 intent，不能复制规则。界面仍使用授权字体和原创几何占位，不包含正式美术；逐状态人工视觉、双人热座与物理目标机仍是发布标签前硬门。
 
 - 规则真值：[`docs/rules-v0.4.md`](docs/rules-v0.4.md)
 - Godot 热座开发计划：[`docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md`](docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md)

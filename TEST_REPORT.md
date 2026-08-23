@@ -1,32 +1,32 @@
-# Gate 0+1+2+3A+3B+3C 测试报告
+# Gate 0+1+2+3A+3B+3C+4A 测试报告
 
 **日期：** 2026-08-23（Asia/Shanghai）
 
-**分支：** `codex/godot-hotseat-gate3c`
+**分支：** `codex/godot-hotseat-gate4a`
 
 **项目基线：** `main@cfdf695d70eeabcc6de9b094c94041364fb1335f`
 
-**Gate 3B 基线：** `codex/godot-hotseat-gate3b@dd38e93eba65652a54ce1861e1e303b344e7fd66`
+**Gate 3C 基线：** `codex/godot-hotseat-gate3c@a29dd14e75be9ec9bc6340f8f60945b27bc58ce7`
 
-**被测 Gate 3C 实现：** `087d53a5dad3285478e78381914d34acfcaa79f3`
+**被测 Gate 4A 实现：** `7a6808ddcd76d2c78fd906a9235f867c11c84e7c`（主体实现 `c2d2e709c789de3c408a1271176a255671e9fb82`，随后仅修正格式）
 
-**范围：** 在 Gate 3B 完整热座闭环上加入来源优先的战场直操、点击/拖拽统一 intent、复杂选择步骤、逐步回退、响应上下文和只含公开信息的 `Resolving` 投影。没有修改 C++ 规则、`native_api_v04.h`、ABI 1.0、schema 1、精确 14 个导出、两副固定牌组或 legacy v1 wire 字节。
+**范围：** 在 Gate 3C 完整热座闭环上加入默认 3D/2.5D 斜俯视战场、统一 surface intent、3D 射线与拖拽、固定 viewer 透视、actor 池、空间隐私清理和 schema v3 验收；legacy 2D 仅通过 `--legacy-2d-board` 保留为隐藏回归路径。没有修改 C++ 规则、`native_api_v04.h`、ABI 1.0、schema 1、精确 14 个导出、两副固定牌组或 legacy v1 wire 字节。
 
 ## 结论
 
-Gate 3C 实现已通过本机 MSVC Release **14/14 CTest**、**2,048 seeds** 压力、**49/49 managed tests**、**47/47 Python tests**、Godot 当前工程整局 smoke、Windows 导出与 ZIP 解包后真实启动，以及 1600×900 / 1280×720 的 `Resolving` 公共投影视觉检查。
+Gate 4A 实现已通过本机 MSVC Release **15/15 CTest**、**2,048 seeds** 压力、**62/62 managed tests**、**62/62 Python tests**、Godot 默认 3D 与 legacy 2D 源码整局 smoke、Windows 默认 3D 导出与 ZIP 解包后真实启动，以及 1600×900 / 1280×720 的 `Resolving` 公共投影视觉检查。
 
-[GitHub Actions run 32592594368](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32592594368) 在 `087d53a` 上 **4/4 jobs 全绿**：GCC Release、Clang ASan/UBSan、MSVC Release + Windows Godot、AppleClang ARM64 Release + macOS Godot。Windows 与 macOS 均完成 locked restore、C# Debug/Release 零警告构建、49 项托管测试、Godot import、当前工程整局、目标平台导出、结构/架构/许可证审计、导出程序启动、ZIP 解包后再次审计和启动。
+[GitHub Actions run 32617860778](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32617860778) 在 `7a6808d` 上 **4/4 jobs 全绿**：GCC Release、Clang ASan/UBSan、MSVC Release + Windows Godot、AppleClang ARM64 Release + macOS Godot。主体实现提交的前一轮 [run 32617735534](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32617735534) 也为 4/4 全绿。
 
-Gate 3C smoke 的唯一成功标记为：
+Windows 与 macOS 均完成 locked restore、C# Debug/Release 零警告构建、62 项托管测试、Godot import、默认 3D 当前工程整局、legacy 2D 当前工程整局、默认 3D 目标平台导出、结构/架构/许可证审计、导出程序整局、ZIP 解包后再次审计和整局。两平台合计运行 **8 次** full-match，每次只输出一次成功标记。
 
 ```text
 SCGS_GODOT_CI_SMOKE_OK result=Player1Won revision=3 steps=148 covers=71 reveals=71 premature_view_calls=0 disposed=true
 ```
 
-严格 schema v2 报告记录固定 seed `3235823838`、`midrange` 对 `advance`、Player0 先手、第一局 52 个结束回合、两局合计 148 次成功命令提交、`ActionKind` 0～10 全覆盖、71 次遮挡、71 次揭示、遮挡期间 0 次 viewer 读取、2 个完整公共结算帧、0 个私密泄露、1 次 signal 重开、1 次第二局投降终局及 2 次 session 释放。`revision=3` 与最终 `Player1Won` 来自重开后的投降终局，不是第一局的最终 revision。
+默认 3D 的严格 schema v3 报告记录：固定 seed `3235823838`、`midrange` 对 `advance`、Player0 先手、第一局 52 个结束回合、两局合计 148 次成功命令提交、`ActionKind` 0～10 全覆盖、71 次遮挡、71 次揭示、遮挡前 0 次 viewer 读取、每条命令至少 2 个完整公共结算帧、两类私密泄露均为 0、1 次 signal 重开、1 次第二局投降终局及 2 次 session 释放。
 
-自动 runner 真实经过 `Bootstrap → MatchScreen → HotseatMatchController → Godot 控件 signal → Resolving 两帧 → 提交/换手 → 自然终局 → 结果页重开 → 第二局投降`。它验证点击与拖拽得到逐字段相同的规范命令、最后必要选择后没有通用确认，并用恶意私密哨兵审计结算期间的文本、tooltip、metadata 和回调。
+Gate 4A 新增空间证据为：`surface_intent_e2e=true`、`raycast_e2e=true`、HUD 射线阻断 1 次、拖拽阈值 8 px、相机 70° FOV / 58° 俯角、viewer 透视重建 69 次、actor 池复用 830 次、锁定状态空间输入阻断 148 次、`spatial_private_leaks=0`。legacy 2D 报告仍证明经过共享 surface intent，同时所有 3D 专属证据均为 0。
 
 ## 执行环境
 
@@ -46,75 +46,88 @@ Git: 2.55.0.windows.5
 
 ## 本地实际命令
 
-以下为仓库根目录执行的关键命令；`SCGS_GODOT_EXE` 指向已校验的 Godot 4.7.2 .NET 可执行文件：
+以下命令从仓库根目录执行；`SCGS_GODOT_EXE` 指向已校验的 Godot 4.7.2 .NET 可执行文件：
 
 ```powershell
-cmake --build build/gate3c-msvc --config Release --parallel 2
-$env:SCGS_SMOKE_SEEDS = "2048"
-ctest --test-dir build/gate3c-msvc -C Release --output-on-failure
+cmake -S . -B build/gate4a-msvc -A x64 `
+  -DSCGS_WARNINGS_AS_ERRORS=ON `
+  -DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON
+cmake --build build/gate4a-msvc --config Release --parallel 4
+ctest --test-dir build/gate4a-msvc -C Release --output-on-failure
 
-$env:SCGS_NATIVE_LIBRARY = "$PWD\build\gate3c-msvc\Release\scgs_v04.dll"
+$env:SCGS_SMOKE_SEEDS = "2048"
+ctest --test-dir build/gate4a-msvc -C Release `
+  -R '^scgs_unit_tests$' --output-on-failure
+
+cmake --install build/gate4a-msvc --config Release `
+  --prefix build/stage-gate4a-msvc
+python scripts/audit_native_artifact.py `
+  --library build/stage-gate4a-msvc/bin/scgs_v04.dll `
+  --architecture x86_64
+
+$env:SCGS_NATIVE_LIBRARY = "$PWD\build\stage-gate4a-msvc\bin\scgs_v04.dll"
 $env:SCGS_V04_NATIVE_PATH = $env:SCGS_NATIVE_LIBRARY
 python scripts/ci/run_managed_gate3.py
-
-python -m unittest `
-  tools.tests.test_apply_ygo2_overlay `
-  tools.tests.test_protocol_contract `
-  scripts.tests.test_audit_native_artifact `
-  scripts.tests.test_audit_godot_export `
-  scripts.tests.test_run_with_timeout `
-  scripts.tests.test_validate_gate3b_report `
-  scripts.tests.test_validate_gate3c_report -v
+python -m unittest discover -s scripts/tests -p "test_*.py"
 
 python scripts/ci/run_with_timeout.py `
-  --timeout 180 `
-  --expect-output SCGS_GODOT_CI_SMOKE_OK `
-  --expect-output-count 1 `
-  --forbid-output "SCRIPT ERROR:" `
-  --forbid-output "ERROR:" `
+  --timeout 180 --expect-output SCGS_GODOT_CI_SMOKE_OK `
+  --expect-output-count 1 --forbid-output "SCRIPT ERROR:" `
+  --forbid-output "ERROR:" --forbid-output "Unhandled exception" `
   -- "$env:SCGS_GODOT_EXE" --headless --path client/godot -- `
   --ci-smoke "--native-library=$env:SCGS_NATIVE_LIBRARY" `
-  "--ci-report=$PWD\build\gate3c-implementation-current.json"
+  "--ci-report=$PWD\build\gate4a-current-3d.json"
+python scripts/ci/validate_gate4a_report.py `
+  --report build/gate4a-current-3d.json `
+  --scenario full-match --presentation 3d
 
-python scripts/ci/validate_gate3c_report.py `
-  --report build/gate3c-implementation-current.json `
-  --scenario full-match
+python scripts/ci/run_with_timeout.py `
+  --timeout 180 --expect-output SCGS_GODOT_CI_SMOKE_OK `
+  --expect-output-count 1 --forbid-output "SCRIPT ERROR:" `
+  --forbid-output "ERROR:" --forbid-output "Unhandled exception" `
+  -- "$env:SCGS_GODOT_EXE" --headless --path client/godot -- `
+  --ci-smoke --legacy-2d-board `
+  "--native-library=$env:SCGS_NATIVE_LIBRARY" `
+  "--ci-report=$PWD\build\gate4a-current-legacy-2d.json"
+python scripts/ci/validate_gate4a_report.py `
+  --report build/gate4a-current-legacy-2d.json `
+  --scenario full-match --presentation legacy-2d
 
 dotnet format client/Scgs.Client/Scgs.Client.csproj --verify-no-changes --no-restore
 dotnet format client/Scgs.Hotseat/Scgs.Hotseat.csproj --verify-no-changes --no-restore
 dotnet format client/Scgs.Client.Tests/Scgs.Client.Tests.csproj --verify-no-changes --no-restore
 dotnet format client/godot/SomeCardGameShit.csproj --verify-no-changes --no-restore
-
 git diff --check
 git diff --cached --check
 ```
 
-Windows 精确提交制品以 `GITHUB_SHA=087d53a5dad3285478e78381914d34acfcaa79f3` 执行：重新构建 native → `stage_godot_native.py` → Godot `--export-release` → `finalize_godot_export.py` → `audit_godot_export.py` → 首次 180 秒有界启动 → `Compress-Archive` → 新目录 `Expand-Archive` → 再次 audit、启动和 schema v2 报告校验。`licenses/BUILD_INFO.txt` 精确记录该 40 位提交。
+Windows 精确提交制品以 `GITHUB_SHA=7a6808ddcd76d2c78fd906a9235f867c11c84e7c` 重新执行 native 暂存、Godot `--export-release`、`finalize_godot_export.py`、`audit_godot_export.py`、首次 180 秒有界整局、ZIP 更新、全新目录解包、再次 audit/整局和 schema v3 校验。`licenses/BUILD_INFO.txt` 精确记录该 40 位实现提交。
 
 ## 本地结果
 
 | 验证项 | 结果 |
 |---|---|
-| MSVC Release `/W4 /WX` 构建与 CTest | 14/14 通过；2,048 seeds |
+| MSVC Release `/W4 /WX` 构建与 CTest | 15/15 通过；2,048 seeds |
 | 规则回归/压力 | 30 cases，8,607 assertions，0 failures |
 | 客户端安全 API 契约 | 426 assertions，0 failures |
 | legacy v1 wire 金标 | 31 assertions，0 failures |
 | native ABI 契约 | 98,806 assertions，0 failures |
 | C11 header/link、动态加载与安装后 consumer | 全部通过；精确 14 个导出可解析并调用 |
 | Windows DLL 审计 | PE x86-64；无 C++ 导出；不依赖 `MSVCP140*` / `VCRUNTIME140*` |
-| C# managed | 49/49，0 skipped；Godot/net8 Debug + Release 与测试/net10 Release 均零警告 |
-| Gate 3C 控制器契约 | 每种 `ActionKind` 的来源映射、步骤/自动补全/回退、乱序选择收敛、支付提示、公共投影和双 viewer 隐私均通过 |
+| C# managed | 62/62，0 skipped；Godot/net8 Debug + Release 与测试/net10 Release 均零警告 |
+| surface intent 契约 | 全部 `ActionKind` 来源/目的地映射、点击/拖拽收敛、已选 action 收窄、冲突/过期/歧义无副作用均通过 |
 | Python legacy | 10/10（overlay 5 + protocol 5） |
-| Python CI 工具契约 | 37/37（native audit 5 + Godot export 8 + timeout 3 + Gate 3B report 6 + Gate 3C report 15） |
-| Godot 当前工程 signal E2E | 两局合计 148 次成功提交 / 第一局 52 个结束回合；动作 0～10；点击/拖拽一致；重开 1；投降 1；0 premature viewer calls；唯一 marker |
-| `Resolving` 恶意 DTO 隐私 | 2 个完整帧；文本/tooltip/metadata/回调泄露 0；期间无 Snapshot/Viewer/LegalActions/events |
-| Windows 精确提交 ZIP 往返 | audit + 解包 + 两次真实整局通过；92,984,159 bytes；SHA-256 `e50eac9b1af036a83a95534a1fba639964a3d017863f5288f4aa2ece3b89d581` |
-| Windows 精确提交 DLL | 459,264 bytes；SHA-256 `a7498a5c0ed1243f92ed5af71a2e47b85703e01583f7d8303882f1ecbb29775a` |
-| 1600×900 / 1280×720 `Resolving` 视觉检查 | 中文无缺字、区域无重叠；双方手牌只显示数量，背面伏策匿名，详情/日志/候选已清空 |
+| Python CI 工具契约 | 52/52（native audit 5 + Godot export 9 + timeout 3 + Gate 3B report 6 + Gate 3C report 15 + Gate 4A report 14） |
+| 默认 3D Godot signal E2E | 148 次成功提交；动作 0～10；真实 raycast/click/drag/键盘/战备跨层拖放；自然终局、重开、投降；唯一 marker |
+| legacy 2D Godot signal E2E | 同一 148 步闭环；共享 surface intent；不伪报 3D 证据 |
+| `Resolving` 恶意 DTO 隐私 | 2 个完整帧；Label/材质/metadata/tooltip/碰撞/回调/drag token 泄露 0；期间无 viewer 数据 |
+| Windows 精确提交 ZIP 往返 | audit + 解包 + 两次真实整局通过；93,103,109 bytes；SHA-256 `3f703500d118ac511e4c3ce2b587d4ad5f09d3fb477dcb595e6af393af1c3870` |
+| Windows 精确提交 DLL | 459,264 bytes；SHA-256 `e8c76c29544ee2b729768a0f37cdf177c1c5c66dd8e21af27be071aab123fc8b` |
+| 1600×900 / 1280×720 `Resolving` 视觉检查 | 中文可读、左右栏不遮战场、公开投影牌背匿名、空牌组/墓地/封存区仍有明确占位 |
 | `dotnet format --verify-no-changes` | 4 个项目通过 |
 | `git diff --check` / staged check | 通过 |
 
-CTest 的 14 个目标为：
+CTest 的 15 个目标为：
 
 1. `scgs_unit_tests`
 2. `scgs_client_api_contract`
@@ -130,45 +143,47 @@ CTest 的 14 个目标为：
 12. `scgs_subprocess_timeout_contract`
 13. `scgs_gate3b_report_contract`
 14. `scgs_gate3c_report_contract`
+15. `scgs_gate4a_report_contract`
 
 ## 远端 CI 与制品
 
 | Job | 配置 | 结果与制品 |
 |---|---|---|
-| `linux-gcc` | GCC Release；2,048 seeds | 通过；native 安装/consumer/审计；`scgs-native-v04-linux-x86_64-gcc` |
-| `linux-clang-sanitizers` | Clang Debug + ASan/UBSan；256 seeds | 通过；sanitized consumer/审计；`scgs-native-v04-linux-x86_64-clang-asan-ubsan` |
-| `windows-msvc` | MSVC Release x86-64；2,048 seeds；Godot Windows | 通过；managed 49/49；当前工程、导出、ZIP 往返 Gate 3C signal E2E；native + Gate 3C 客户端 artifact |
-| `macos-arm64` | AppleClang Release ARM64；2,048 seeds；Godot macOS | 通过；managed 49/49；当前工程、导出、ZIP 往返 Gate 3C signal E2E；native + Gate 3C 客户端 artifact |
+| [`linux-gcc`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32617860778/job/97141375303) | GCC Release；2,048 seeds | 通过；native 安装/consumer/审计；`scgs-native-v04-linux-x86_64-gcc` |
+| [`linux-clang-sanitizers`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32617860778/job/97141375199) | Clang Debug + ASan/UBSan；256 seeds | 通过；sanitized consumer/审计；`scgs-native-v04-linux-x86_64-clang-asan-ubsan` |
+| [`windows-msvc`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32617860778/job/97141375342) | MSVC Release x86-64；2,048 seeds；Godot Windows | 通过；managed 62/62；默认 3D 当前/导出/ZIP + legacy 2D 源码整局；native + Gate 4A 客户端 artifact |
+| [`macos-arm64`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32617860778/job/97141375355) | AppleClang Release ARM64；2,048 seeds；Godot macOS | 通过；managed 62/62；默认 3D 当前/导出/ZIP + legacy 2D 源码整局；native + Gate 4A 客户端 artifact |
 
-Run `32592594368` 上传的 6 个 CI 验收制品如下。字节数和 SHA-256 是 GitHub Actions artifact archive 元数据，不是 archive 内部单个 DLL/dylib/客户端 ZIP 的摘要：
+Run `32617860778` 上传的 6 个 CI 验收制品如下。字节数和 SHA-256 是 GitHub Actions artifact archive 元数据，不是 archive 内部单个 DLL/dylib/客户端 ZIP 的摘要：
 
 | 制品 | 字节 | GitHub artifact SHA-256 |
 |---|---:|---|
-| `scgs-native-v04-linux-x86_64-gcc` | 630,017 | `dac49e30b8986091e734a730e53a9185577a8da1786a1382cb88682f6d3b8d60` |
-| `scgs-native-v04-linux-x86_64-clang-asan-ubsan` | 5,821,534 | `653f4a2e014aaf3ddd62f5cfe255eeeb2ad664cb76758d7cd056537b19bc924f` |
-| `scgs-native-v04-windows-x86_64-msvc` | 251,671 | `280683ab70d9f37dfe53093cf25b0329067e2e8364b14f8bca9bddf0e9ffd745` |
-| `SomeCardGameShit-gate3c-windows-x86_64` | 92,715,300 | `a31ac46874a676c181f02226b42ff91d2e557c6ffc3906f9608135b6fdc539ae` |
-| `scgs-native-v04-macos-arm64-appleclang` | 481,654 | `ed4be467ec7104835e2f86d75057b3f516f3ade1ddaee8acad0b10f508980062` |
-| `SomeCardGameShit-gate3c-macos-arm64` | 77,954,375 | `3bece24ae641875f8e0bc05df5f36e8bb8e50bf07b0470c228242d881b5246a0` |
+| `scgs-native-v04-linux-x86_64-gcc` | 630,017 | `b0aa4f7498b8bd8b1962713623b9f8094c9ef62ad66f05982354f05884a6e411` |
+| `scgs-native-v04-linux-x86_64-clang-asan-ubsan` | 5,821,534 | `e9b3101dc3730720660ab7ba00435f97b62c00e8645a612f1e7f2a6d81a8f397` |
+| `scgs-native-v04-windows-x86_64-msvc` | 251,672 | `13fb018d30436141e83eed31c7642ee0937c7c8e1565d92d66831b6fb2936246` |
+| `SomeCardGameShit-gate4a-windows-x86_64` | 92,832,624 | `dd274ec703c04d471fa393bdde1ff4df1431c8cbd7f2c71fbf483831a376468b` |
+| `scgs-native-v04-macos-arm64-appleclang` | 481,654 | `44dd290aaf13c75bec1dafc9772fa8e5894ca5c393f5618817095a788ebaa40a` |
+| `SomeCardGameShit-gate4a-macos-arm64` | 78,069,294 | `e38f13cb0a575b0499544e9387a5519245fc996efb24f01c54d6f0404eeba50f` |
 
 Windows 客户端内 DLL 与 EXE 同目录。macOS artifact 保留 `.app` 执行权限，dylib 位于 `.app/Contents/Frameworks`，finalize 后重新 ad-hoc codesign；所有 Mach-O 为 ARM64-only。两个包均通过 GPL、Godot MIT/COPYRIGHT、.NET、nlohmann MIT、Noto OFL 和第三方声明审计。它们是未正式签名/未公证的 CI 验收制品，不是发布版本。
 
 ## 本轮发现与收口
 
-- 公共结算最初只等待两个 `ProcessFrame` 信号；显示后端可能只实际绘制一个完整帧。实现改为每一帧都等待 `RenderingServer.FramePostDraw`，headless 才使用 process-frame 栅栏，并对两个阶段分别执行隐私审计。
-- 动态选择回调最初可能在相同 key 被新 revision 复用。现在 key 同时携带 revision 和单调 generation，回调执行前再次校验当前 generation、revision 和可见模式。
-- 多步骤单位拖拽最初可能把敌方目标位误作己方放置位。现在拖拽目的地具有 `Target` / `Donor` / `Slot` 明确语义，歧义目的地直接回弹且不调用 native。
-- 选择需要目标的伏策后，居中响应层原本会挡住战场。现在响应牌选定后隐藏居中层，目标选择直接回到战场；“不过”仍为直接提交。
-- 本机 Windows clang-cl ASan/UBSan 不是正式 sanitizer 证据：该组合在预期异常路径进入 Windows 运行库时失败。权威 sanitizer 结果来自同提交的 Linux Clang ASan/UBSan job，并以 256 seeds 全绿。
+- 3D 的真实拾取必须尊重 HUD：输入先执行 GUI hit-test，再做物理射线；8 px 以下仍按点击，revision 或模式变化会清除 drag token。
+- 多动作来源拖拽最初可能忽略已选择的 action。`PlanDrag` 现在继承同源已选 action，显式冲突在访问 controller/native 前无副作用拒绝。
+- 3D 战备使用空间牌堆打开 2D 托盘；托盘来源可跨 2D/3D 边界落到具体 3D 格位，仍只生成统一 surface intent。
+- 响应初始居中层显式锁死空间输入；选择伏策且仍需目标后才隐藏响应层并返回 3D 战场。
+- actor 池在 `Covered`/`Resolving`/重开/销毁时清除 DTO、ID、Label、材质名、metadata、tooltip、碰撞、回调、描边、箭头、幽灵牌和拖拽 revision；恶意私密哨兵审计为 0。
+- 相机保持 70° FOV / 58° 俯角，只允许安全范围缩放；左右栏真实宽度变化会重新计算水平偏移，viewer 透视只在完全不透明遮挡内瞬时重建。
 
-## Gate 3C 边界与发布前硬门
+## Gate 4A 边界与发布前硬门
 
 - legacy v1 wire、`native_api_v04.h`、ABI 1.0、schema 1 和 14 个导出保持冻结；原生 DLL/dylib 未提交 Git。
 - C# 与 Godot 不读取 `PlayerState`，不复算费用、目标、响应或胜负，只消费安全 DTO、引擎查询、规范命令和观看者事件游标。
-- 自动 signal E2E 覆盖动作、响应、结算、换手、自然终局、重开和第二局投降，但不等于两名真人对操作直觉、文字表达和所有卡牌组合的体验验收。
-- 本轮人工截图只检查两个分辨率下的 `Resolving` 公共投影；主要选择、响应与换手状态尚未完成逐页人工视觉遍历。
+- 本轮人工截图只完成两个目标分辨率下的 `Resolving` 公共投影。普通行动、目标选择、响应目标和 `Covered` 的逐状态截图矩阵仍是发布前人工视觉硬门，不能由 headless smoke 代替。
+- 默认 3D presenter 已独立承担空间渲染、射线、相机和 actor 池；隐藏 legacy 2D 的旧节点渲染仍保留在 `MatchScreen` 兼容路径中，但其点击/拖拽只能经过同一个 `HotseatSurfaceInteractionCoordinator`，没有第二套规则或命令验证。
 - 物理 Apple Silicon 上的整局/退出/重开、两名真人热座隐私观察、未安装 Visual Studio 的 Windows x86-64 机器整局仍未执行。
-- Developer ID 签名、公证、主战技、普通主动能力、同时触发人工排序、正式卡图/音效/动画、独立表现 JSON、Web/Linux 正式客户端、触摸/手柄和联机均不在本 Gate。
+- Developer ID 签名、公证、正式卡图/音效/复杂动画、触摸/手柄、主战技、普通主动能力、同时触发人工排序、Web/Linux 正式客户端和联机均不在本 Gate。
 - 在上述物理设备与真人硬门完成前，不创建 `v0.4-hotseat-alpha.1` 标签。本轮也未创建 PR、未合并、未打标签。
 
-本文件记录实现提交 `087d53a` 的可复现证据；包含测试报告的文档提交不改变产品代码，并由同一工作流再次验证分支尖端。
+本文件记录实现提交 `7a6808d` 的可复现证据；包含测试报告的文档提交不改变产品代码，并由同一工作流再次验证分支尖端。

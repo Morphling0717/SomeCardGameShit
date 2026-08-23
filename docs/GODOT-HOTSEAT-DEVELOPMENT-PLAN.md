@@ -7,7 +7,7 @@
 **Gate 3A 已验收尖端：** `codex/godot-hotseat-gate3@5158409`
 **Gate 3B 已验收尖端：** `codex/godot-hotseat-gate3b@dd38e93`
 **Gate 3C 已验收尖端：** `codex/godot-hotseat-gate3c@a29dd14`
-**Gate 4A 工作分支：** `codex/godot-hotseat-gate4a`
+**Gate 4A 自动化验收尖端：** `codex/godot-hotseat-gate4a@7a6808ddcd76d2c78fd906a9235f867c11c84e7c`
 **规则基线：** `docs/rules-v0.4.md`  
 **目标客户端：** Godot 4.7.2 .NET（Gate 4A 默认 3D/2.5D 占位战场）
 **.NET SDK：** 10.0.400
@@ -20,7 +20,7 @@
 
 ## 一、开工基线与当前交付
 
-> 本节的“已经完成/尚未完成”首先记录 `main@cfdf695` 的开工审计，便于解释 Gate 1 的来源。Gate 1 已关闭规则边界与客户端安全 API 缺口，Gate 2 完成稳定原生消费边界，Gate 3A 完成 Godot 桌面骨架与首张安全快照，Gate 3B 接入完整操作流程，Gate 3C 完成直接交互加固；Gate 4A 推进默认 3D 表现，真人/物理设备验收仍未完成。
+> 本节的“已经完成/尚未完成”首先记录 `main@cfdf695` 的开工审计，便于解释 Gate 1 的来源。Gate 1 已关闭规则边界与客户端安全 API 缺口，Gate 2 完成稳定原生消费边界，Gate 3A 完成 Godot 桌面骨架与首张安全快照，Gate 3B 接入完整操作流程，Gate 3C 完成直接交互加固；Gate 4A 已完成默认 3D 表现与自动化验收，真人/物理设备验收仍未完成。
 
 ### 1. 已经完成的部分
 
@@ -385,7 +385,7 @@ docs/ui-state-map.md
 docs/hotseat-acceptance.md
 ```
 
-Gate 0+1+2+3A+3B+3C 的已实现架构和验收边界、以及 Gate 4A 的待验收表现契约，统一记录在 `docs/architecture.md`、`docs/testing.md`、`docs/native-api-v04.md`、上述 UI 专项文档、路线图与现行交接中。
+Gate 0+1+2+3A+3B+3C+4A 的已实现架构、自动化证据和仍待人工完成的验收边界，统一记录在 `docs/architecture.md`、`docs/testing.md`、`docs/native-api-v04.md`、上述 UI 专项文档、路线图与现行交接中。
 
 清理明确的一次性遗留：
 
@@ -1090,8 +1090,8 @@ Gate 3B 被测实现 `9845a3f` 的 run [`32583321294`](https://github.com/Morphl
 | CI-002 | 完成 | P0 | dotnet 与 Godot headless | GODOT-002 |
 | CI-003 | 完成 | P0 | macOS/Windows 导出产物 | CI-002 |
 | CI-004 | 完成 | P0 | Gate 3C schema v2 整局报告、唯一 marker、解包复审/启动 | UI-002～009 |
-| UI-010 | Gate 4A 开发中 | P0 | 默认 3D presenter、HUD/射线闸门、透视与 actor 池 | HOTSEAT-001 |
-| CI-005 | Gate 4A 开发中 | P0 | schema v3、3D 导出/往返与 legacy 2D 源码 smoke | UI-010、CI-004 |
+| UI-010 | 完成 | P0 | 默认 3D presenter、HUD/射线闸门、透视与 actor 池 | HOTSEAT-001 |
+| CI-005 | 完成 | P0 | schema v3、3D 导出/往返与 legacy 2D 源码 smoke | UI-010、CI-004 |
 | QA-001 | 待办 | P0 | Mac 实机完整一局 | CI-003 |
 | QA-002 | 待办 | P0 | Windows 两台机器完整一局 | CI-003 |
 | REL-001 | 待办 | P0 | 标记 `v0.4-hotseat-alpha.1` | QA-001、QA-002 |
@@ -1100,7 +1100,7 @@ Gate 3B 被测实现 `9845a3f` 的 run [`32583321294`](https://github.com/Morphl
 
 ## 十一、提交策略
 
-长期每个 Gate 应独立提交。Gate 0+1 曾按要求只创建本地提交；Gate 2、Gate 3A、Gate 3B 与 Gate 3C 均已获得明确推送授权，分别在对应 `codex/godot-hotseat-*` 分支检查 CI，但仍不创建 PR、不合并或打标签。Gate 4A 继续使用独立分支，并在真实 CI 完成前不填写结果。
+长期每个 Gate 应独立提交。Gate 0+1 曾按要求只创建本地提交；Gate 2、Gate 3A、Gate 3B、Gate 3C 与 Gate 4A 均已获得明确推送授权，分别在对应 `codex/godot-hotseat-*` 分支检查 CI，但仍不创建 PR、不合并或打标签。Gate 4A 实现提交 `7a6808d` 的四项 job 已在 run `32617860778` 全绿；最终数量和制品摘要只记录在 `TEST_REPORT.md`。
 
 已产生的 Gate 0～3C 主题提交包括：
 
@@ -1299,7 +1299,7 @@ Gate 4A 基于 `codex/godot-hotseat-gate3c@a29dd14`。本轮不修改 C++ 规则
 - `Covered` 完全不透明，`Resolving` 只含中立公开投影；显示环境至少两个 `FramePostDraw`，headless 使用两次 process-frame 栅栏后才提交。
 - Gate 4A schema v3 完整继承 Gate 3C 的 22 个字段/整局约束，并新增 presentation、surface、raycast、HUD、镜头、透视、actor 池、锁定输入和空间泄露证据。
 - Windows/macOS 各跑默认 3D 当前工程、默认 3D 导出、默认 3D ZIP 往返与一次 legacy 2D 源码整局；唯一 marker 保持 `SCGS_GODOT_CI_SMOKE_OK`。
-- 导出 `BUILD_INFO.txt` 标识 Gate 4A，artifact 使用 `SomeCardGameShit-gate4a-*`。在真实 run 完成前不得在 `TEST_REPORT.md` 填写 Gate 4A 数量、摘要或全绿结论。
+- 导出 `BUILD_INFO.txt` 标识 Gate 4A，artifact 使用 `SomeCardGameShit-gate4a-*`。实现提交的真实 run、数量、摘要和全绿结论已记录在 `TEST_REPORT.md`；后续改动必须生成新证据，不能沿用旧 run。
 - 1600×900、1280×720 人工视觉遍历、两名真人热座、物理 Apple Silicon 与无 Visual Studio Windows 仍是发布标签前硬门。
 
 **历史决策与持续约束：Gate 0+1 先完成文档纠偏、规则回归和客户端查询接口，再进入 UI；后续也必须保持 Godot 只是表现层，不让 C# 逐步长成第二套规则引擎。**

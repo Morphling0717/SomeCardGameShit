@@ -467,6 +467,7 @@ class VisualSuiteReportTests(unittest.TestCase):
         self.assertIn("audit_visual_assets.py", workflow)
         self.assertIn("validate_gate4b_visual_suite.py", workflow)
         self.assertIn("--audio-driver Dummy", workflow)
+        self.assertIn("--timeout 1200", workflow)
         self.assertIn("compare_visual_golden.py", workflow)
         self.assertNotIn("update_gate4b_goldens.py", workflow)
         self.assertIn("SomeCardGameShit-gate4b-windows-x86_64", workflow)

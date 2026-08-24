@@ -227,8 +227,11 @@ jobs:
             $height = $size.Height
             $suite = Join-Path "${{ github.workspace }}" "artifacts/visual-suite/windows-$width`x$height"
             New-Item -ItemType Directory -Path $suite -Force | Out-Null
+            # GitHub's Windows image renders Compatibility through ANGLE/WARP.
+            # Preserve all 300+300 frames and the full signal-driven match, but
+            # allow the two 2560-wide structural runs enough wall-clock time.
             python scripts/ci/run_with_timeout.py `
-              --timeout 300 `
+              --timeout 1200 `
               --expect-output SCGS_GODOT_CI_SMOKE_OK `
               --expect-output-count 1 `
               --forbid-output "SCRIPT ERROR:" `

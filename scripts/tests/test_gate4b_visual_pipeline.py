@@ -422,6 +422,7 @@ class VisualSuiteReportTests(unittest.TestCase):
 
     def test_repo_registers_visual_pipeline_and_never_auto_updates_goldens(self) -> None:
         root = SCRIPTS.parent
+        attributes = (root / ".gitattributes").read_text(encoding="utf-8")
         cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
         workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         bootstrap = (
@@ -464,6 +465,7 @@ class VisualSuiteReportTests(unittest.TestCase):
             )
         )
         self.assertIn("scgs_gate4b_visual_pipeline_contract", cmake)
+        self.assertIn("*.svg text eol=lf", attributes.splitlines())
         self.assertIn("audit_visual_assets.py", workflow)
         self.assertIn("validate_gate4b_visual_suite.py", workflow)
         self.assertIn("--audio-driver Dummy", workflow)

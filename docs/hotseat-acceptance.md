@@ -67,7 +67,7 @@ Gate 3B 的历史通过不能证明 Gate 3C 的交互或公共投影安全；Gat
 - [x] 无参数产品入口默认创建 3D/2.5D presenter；主菜单不提供 2D 切换；
 - [x] 只有精确参数 `--legacy-2d-board` 创建 legacy 2D presenter，且该路径仍完成同一 signal full-match；
 - [x] 3D 与 2D 只把 surface 映射为同一 `HotseatSurfaceIntent`，不各自维护合法性或命令拼装；
-- [x] 手牌、主战者、双方单位/策略位、战备与施放区都有明确空间/HUD surface，点击与拖拽得到相同规范命令；
+- [x] 手牌、主战者、双方单位/策略位与战备都有明确空间/HUD surface，点击与拖拽得到相同规范命令；法术必须落到己方具体空策略位，中央施放区不存在；
 - [x] HUD 命中阻止 raycast，未达 8 px 仍按点击，非法落点不调用 native；
 - [x] 固定 70° FOV、约 58° 俯角，当前 viewer 始终位于近端且透视切换发生在完全遮挡内；
 - [x] `Covered`、`Resolving`、调度、终局、错误和销毁状态均拒绝空间输入。

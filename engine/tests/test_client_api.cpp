@@ -59,6 +59,19 @@ Game scenario_game(const Scenario& scenario) {
     return game;
 }
 
+Game scenario_game_with_catalog(CardCatalog catalog, const Scenario& scenario) {
+    GameConfig config;
+    config.random_seed = 0x12345678U;
+    config.first_player_mode = FirstPlayerMode::Player0;
+    config.shuffle_decks = false;
+    Game game(std::move(catalog), make_midrange_deck(), make_advance_deck(), config);
+    const Status status = game.load_scenario(scenario);
+    if (!status) {
+        std::cerr << "scenario setup failed: " << status.message << '\n';
+    }
+    return game;
+}
+
 void test_snapshot_privacy(TestContext& context) {
     Scenario scenario = base_scenario();
     scenario.players[0].hand = {cards::midrange::kPioneerScout};
@@ -90,6 +103,77 @@ void test_snapshot_privacy(TestContext& context) {
     EXPECT(context, player1.players[1].hand.size() == 1U);
     EXPECT(context, player1.players[0].hand.empty());
     EXPECT(context, player1.players[1].tactics[0]->instance_id.has_value());
+}
+
+void test_pending_spell_is_public_in_its_declared_slot(TestContext& context) {
+    constexpr CardId kSpellResponseTrap = 9101;
+    CardCatalog catalog = make_v04_catalog();
+    CardDefinition trap;
+    trap.id = kSpellResponseTrap;
+    trap.name = "public spell response trap";
+    trap.kind = CardKind::Trap;
+    trap.effects = {
+        EffectRecord{
+            EffectTrigger::OnSpellDeclared,
+            EffectKind::DealDamageToLeader,
+            1,
+            TargetSpec::None},
+    };
+    catalog.add(std::move(trap));
+
+    Scenario scenario = base_scenario();
+    scenario.players[0].hand = {cards::midrange::kPrecisionStrike};
+    scenario.players[1].units = {cards::midrange::kGuardSentry};
+    scenario.players[1].tactics = {kSpellResponseTrap};
+    Game game = scenario_game_with_catalog(std::move(catalog), scenario);
+
+    const InstanceId spell = *game.find_in_hand(
+        PlayerId::Player0, cards::midrange::kPrecisionStrike);
+    const InstanceId target = *game.player(PlayerId::Player1).units[0];
+    const auto initial_events = game.read_events(PlayerId::Player0, 0);
+    const std::uint64_t cursor = initial_events.empty() ? 0U : initial_events.back().sequence;
+
+    GameCommand cast;
+    cast.player = PlayerId::Player0;
+    cast.action = ActionKind::CastSpell;
+    cast.source = spell;
+    cast.target = Target::unit_target(PlayerId::Player1, target);
+    cast.slot = 2U;
+    cast.expected_revision = game.revision();
+    EXPECT(context, game.submit_command(cast));
+    EXPECT(context, game.phase() == Phase::Reaction);
+
+    for (const PlayerId viewer : {PlayerId::Player0, PlayerId::Player1}) {
+        const MatchView view = game.make_view(viewer);
+        const auto& declared = view.players[0].tactics[2];
+        EXPECT(context, declared.has_value());
+        if (declared.has_value()) {
+            EXPECT(context, declared->instance_id == spell);
+            EXPECT(context, declared->definition_id == cards::midrange::kPrecisionStrike);
+            EXPECT(context, !declared->face_down);
+        }
+
+        const auto events = game.read_events(viewer, cursor);
+        const auto moved_to_slot = std::find_if(
+            events.begin(), events.end(), [spell](const GameEventView& event) {
+                return event.type == EventType::CardMoved && event.card == spell &&
+                    event.value == static_cast<int>(Zone::Tactic) &&
+                    event.secondary_value == 2;
+            });
+        EXPECT(context, moved_to_slot != events.end());
+        if (moved_to_slot != events.end()) {
+            EXPECT(context, !moved_to_slot->hidden_card);
+            EXPECT(context, moved_to_slot->definition_id == cards::midrange::kPrecisionStrike);
+        }
+    }
+
+    GameCommand pass;
+    pass.player = PlayerId::Player1;
+    pass.action = ActionKind::PassReaction;
+    pass.expected_revision = game.revision();
+    EXPECT(context, game.submit_command(pass));
+    EXPECT(context, game.instance(spell).zone == Zone::Graveyard);
+    EXPECT(context, !game.make_view(PlayerId::Player1).players[0].tactics[2].has_value());
 }
 
 void test_legal_actions_and_payment(TestContext& context) {
@@ -124,6 +208,9 @@ void test_legal_actions_and_payment(TestContext& context) {
     spell_query.expected_revision = revision;
     const std::vector<LegalAction> spells = game.list_legal_actions(spell_query);
     EXPECT(context, !spells.empty());
+    EXPECT(context, std::all_of(spells.begin(), spells.end(), [](const LegalAction& action) {
+        return action.command.slot.has_value() && *action.command.slot < kTacticZoneSize;
+    }));
     const GameCommand spell = spells.front().command;
     const PaymentPreview preview = game.preview_payment(spell);
     EXPECT(context, preview.status);
@@ -150,6 +237,58 @@ void test_legal_actions_and_payment(TestContext& context) {
     EXPECT(context, targets.size() == 1U);
     EXPECT(context, targets[0].kind == Target::Kind::Unit);
     EXPECT(context, targets[0].player == PlayerId::Player1);
+
+    ActionQuery spell_slot_query = target_query;
+    const std::vector<std::size_t> spell_slots = game.list_valid_slots(spell_slot_query);
+    EXPECT(context, spell_slots == std::vector<std::size_t>({0U, 1U, 2U}));
+
+    Scenario occupied_spell_scenario = scenario;
+    occupied_spell_scenario.players[0].tactics = {cards::midrange::kCommandOrder};
+    Game occupied_spell_game = scenario_game(occupied_spell_scenario);
+    ActionQuery occupied_spell_query;
+    occupied_spell_query.player = PlayerId::Player0;
+    occupied_spell_query.action = ActionKind::CastSpell;
+    occupied_spell_query.source = *occupied_spell_game.find_in_hand(
+        PlayerId::Player0, cards::midrange::kPrecisionStrike);
+    occupied_spell_query.expected_revision = occupied_spell_game.revision();
+    EXPECT(
+        context,
+        occupied_spell_game.list_valid_slots(occupied_spell_query) ==
+            std::vector<std::size_t>({1U, 2U}));
+    GameCommand occupied_spell_command;
+    occupied_spell_command.player = PlayerId::Player0;
+    occupied_spell_command.action = ActionKind::CastSpell;
+    occupied_spell_command.source = *occupied_spell_query.source;
+    occupied_spell_command.target = Target::unit_target(
+        PlayerId::Player1,
+        *occupied_spell_game.player(PlayerId::Player1).units[0]);
+    occupied_spell_command.slot = 0U;
+    occupied_spell_command.expected_revision = occupied_spell_game.revision();
+    EXPECT_CODE(
+        context,
+        occupied_spell_game.preview_payment(occupied_spell_command).status,
+        ErrorCode::TacticZoneFull);
+    EXPECT_CODE(
+        context,
+        occupied_spell_game.submit_command(occupied_spell_command),
+        ErrorCode::TacticZoneFull);
+    EXPECT(context, occupied_spell_game.revision() == 0U);
+
+    Scenario full_spell_scenario = scenario;
+    full_spell_scenario.players[0].tactics = {
+        cards::midrange::kCommandOrder,
+        cards::midrange::kCommandOrder,
+        cards::midrange::kCommandOrder,
+    };
+    Game full_spell_game = scenario_game(full_spell_scenario);
+    ActionQuery full_spell_query;
+    full_spell_query.player = PlayerId::Player0;
+    full_spell_query.action = ActionKind::CastSpell;
+    full_spell_query.source = *full_spell_game.find_in_hand(
+        PlayerId::Player0, cards::midrange::kPrecisionStrike);
+    full_spell_query.expected_revision = full_spell_game.revision();
+    EXPECT(context, full_spell_game.list_legal_actions(full_spell_query).empty());
+    EXPECT(context, full_spell_game.list_valid_slots(full_spell_query).empty());
 
     ActionQuery slot_query;
     slot_query.player = PlayerId::Player0;
@@ -245,11 +384,25 @@ void test_transactional_failure_has_no_side_effects(TestContext& context) {
     const auto prior_events = game.read_events(PlayerId::Player0, 0);
     const std::uint64_t cursor = prior_events.empty() ? 0U : prior_events.back().sequence;
 
+    GameCommand missing_slot;
+    missing_slot.player = PlayerId::Player0;
+    missing_slot.action = ActionKind::CastSpell;
+    missing_slot.source = *before.players[0].hand[0].instance_id;
+    missing_slot.target = Target::unit_target(
+        PlayerId::Player1,
+        *before.players[1].units[0]->instance_id);
+    missing_slot.expected_revision = before.revision;
+    EXPECT_CODE(context, game.preview_payment(missing_slot).status, ErrorCode::InvalidSlot);
+    EXPECT_CODE(context, game.submit_command(missing_slot), ErrorCode::InvalidSlot);
+    EXPECT(context, game.make_view(PlayerId::Player0).revision == before.revision);
+    EXPECT(context, game.read_events(PlayerId::Player0, cursor).empty());
+
     GameCommand invalid;
     invalid.player = PlayerId::Player0;
     invalid.action = ActionKind::CastSpell;
     invalid.source = *before.players[0].hand[0].instance_id;
     invalid.target = Target::leader(PlayerId::Player1);
+    invalid.slot = 0;
     invalid.expected_revision = before.revision;
     EXPECT_CODE(context, game.submit_command(invalid), ErrorCode::InvalidTarget);
 
@@ -267,6 +420,7 @@ void test_transactional_failure_has_no_side_effects(TestContext& context) {
     hidden_probe.player = PlayerId::Player0;
     hidden_probe.action = ActionKind::CastSpell;
     hidden_probe.source = *game.find_in_hand(PlayerId::Player1, cards::advance::kBurnBlast);
+    hidden_probe.slot = 0;
     hidden_probe.expected_revision = game.revision();
     const PaymentPreview hidden_payment = game.preview_payment(hidden_probe);
     EXPECT_CODE(context, hidden_payment.status, ErrorCode::InvalidZone);
@@ -516,6 +670,7 @@ void test_headless_agent_completes_fixed_deck_match(TestContext& context) {
 int main() {
     TestContext context;
     test_snapshot_privacy(context);
+    test_pending_spell_is_public_in_its_declared_slot(context);
     test_legal_actions_and_payment(context);
     test_payment_preview_is_cost_only_and_viewer_safe(context);
     test_transactional_failure_has_no_side_effects(context);

@@ -83,7 +83,7 @@ int main(const int argc, char** argv) {
 
     // Step 3: cast 1PP + 燃耗2 spell (rules-v0.4 §12/§13/§17).
     const InstanceId burn_blast = *game.find_in_hand(PlayerId::Player0, cards::advance::kBurnBlast);
-    if (!require(game.cast_spell(PlayerId::Player0, burn_blast,
+    if (!require(game.cast_spell(PlayerId::Player0, burn_blast, 0,
                                  Target::unit_target(PlayerId::Player1, enemy_sentry)),
                  "cast burn spell")) {
         return EXIT_FAILURE;

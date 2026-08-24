@@ -264,19 +264,6 @@ theme_override_font_sizes/font_size = 17
 text = "先手：—  ·  当前行动：—  ·  Seed：—"
 horizontal_alignment = 1
 
-[node name="CastZone" type="Button" parent="SafeMargin/Layout/Board/BoardMargin/BoardRows"]
-unique_name_in_owner = true
-visible = false
-custom_minimum_size = Vector2(260, 42)
-layout_mode = 2
-size_flags_horizontal = 4
-focus_mode = 0
-disabled = true
-theme_override_colors/font_color = Color(0.62, 0.91, 0.86, 1)
-theme_override_font_sizes/font_size = 16
-text = "拖到这里施放 / 发动"
-script = ExtResource("8_drop")
-
 [node name="OwnUnits" type="HBoxContainer" parent="SafeMargin/Layout/Board/BoardMargin/BoardRows"]
 unique_name_in_owner = true
 layout_mode = 2

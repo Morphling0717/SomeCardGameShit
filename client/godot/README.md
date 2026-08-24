@@ -1,6 +1,6 @@
-# Godot 热座客户端（Gate 4A）
+# Godot 热座客户端（Gate 4A / 4A.1）
 
-此目录是 Godot 4.7.2 .NET、`net8.0` 的桌面热座客户端。产品默认使用 3D/2.5D 占位战场；legacy 2D 仅保留为隐藏回归路径。Godot 层引用：
+此目录是 Godot 4.7.2 .NET、`net8.0` 的桌面热座客户端。产品默认使用 3D/2.5D 占位战场；legacy 2D 仅保留为隐藏回归路径。法术没有中央施放区，必须点击或拖到当前玩家自己的具体空策略位；三个位置全满时不可施法。Godot 层引用：
 
 - `../Scgs.Client/Scgs.Client.csproj`：安全 ABI、DTO 与 `IScgsGameSession`；
 - `../Scgs.Hotseat/Scgs.Hotseat.csproj`：无 Godot 依赖的热座状态机与命令编排。
@@ -77,4 +77,4 @@ legacy 报告必须证明仍经过共享 surface intent，同时不伪报 raycas
 
 卡框、图标和颜色均为原创占位几何。唯一新增二进制素材是 Noto Sans CJK SC 2.004 Regular，许可证、NOTICE 和 SHA-256 在 `assets/fonts/` 中。桌面导出还附带项目 GPL、Godot、.NET runtime、nlohmann/json、Noto 与第三方声明；finalize 与制品审计会强制检查。
 
-Gate 4A 不包含正式卡图/音效/复杂动画、独立正式表现 JSON、主战技、普通主动能力、同时触发人工排序、触摸/手柄、Developer ID 签名/公证、Web 或 Linux 正式客户端。
+Gate 4A / 4A.1 不包含正式卡图/音效/复杂动画、独立正式表现 JSON、主战技、普通主动能力、同时触发人工排序、触摸/手柄、Developer ID 签名/公证、Web 或 Linux 正式客户端。

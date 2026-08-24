@@ -242,35 +242,6 @@ public sealed class HotseatSurfaceInteractionCoordinator
             return IntentPlanResult.Invalid;
         }
 
-        if (intent.Source.Kind == HotseatSurfaceKind.CastZone)
-        {
-            if (intent.Action is not null and not ActionKind.CastSpell ||
-                state.Selection.Action != ActionKind.CastSpell)
-            {
-                return IntentPlanResult.Invalid;
-            }
-
-            bool nullTargetExists = state.CandidateOptions.Actions.Any(action =>
-                action.Command.Action == ActionKind.CastSpell &&
-                action.Command.Target is null);
-            if (!nullTargetExists)
-            {
-                return IntentPlanResult.Invalid;
-            }
-
-            return IntentPlanResult.Success(new IntentPlan(
-                BeginSource: false,
-                Source: state.Selection.Source!.Value,
-                Action: ActionKind.CastSpell,
-                Role: state.Selection.HasTarget && state.Selection.Target is null
-                    ? DestinationRole.None
-                    : DestinationRole.Target,
-                Target: null,
-                Slot: null,
-                Donor: null,
-                PrepareWhenReady: true));
-        }
-
         if (intent.Action.HasValue)
         {
             if (!TryGetCardSource(intent.Source, out ulong source) ||
@@ -293,6 +264,18 @@ public sealed class HotseatSurfaceInteractionCoordinator
         }
 
         DestinationRole expectedRole = RoleForStep(state.Interaction.Step);
+        if (state.Selection.Action == ActionKind.CastSpell &&
+            state.Interaction.Step == HotseatSelectionStep.ChooseSlot &&
+            TryResolveDestination(
+                state.CandidateOptions.Actions,
+                intent.Source,
+                state.Viewer!.Value,
+                DestinationRole.Target,
+                out _))
+        {
+            return IntentPlanResult.Invalid;
+        }
+
         if (expectedRole != DestinationRole.None &&
             TryResolveDestination(
                 state.CandidateOptions.Actions,
@@ -399,10 +382,20 @@ public sealed class HotseatSurfaceInteractionCoordinator
             return new IntentPlanResult(HotseatSurfaceIntentStatus.Ambiguous, null);
         }
 
+        bool continuesCurrentSelection = state.Selection.Source == source &&
+                                         state.Selection.Action == actionKinds[0];
+        if (actionKinds[0] == ActionKind.CastSpell &&
+            roles[0] != DestinationRole.Slot &&
+            (!continuesCurrentSelection ||
+             RoleForStep(state.Interaction.Step) != roles[0]))
+        {
+            return IntentPlanResult.Invalid;
+        }
+
         DestinationValue selected = matches.First(match =>
             match.Action.Command.Action == actionKinds[0] && match.Role == roles[0]).Value;
         return IntentPlanResult.Success(new IntentPlan(
-            BeginSource: true,
+            BeginSource: !continuesCurrentSelection,
             Source: source,
             Action: actionKinds[0],
             Role: roles[0],
@@ -459,19 +452,13 @@ public sealed class HotseatSurfaceInteractionCoordinator
 
                 break;
             case HotseatSurfaceKind.TacticSlot:
-                if (surface.Player == viewer && command.Action == ActionKind.PlayTactic &&
+                if (surface.Player == viewer &&
+                    command.Action is ActionKind.CastSpell or ActionKind.PlayTactic &&
                     command.Slot == (ulong)surface.Index!.Value)
                 {
                     yield return (
                         DestinationRole.Slot,
                         DestinationValue.ForSlot((ulong)surface.Index.Value));
-                }
-
-                break;
-            case HotseatSurfaceKind.CastZone:
-                if (command.Action == ActionKind.CastSpell && command.Target is null)
-                {
-                    yield return (DestinationRole.Target, DestinationValue.ForTarget(null));
                 }
 
                 break;
@@ -518,8 +505,7 @@ public sealed class HotseatSurfaceInteractionCoordinator
 
         if (surface.Kind == HotseatSurfaceKind.CastZone)
         {
-            return !surface.Player.HasValue && !surface.Index.HasValue &&
-                   !surface.InstanceId.HasValue;
+            return false;
         }
 
         if (!surface.Player.HasValue ||
@@ -542,7 +528,7 @@ public sealed class HotseatSurfaceInteractionCoordinator
             HotseatSurfaceKind.UnitSlot =>
                 IsSlot(surface, player.Units.Length),
             HotseatSurfaceKind.TacticSlot =>
-                IsSlot(surface, player.Tactics.Length),
+                IsEmptySlot(surface, player.Tactics),
             HotseatSurfaceKind.Leader =>
                 !surface.Index.HasValue && !surface.InstanceId.HasValue,
             _ => false,
@@ -559,6 +545,11 @@ public sealed class HotseatSurfaceInteractionCoordinator
     private static bool IsSlot(HotseatSurfaceRef surface, int slotCount) =>
         surface.Index is >= 0 && surface.Index.Value < slotCount &&
         !surface.InstanceId.HasValue;
+
+    private static bool IsEmptySlot(
+        HotseatSurfaceRef surface,
+        IReadOnlyList<CardView?> cards) =>
+        IsSlot(surface, cards.Count) && cards[surface.Index!.Value] is null;
 
     private static bool TryGetCardSource(HotseatSurfaceRef surface, out ulong source)
     {

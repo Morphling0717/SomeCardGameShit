@@ -117,7 +117,7 @@ Gate 3C 的剩余发布硬门是：主要选择/响应/结算/换手状态的逐
 
 - [x] 产品默认实例化固定透视 3D/2.5D 战场；旧 2D 仅能通过 `--legacy-2d-board` 隐藏参数启动
 - [x] 3D 与 legacy 2D 共享 `HotseatSurfaceInteractionCoordinator`，点击/拖拽收敛到相同规范命令
-- [x] 3D 战场覆盖双方主战者、单位/策略位、战备、手牌、牌组/墓地/封存区和施放区，HUD 保持屏幕空间可读
+- [x] 3D 战场覆盖双方主战者、单位/策略位、战备、手牌、牌组/墓地/封存区，HUD 保持屏幕空间可读
 - [x] 固定 70° FOV、约 58° 俯角；当前 viewer 在近端，透视只在完全遮挡中切换
 - [x] HUD 命中阻止战场射线；8 px 拖拽阈值、无效落点回弹和所有非交互状态输入锁定
 - [x] 卡牌 actor 池在回收时清除文字、材质、metadata、tooltip、碰撞、回调和拖拽 token
@@ -133,6 +133,15 @@ Gate 3C 的剩余发布硬门是：主要选择/响应/结算/换手状态的逐
 - [ ] 两名真人、物理 Apple Silicon Mac 与无 Visual Studio Windows 机器完成目标构建整局/重开
 
 Gate 4A 不改变 C++ 规则、`scgs_v04` ABI/schema、14 个导出、固定牌组或 legacy v1 wire。正式卡图、音效、复杂动画、触摸、手柄和网络仍不在本 Gate；上述项目未有真实证据前不得勾选，也不得据此创建发布标签。
+
+## Gate 4A.1：己方策略位施放法术
+
+- [x] CastSpell 要求玩家选择己方一个具体空策略位；三格全满时不枚举或接受施法
+- [x] 法术正面占位并开放响应，按 LIFO 结算后在自身链环结束时进入墓地
+- [x] 致命响应和响应期间投降先幂等清理已声明链卡，再唯一发送最后一条 `MatchEnded`
+- [x] 默认 3D 与 legacy 2D 删除中央施放区，点击和拖拽都生成带相同 `slot` 的规范命令
+
+Gate 4A.1 改变 C++ 法术使用语义，但继续冻结 `scgs_v04` ABI/schema、14 个导出、ActionKind 数值和 legacy v1 wire。
 
 ## Alpha 后续
 

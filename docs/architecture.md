@@ -45,9 +45,9 @@ Native 适配层只序列化 Gate 1 的安全 DTO，并且只经 `make_view`、�
 
 Gate 3C 把“结算”和“交接”拆为两种状态。准备命令后先进入不可交互的 `Resolving`，只保留不含 viewer 私有对象的中立公开战场，至少完整绘制两帧后才提交；初始揭示或操作者变化才进入完全不透明的 `Covered`。事件批次只有在相同 viewer/sequence 的日志完成绘制后才 ACK；换人时不得预取下一 viewer 的快照、查询或事件。
 
-## Gate 4A 表现边界
+## Gate 4A / 4A.1 表现与法术占位边界
 
-Gate 4A 只替换 Godot 战场 presenter，不改变热座控制器、`IScgsGameSession`、C++ 规则、C ABI、schema 1 或 legacy wire。`HotseatSurfaceInteractionCoordinator` 是 3D 与 2D 唯一共同操作入口：手牌、单位、策略、格位、战备、主战者和施放区都先转换为 `HotseatSurfaceRef`，点击与拖拽再转换为同一 `HotseatSurfaceIntent`。presenter 不能直接拼命令、扣费或推导目标。
+Gate 4A 引入 3D presenter；Gate 4A.1 把法术发动改为真实占用己方策略位。`IScgsGameSession`、C ABI、schema 1 与 legacy wire 均不改变，已有 `GameCommand.slot` 成为 CastSpell 的必填语义。`HotseatSurfaceInteractionCoordinator` 是 3D 与 2D 唯一共同操作入口：手牌、单位、策略、格位、战备和主战者都先转换为 `HotseatSurfaceRef`，点击与拖拽再转换为同一 `HotseatSurfaceIntent`。中央 CastZone 的冻结枚举值仅作兼容保留，任何对应 intent 都必须被拒绝；presenter 不能直接拼命令、扣费或推导目标。
 
 产品默认使用 3D/2.5D 战场；仅测试/排障可通过精确参数 `--legacy-2d-board` 启用旧 2D presenter，该路径不是面向玩家的模式选择。两种 presenter 必须消费同一 `HotseatUiState`，并保持相同选择、响应、`Resolving`、换手与终局状态机。
 

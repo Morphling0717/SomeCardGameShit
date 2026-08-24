@@ -4,6 +4,7 @@ using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 using System.Text.Json;
 using Microsoft.VisualStudio.TestTools.UnitTesting;
+using Scgs.Hotseat;
 
 namespace Scgs.Client.Tests;
 
@@ -34,6 +35,7 @@ public sealed class ContractTests
         AssertEnumValues<PlayerId>(0, 1);
         AssertEnumValues<FirstPlayerMode>(0, 1, 2);
         AssertEnumValues<ActionKind>(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10);
+        AssertEnumValues<HotseatSurfaceKind>(0, 1, 2, 3, 4, 5, 6, 7);
         AssertEnumValues<TargetKind>(0, 1);
         AssertEnumValues<CardKind>(0, 1, 2, 3);
         AssertEnumValues<Zone>(0, 1, 2, 3, 4, 5, 6, 7);

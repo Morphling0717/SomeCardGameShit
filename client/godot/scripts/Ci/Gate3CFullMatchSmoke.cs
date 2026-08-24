@@ -482,6 +482,19 @@ internal sealed class Gate3CFullMatchSmoke
                 "Rendered labels, hand backs, or viewer-scoped hand data disagree with the safe DTO.");
         }
 
+        foreach (LegalAction spell in state.LegalActions.Where(action =>
+                     action.Command.Action == ActionKind.CastSpell))
+        {
+            GameCommandRequest command = spell.Command;
+            if (command.Player != view.Viewer ||
+                command.Slot is not { } slot || slot >= (ulong)own.Tactics.Length ||
+                own.Tactics[(int)slot] is not null)
+            {
+                throw new InvalidOperationException(
+                    "A legal spell is not bound to one concrete empty tactic slot owned by the viewer.");
+            }
+        }
+
         foreach (CardView? tactic in opponent.Tactics)
         {
             if (tactic is { FaceDown: true } &&

@@ -1,6 +1,6 @@
 # Godot 客户端架构
 
-本文描述 Gate 4A 的 Godot 4.7.2 .NET 桌面客户端边界。规则、费用、目标、响应与胜负仍完全由 C++ 引擎裁决；托管层只编排安全查询/规范命令，Godot 的默认 3D 与隐藏 legacy 2D presenter 都只把点击、拖拽和键盘输入转换成同一套 surface intent。
+本文描述 Gate 4A / 4A.1 的 Godot 4.7.2 .NET 桌面客户端边界。规则、费用、目标、响应与胜负仍完全由 C++ 引擎裁决；托管层只编排安全查询/规范命令，Godot 的默认 3D 与隐藏 legacy 2D presenter 都只把点击、拖拽和键盘输入转换成同一套 surface intent。
 
 ## 分层
 
@@ -91,6 +91,8 @@ Disposed
 
 点击与拖拽必须汇入同一 intent 和同一规范命令。拖拽不能绕过候选过滤、revision 或支付预览；无效拖放不调用 native。`StepBackSelection` 只撤销最近一个显式选择，完整取消才清空来源。
 
+CastSpell 的显式顺序固定为“选择手牌法术 → 选择己方空策略位 → 必要时选择目标与预支”。即使只有一个空位也不得自动补全；三个策略位都被占用时，引擎不会枚举 CastSpell。中央施放区不再渲染或参与输入，保留的 CastZone 数值只用于兼容旧记录，不能生成命令。
+
 ## 默认 3D 与 legacy 2D presenter
 
 产品默认实例化 3D/2.5D 战场。旧 2D 战场只在启动参数精确包含 `--legacy-2d-board` 时实例化，用于源码级回归和故障定位；主菜单不暴露切换项，发布验收也不能用它替代默认 3D。
@@ -151,9 +153,9 @@ Disposed
 
 产品启动省略 seed、随机决定先手并洗牌。测试路径可固定 seed、强制 Player0 且关闭洗牌。界面使用纯色几何和 DTO 派生的中文文本，不包含第二套正式卡牌表现 JSON。
 
-## Gate 4A 边界
+## Gate 4A / 4A.1 边界
 
-Gate 4A 在 Gate 3C 完整交互/隐私闭环上交付默认 3D/2.5D 占位战场、HUD/射线输入闸门、viewer 透视切换和安全 actor 池；legacy 2D 仅作隐藏回归。它不增加规则、卡牌、正式卡图、音效或复杂动画，也不改变 `scgs_v04` ABI/schema、14 个导出或 legacy v1 wire。自动化与导出验收状态以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准，不以本文替代测试报告。
+Gate 4A 在 Gate 3C 完整交互/隐私闭环上交付默认 3D/2.5D 占位战场、HUD/射线输入闸门、viewer 透视切换和安全 actor 池；Gate 4A.1 让法术正面占用玩家明确选择的策略位直至自身链环结算。legacy 2D 仅作隐藏回归。两者不增加卡牌、正式卡图、音效或复杂动画，也不改变 `scgs_v04` ABI/schema、14 个导出或 legacy v1 wire。自动化与导出验收状态以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准，不以本文替代测试报告。
 
 以下仍是发布标签前的硬门，不能因 headless 或 CI smoke 通过而省略：
 

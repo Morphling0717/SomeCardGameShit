@@ -189,7 +189,8 @@ public sealed class HotseatMatchControllerTests
             ActionKind.CastSpell,
             5,
             source: 500,
-            target: Target.Leader(PlayerId.Player1));
+            target: Target.Leader(PlayerId.Player1),
+            slot: 0);
         LegalAction trap = HotseatTestModel.Action(
             PlayerId.Player1, ActionKind.ActivateTrap, 6, source: 600);
         LegalAction pass1 = HotseatTestModel.Action(
@@ -642,6 +643,7 @@ public sealed class HotseatMatchControllerTests
         Target enemy = Target.UnitTarget(PlayerId.Player1, 620);
         LegalAction forcedAdvance = HotseatTestModel.Action(
             PlayerId.Player0, ActionKind.CastSpell, 25, source: 610, target: enemy,
+            slot: 1,
             useAdvance: true,
             payment: HotseatTestModel.Payment(baseCost: 2, usedAdvance: true));
         using var controller = new HotseatMatchController(ActionSession(25, [forcedAdvance]));
@@ -652,13 +654,56 @@ public sealed class HotseatMatchControllerTests
         Assert.AreEqual(ActionKind.CastSpell, controller.State.Interaction.Action);
         Assert.IsTrue(controller.State.Selection.HasAdvanceChoice);
         Assert.IsTrue(controller.State.Selection.UseAdvance);
+        Assert.IsFalse(controller.State.Selection.HasSlot);
         Assert.IsFalse(controller.State.Selection.HasTarget);
-        Assert.AreEqual(HotseatSelectionStep.ChooseTarget, controller.State.Interaction.Step);
+        Assert.AreEqual(HotseatSelectionStep.ChooseSlot, controller.State.Interaction.Step);
         Assert.IsFalse(controller.PrepareSelectedCommand());
 
+        controller.SelectSlot(1);
+        Assert.AreEqual(HotseatSelectionStep.ChooseTarget, controller.State.Interaction.Step);
         controller.SelectTarget(enemy);
         Assert.AreEqual(HotseatSelectionStep.Ready, controller.State.Interaction.Step);
         Assert.AreSame(forcedAdvance, controller.State.Interaction.CanonicalAction);
+    }
+
+    [TestMethod]
+    public void CastSpellSelectionRequiresSlotThenTargetThenAdvance()
+    {
+        Target enemy = Target.UnitTarget(PlayerId.Player1, 620);
+        LegalAction normal = HotseatTestModel.Action(
+            PlayerId.Player0, ActionKind.CastSpell, 26, source: 610, target: enemy,
+            slot: 2,
+            useAdvance: false);
+        LegalAction advanced = HotseatTestModel.Action(
+            PlayerId.Player0, ActionKind.CastSpell, 26, source: 610, target: enemy,
+            slot: 2,
+            useAdvance: true,
+            payment: HotseatTestModel.Payment(baseCost: 2, usedAdvance: true));
+        using var controller = new HotseatMatchController(ActionSession(26, [normal, advanced]));
+        controller.Reveal();
+
+        controller.BeginSourceSelection(610);
+        Assert.AreEqual(HotseatSelectionStep.ChooseSlot, controller.State.Interaction.Step);
+
+        controller.SelectSlot(2);
+        Assert.AreEqual(HotseatSelectionStep.ChooseTarget, controller.State.Interaction.Step);
+
+        controller.SelectTarget(enemy);
+        Assert.AreEqual(HotseatSelectionStep.ChooseAdvance, controller.State.Interaction.Step);
+
+        controller.SelectAdvance(true);
+        Assert.AreEqual(HotseatSelectionStep.Ready, controller.State.Interaction.Step);
+        Assert.AreSame(advanced, controller.State.Interaction.CanonicalAction);
+        Assert.AreEqual(2UL, controller.State.Interaction.CanonicalAction!.Command.Slot);
+        Assert.AreEqual(enemy, controller.State.Interaction.CanonicalAction.Command.Target);
+        Assert.IsTrue(controller.State.Interaction.CanonicalAction.Command.UseAdvance);
+
+        Assert.IsTrue(controller.StepBackSelection());
+        Assert.AreEqual(HotseatSelectionStep.ChooseAdvance, controller.State.Interaction.Step);
+        Assert.IsTrue(controller.StepBackSelection());
+        Assert.AreEqual(HotseatSelectionStep.ChooseTarget, controller.State.Interaction.Step);
+        Assert.IsTrue(controller.StepBackSelection());
+        Assert.AreEqual(HotseatSelectionStep.ChooseSlot, controller.State.Interaction.Step);
     }
 
     [TestMethod]
@@ -818,8 +863,8 @@ public sealed class HotseatMatchControllerTests
         {
             (ActionKind.PlayUnit, MatchPhase.Action, 1_001UL, (Target?)null, (ulong?)2, (ulong?)null,
                 HotseatSelectionStep.ChooseSlot),
-            (ActionKind.CastSpell, MatchPhase.Action, 1_002UL, enemy, (ulong?)null, (ulong?)null,
-                HotseatSelectionStep.ChooseTarget),
+            (ActionKind.CastSpell, MatchPhase.Action, 1_002UL, enemy, (ulong?)1, (ulong?)null,
+                HotseatSelectionStep.ChooseSlot),
             (ActionKind.PlayTactic, MatchPhase.Action, 1_003UL, (Target?)null, (ulong?)1, (ulong?)null,
                 HotseatSelectionStep.ChooseSlot),
             (ActionKind.Attack, MatchPhase.Action, 1_004UL, enemy, (ulong?)null, (ulong?)null,

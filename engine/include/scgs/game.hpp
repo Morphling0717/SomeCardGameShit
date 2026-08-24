@@ -180,6 +180,7 @@ public:
     [[nodiscard]] Status cast_spell(
         PlayerId player,
         InstanceId card,
+        std::size_t slot,
         std::optional<Target> ability_target = std::nullopt,
         bool use_advance = false);
 
@@ -290,6 +291,7 @@ private:
         Kind kind = Kind::None;
         PlayerId player = PlayerId::Player0;
         InstanceId card = 0;
+        std::optional<std::size_t> tactic_slot;
         std::optional<Target> target;
         bool advanced = false;
         PendingAttack attack;
@@ -319,6 +321,7 @@ private:
     Phase phase_ = Phase::NotStarted;
     GameResult result_ = GameResult::Ongoing;
     std::vector<ResponseLayer> response_stack_;
+    std::size_t terminal_cleanup_defer_depth_ = 0;
     std::vector<GameEvent> events_;
     std::uint64_t revision_ = 0;
     std::uint64_t next_event_sequence_ = 1;
@@ -326,6 +329,7 @@ private:
 
     [[nodiscard]] Status ensure_action_player(PlayerId player) const;
     [[nodiscard]] Status ensure_not_finished() const;
+    [[nodiscard]] Status validate_empty_tactic_slot(PlayerId player, std::size_t slot) const;
     [[nodiscard]] bool evolution_is_unlocked(PlayerId player) const;
     [[nodiscard]] Status validate_effect_targets(
         const std::vector<EffectRecord>& effects,
@@ -406,6 +410,15 @@ private:
     void resolve_response_chain();
     // Resolve one suspended original action (base layer of the chain).
     void resolve_suspended_action(const SuspendedAction& suspended);
+    // Declared traps that are abandoned by a terminal higher response still
+    // leave the tactic zone, but do not emit TrapActivated or resolve effects.
+    void finalize_declared_response_cards();
+    // A declared spell occupies its chosen tactic slot until its own chain link
+    // resolves, is aborted by a terminal response, or the pending match ends.
+    void finalize_suspended_spell(const SuspendedAction& suspended);
+    void begin_terminal_cleanup_defer();
+    void end_terminal_cleanup_defer();
+    void finalize_match_end();
     void close_reaction_window();
 
     void move_from_current_zone(InstanceId card);

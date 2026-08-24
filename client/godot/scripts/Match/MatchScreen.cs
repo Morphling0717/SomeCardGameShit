@@ -30,7 +30,6 @@ public sealed partial class MatchScreen : Control
     private ReactionPanel _reactionOverlay = null!;
     private DirectDropButton _ownLeader = null!;
     private DirectDropButton _opponentLeader = null!;
-    private DirectDropButton _castZone = null!;
     private TargetingLine _targetingLine = null!;
     private Control _resolvingShield = null!;
     private Control _standbyTray = null!;
@@ -211,7 +210,6 @@ public sealed partial class MatchScreen : Control
         _reactionOverlay = GetNode<ReactionPanel>("%ReactionOverlay");
         _ownLeader = GetNode<DirectDropButton>("%OwnLeaderButton");
         _opponentLeader = GetNode<DirectDropButton>("%OpponentLeaderButton");
-        _castZone = GetNode<DirectDropButton>("%CastZone");
         _targetingLine = GetNode<TargetingLine>("%TargetingLine");
         _resolvingShield = GetNode<Control>("%ResolvingShield");
         _standbyTray = GetNode<Control>("%StandbyTray");
@@ -257,7 +255,6 @@ public sealed partial class MatchScreen : Control
         _opponentLeader.Pressed += () => OnLeaderRequested(own: false);
         _ownLeader.DropReceived += () => OnLeaderDropped(own: true);
         _opponentLeader.DropReceived += () => OnLeaderDropped(own: false);
-        _castZone.DropReceived += OnCastZoneDropped;
         GetNode<Button>("%OwnStandbyButton").Pressed += () => OpenStandby(own: true);
         GetNode<Button>("%OpponentStandbyButton").Pressed += () => OpenStandby(own: false);
         GetNode<Button>("%CloseStandbyButton").Pressed += CloseStandby;
@@ -895,7 +892,7 @@ public sealed partial class MatchScreen : Control
                     {
                         ActionKind.PlayUnit or ActionKind.Deploy =>
                             HotseatSurfaceRef.UnitSlot(command.Player, (int)slot),
-                        ActionKind.PlayTactic =>
+                        ActionKind.PlayTactic or ActionKind.CastSpell =>
                             HotseatSurfaceRef.TacticSlot(command.Player, (int)slot),
                         _ => throw new InvalidOperationException(
                             $"{command.Action} cannot use a 3D placement slot."),
@@ -918,9 +915,7 @@ public sealed partial class MatchScreen : Control
                     }
                     if (command.Target is null)
                     {
-                        ClickBattlefieldSurfaceForCi(
-                            HotseatSurfaceRef.CastZone(),
-                            "no-target spell cast zone");
+                        _controller.SelectTarget(null);
                     }
                     else
                     {
@@ -1279,6 +1274,12 @@ public sealed partial class MatchScreen : Control
         GameCommandRequest command,
         out HotseatSurfaceRef surface)
     {
+        if (command.Action == ActionKind.CastSpell &&
+            command.Slot is { } spellSlot && spellSlot <= int.MaxValue)
+        {
+            surface = HotseatSurfaceRef.TacticSlot(command.Player, (int)spellSlot);
+            return true;
+        }
         if (TryCreateTargetSurface(view, command.Target, out surface))
         {
             return true;
@@ -1289,16 +1290,11 @@ public sealed partial class MatchScreen : Control
             {
                 ActionKind.PlayUnit or ActionKind.Deploy =>
                     HotseatSurfaceRef.UnitSlot(command.Player, (int)slot),
-                ActionKind.PlayTactic =>
+                ActionKind.PlayTactic or ActionKind.CastSpell =>
                     HotseatSurfaceRef.TacticSlot(command.Player, (int)slot),
                 _ => default,
             };
             return surface.Player.HasValue;
-        }
-        if (command.Action == ActionKind.CastSpell && command.Target is null)
-        {
-            surface = HotseatSurfaceRef.CastZone();
-            return true;
         }
 
         surface = default;
@@ -1482,7 +1478,8 @@ public sealed partial class MatchScreen : Control
     {
         if (_legacy2dBoard)
         {
-            return GetNode<Control>("SafeMargin/Layout/Board").IsVisibleInTree();
+            return GetNode<Control>("SafeMargin/Layout/Board").IsVisibleInTree() &&
+                   GetNodeOrNull<Control>("%CastZone") is null;
         }
 
         Vector2 viewport = GetViewportRect().Size;
@@ -1515,7 +1512,12 @@ public sealed partial class MatchScreen : Control
                 surfaces.Add(new BattlefieldSurfaceRef(BattlefieldSurfaceKind.TacticSlot, player, slot));
             }
         }
-        surfaces.Add(new BattlefieldSurfaceRef(BattlefieldSurfaceKind.CastZone));
+        if (_battlefield3d.CiTryGetScreenAnchor(
+                new BattlefieldSurfaceRef(BattlefieldSurfaceKind.CastZone),
+                out _))
+        {
+            return false;
+        }
 
         int visibleAnchors = 0;
         foreach (BattlefieldSurfaceRef surface in surfaces)
@@ -1718,6 +1720,11 @@ public sealed partial class MatchScreen : Control
 
     private SnapshotSlot? FindDestinationSlot(GameCommandRequest command)
     {
+        if (command.Action == ActionKind.CastSpell && command.Slot.HasValue)
+        {
+            return FindPlacementSlot(command);
+        }
+
         return command.Target is { Kind: TargetKind.Unit }
             ? FindTargetSlot(command)
             : command.Slot.HasValue
@@ -2283,7 +2290,7 @@ public sealed partial class MatchScreen : Control
                     {
                         ActionKind.PlayUnit or ActionKind.Deploy =>
                             HotseatSurfaceRef.UnitSlot(view.Viewer, (int)slot),
-                        ActionKind.PlayTactic =>
+                        ActionKind.PlayTactic or ActionKind.CastSpell =>
                             HotseatSurfaceRef.TacticSlot(view.Viewer, (int)slot),
                         _ => default,
                     };
@@ -3010,7 +3017,7 @@ public sealed partial class MatchScreen : Control
                 {
                     ActionKind.PlayUnit or ActionKind.Deploy =>
                         HotseatSurfaceRef.UnitSlot(command.Player, (int)slot),
-                    ActionKind.PlayTactic =>
+                    ActionKind.PlayTactic or ActionKind.CastSpell =>
                         HotseatSurfaceRef.TacticSlot(command.Player, (int)slot),
                     _ => default,
                 };
@@ -3023,15 +3030,6 @@ public sealed partial class MatchScreen : Control
                 TryCreateTargetSurface(view, command.Target, out HotseatSurfaceRef targetSurface))
             {
                 AddSurfaceHighlight(surfaces, targetSurface, BattlefieldHighlightKind.Destination);
-            }
-            if (state.Interaction.Step == HotseatSelectionStep.ChooseTarget &&
-                command.Action == ActionKind.CastSpell && command.Target is null &&
-                !command.Slot.HasValue)
-            {
-                AddSurfaceHighlight(
-                    surfaces,
-                    HotseatSurfaceRef.CastZone(),
-                    BattlefieldHighlightKind.Destination);
             }
         }
 
@@ -3531,15 +3529,6 @@ public sealed partial class MatchScreen : Control
         ConfigureStandbyButton(GetNode<Button>("%OwnStandbyButton"), own.Standby, "己方");
         ConfigureStandbyButton(GetNode<Button>("%OpponentStandbyButton"), opponent.Standby, "对方");
 
-        bool canCastDrop = state.LegalActions.Any(action =>
-            action.Command.Source != 0 &&
-            action.Command.Target is null &&
-            !action.Command.Slot.HasValue &&
-            !action.Command.ComponentDonor.HasValue &&
-            action.Command.Action is ActionKind.CastSpell or ActionKind.Evolve or
-                ActionKind.ActivateTrap);
-        _castZone.Visible = canCastDrop;
-        _castZone.SetDirectInteraction(clickable: false, droppable: canCastDrop);
     }
 
     private static void ConfigureLeaderButton(
@@ -3708,39 +3697,6 @@ public sealed partial class MatchScreen : Control
                 Destination = HotseatSurfaceRef.Leader(targetPlayer),
             }));
         }
-        _dragSourceSlot = null;
-        _dragStartRevision = null;
-    }
-
-    private void OnCastZoneDropped()
-    {
-        if (_controller?.State is not { } state || _dragSourceSlot is null ||
-            !_slotBindings.TryGetValue(_dragSourceSlot, out SlotBinding? binding) ||
-            binding.Card?.InstanceId is null)
-        {
-            return;
-        }
-
-        if (_dragStartRevision != state.Snapshot?.Revision)
-        {
-            _dragSourceSlot = null;
-            _dragStartRevision = null;
-            return;
-        }
-
-        if (!TryCreateSurfaceRef(binding, out HotseatSurfaceRef sourceSurface))
-        {
-            return;
-        }
-
-        RunUiAction(() => ApplySurfaceIntent(new HotseatSurfaceIntent(
-            state.Interaction.Revision,
-            HotseatSurfaceGesture.Drag,
-            sourceSurface)
-        {
-            Destination = HotseatSurfaceRef.CastZone(),
-            Action = ActionKind.CastSpell,
-        }));
         _dragSourceSlot = null;
         _dragStartRevision = null;
     }
@@ -3988,7 +3944,7 @@ public sealed partial class MatchScreen : Control
     private static bool IsSlotZoneForAction(ActionKind action, Zone zone) => action switch
     {
         ActionKind.PlayUnit or ActionKind.Deploy => zone == Zone.Unit,
-        ActionKind.PlayTactic => zone == Zone.Tactic,
+        ActionKind.PlayTactic or ActionKind.CastSpell => zone == Zone.Tactic,
         _ => false,
     };
 
@@ -4072,10 +4028,8 @@ public sealed partial class MatchScreen : Control
 
         _ownLeader.SetDirectInteraction(clickable: false, droppable: false);
         _opponentLeader.SetDirectInteraction(clickable: false, droppable: false);
-        _castZone.Visible = false;
         _ownLeader.TooltipText = string.Empty;
         _opponentLeader.TooltipText = string.Empty;
-        _castZone.TooltipText = string.Empty;
         foreach (string path in new[] { "%OwnStandbyButton", "%OpponentStandbyButton", "%EndTurnButton", "%SurrenderButton" })
         {
             Button button = GetNode<Button>(path);
@@ -4175,7 +4129,7 @@ public sealed partial class MatchScreen : Control
 
         foreach (Control control in new Control[]
                  {
-                     _ownLeader, _opponentLeader, _castZone,
+                     _ownLeader, _opponentLeader,
                      GetNode<Button>("%OwnStandbyButton"),
                      GetNode<Button>("%OpponentStandbyButton"),
                      GetNode<Button>("%EndTurnButton"),

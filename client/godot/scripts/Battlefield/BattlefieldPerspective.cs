@@ -353,9 +353,6 @@ public static class BattlefieldPerspective
         return true;
     }
 
-    public static Transform3D CastZoneTransform(PlayerId viewer) =>
-        CreateFlatTransform(viewer, viewer, new Vector3(0.0f, 0.13f, 0.0f));
-
     public static Vector3 CameraPosition(float zoom)
     {
         if (!float.IsFinite(zoom))

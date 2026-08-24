@@ -194,7 +194,7 @@ void test_advance_payment_and_limits(TestContext& context) {
     EXPECT(context, game2.play_unit(PlayerId::Player0, debt2, std::nullopt, std::nullopt, true));
     const InstanceId blast = *game2.find_in_hand(PlayerId::Player0, cards::advance::kBurnBlast);
     // Burn counts as 动用未来 too; current PP 0 so the burn spell cannot even pay.
-    EXPECT_CODE(context, game2.cast_spell(PlayerId::Player0, blast), ErrorCode::InsufficientPP);
+    EXPECT_CODE(context, game2.cast_spell(PlayerId::Player0, blast, 0), ErrorCode::InsufficientPP);
 
     // Capacity cannot fall below zero (rules-v0.4 §10.5).
     Scenario scenario3 = base_scenario();
@@ -238,7 +238,7 @@ void test_burn_cost_and_combined_advance(TestContext& context) {
     scenario.players[0].hand = {cards::advance::kBurnBlast}; // 1PP + burn2
     Game game = scenario_game(scenario);
     const InstanceId blast = *game.find_in_hand(PlayerId::Player0, cards::advance::kBurnBlast);
-    EXPECT(context, game.cast_spell(PlayerId::Player0, blast, first_enemy_unit_target(game, PlayerId::Player0)));
+    EXPECT(context, game.cast_spell(PlayerId::Player0, blast, 0, first_enemy_unit_target(game, PlayerId::Player0)));
     const PlayerState& state = game.player(PlayerId::Player0);
     EXPECT(context, state.current_pp == 5);
     EXPECT(context, state.pp_capacity == 4);
@@ -254,13 +254,13 @@ void test_burn_cost_and_combined_advance(TestContext& context) {
     Game game2 = scenario_game(scenario2);
     // 燃耗爆破 is 1PP+burn2; with 3 current PP it pays normally (burn only).
     const InstanceId blast2 = *game2.find_in_hand(PlayerId::Player0, cards::advance::kBurnBlast);
-    EXPECT(context, game2.cast_spell(PlayerId::Player0, blast2, first_enemy_unit_target(game2, PlayerId::Player0)));
+    EXPECT(context, game2.cast_spell(PlayerId::Player0, blast2, 0, first_enemy_unit_target(game2, PlayerId::Player0)));
     EXPECT(context, game2.player(PlayerId::Player0).current_pp == 2);
     EXPECT(context, game2.player(PlayerId::Player0).pp_capacity == 4);
     EXPECT(context, game2.player(PlayerId::Player0).cracks == 2);
     // 超前打击 is 2PP+burn1 but 动用未来 was already used this turn → refused.
     const InstanceId strike = *game2.find_in_hand(PlayerId::Player0, cards::advance::kAdvanceStrike);
-    EXPECT_CODE(context, game2.cast_spell(PlayerId::Player0, strike, first_enemy_unit_target(game2, PlayerId::Player0)),
+    EXPECT_CODE(context, game2.cast_spell(PlayerId::Player0, strike, 0, first_enemy_unit_target(game2, PlayerId::Player0)),
                 ErrorCode::AdvanceAlreadyUsed);
 
     expect_valid_state(context, game);
@@ -364,7 +364,7 @@ void test_current_pp_above_capacity(TestContext& context) {
     Game game = scenario_game(scenario);
 
     const InstanceId blast = *game.find_in_hand(PlayerId::Player0, cards::advance::kBurnBlast);
-    EXPECT(context, game.cast_spell(PlayerId::Player0, blast, first_enemy_unit_target(game, PlayerId::Player0)));
+    EXPECT(context, game.cast_spell(PlayerId::Player0, blast, 0, first_enemy_unit_target(game, PlayerId::Player0)));
     // 6/6 → 5 current / 4 capacity: current PP legally exceeds capacity.
     EXPECT(context, game.player(PlayerId::Player0).current_pp == 5);
     EXPECT(context, game.player(PlayerId::Player0).pp_capacity == 4);
@@ -545,10 +545,10 @@ void test_charge_conditions(TestContext& context) {
     EXPECT(context, load);
     const auto t1 = first_enemy_unit_target(fresh, PlayerId::Player0);
     const InstanceId s_a = *fresh.find_in_hand(PlayerId::Player0, cards::midrange::kPrecisionStrike);
-    EXPECT(context, fresh.cast_spell(PlayerId::Player0, s_a, t1));
+    EXPECT(context, fresh.cast_spell(PlayerId::Player0, s_a, 0, t1));
     const InstanceId s_b = *fresh.find_in_hand(PlayerId::Player0, cards::midrange::kPrecisionStrike);
     const auto t2 = first_enemy_unit_target(fresh, PlayerId::Player0);
-    EXPECT(context, fresh.cast_spell(PlayerId::Player0, s_b, t2));
+    EXPECT(context, fresh.cast_spell(PlayerId::Player0, s_b, 0, t2));
     EXPECT(context, fresh.player(PlayerId::Player0).evolution_points == 0); // before end of turn
     EXPECT(context, fresh.end_turn(PlayerId::Player0));
     EXPECT(context, fresh.player(PlayerId::Player0).evolution_points == 1);
@@ -596,7 +596,7 @@ void test_charge_requires_evolution_unlock(TestContext& context) {
     for (int i = 0; i < 2; ++i) {
         const InstanceId spell = *spell_game.find_in_hand(PlayerId::Player0, cards::midrange::kPrecisionStrike);
         const auto target = first_enemy_unit_target(spell_game, PlayerId::Player0);
-        EXPECT(context, spell_game.cast_spell(PlayerId::Player0, spell, target));
+        EXPECT(context, spell_game.cast_spell(PlayerId::Player0, spell, 0, target));
     }
     EXPECT(context, spell_game.end_turn(PlayerId::Player0));
     EXPECT(context, spell_game.player(PlayerId::Player0).evolution_points == 0);
@@ -785,9 +785,26 @@ void test_response_stack_lifo(TestContext& context) {
     Game game2 = scenario_game(scenario2);
     const InstanceId strike = *game2.find_in_hand(PlayerId::Player0, cards::midrange::kPrecisionStrike);
     const auto enemy2 = first_enemy_unit_target(game2, PlayerId::Player0);
-    EXPECT(context, game2.cast_spell(PlayerId::Player0, strike, enemy2));
+    (void)game2.drain_events();
+    EXPECT(context, game2.cast_spell(PlayerId::Player0, strike, 0, enemy2));
     // The 3 damage killed the 1/3 sentry: it left the field.
     EXPECT(context, game2.instance(enemy2->unit).zone != Zone::Unit);
+    EXPECT(context, game2.instance(strike).zone == Zone::Graveyard);
+    EXPECT(context, !game2.player(PlayerId::Player0).tactics[0].has_value());
+    const std::vector<GameEvent> spell_events = game2.drain_events();
+    const auto entered_slot = std::find_if(
+        spell_events.begin(), spell_events.end(), [strike](const GameEvent& event) {
+            return event.type == EventType::CardMoved && event.card == strike &&
+                event.value == static_cast<int>(Zone::Tactic) && event.secondary_value == 0;
+        });
+    const auto entered_graveyard = std::find_if(
+        spell_events.begin(), spell_events.end(), [strike](const GameEvent& event) {
+            return event.type == EventType::CardMoved && event.card == strike &&
+                event.value == static_cast<int>(Zone::Graveyard);
+        });
+    EXPECT(context, entered_slot != spell_events.end());
+    EXPECT(context, entered_graveyard != spell_events.end());
+    EXPECT(context, entered_slot < entered_graveyard);
 
     expect_valid_state(context, game);
     expect_valid_state(context, game2);
@@ -824,15 +841,23 @@ void test_spell_response_three_level_lifo_and_counter_pass(TestContext& context)
     const InstanceId response_trap = *game.player(PlayerId::Player1).tactics[0];
     (void)game.drain_events();
 
-    EXPECT(context, game.cast_spell(PlayerId::Player0, spell_id));
+    EXPECT(context, game.cast_spell(PlayerId::Player0, spell_id, 1));
     EXPECT(context, game.reaction_window() == ReactionWindow::SpellDeclared);
     EXPECT(context, game.response_depth() == 1);
+    EXPECT(context, game.player(PlayerId::Player0).tactics[1] == spell_id);
+    EXPECT(context, game.instance(spell_id).zone == Zone::Tactic);
+    EXPECT(context, game.instance(spell_id).sequence == 1U);
+    EXPECT(context, !game.instance(spell_id).face_down);
+    expect_valid_state(context, game);
     EXPECT(context, game.activate_trap(PlayerId::Player1, response_trap));
     EXPECT(context, game.response_depth() == 2);
+    EXPECT(context, game.instance(spell_id).zone == Zone::Tactic);
     EXPECT(context, game.activate_trap(PlayerId::Player0, counter_trap));
     EXPECT(context, game.phase() == Phase::Action);
     EXPECT(context, game.player(PlayerId::Player0).leader_health == 24);
     EXPECT(context, game.player(PlayerId::Player1).leader_health == 22);
+    EXPECT(context, game.instance(spell_id).zone == Zone::Graveyard);
+    EXPECT(context, !game.player(PlayerId::Player0).tactics[1].has_value());
 
     const std::vector<GameEvent> events = game.drain_events();
     std::vector<InstanceId> trap_order;
@@ -852,6 +877,9 @@ void test_spell_response_three_level_lifo_and_counter_pass(TestContext& context)
     EXPECT(context, trap_order == expected_traps);
     EXPECT(context, damaged_order == expected_players);
     EXPECT(context, damage_amounts == expected_damage);
+    EXPECT(context, !events.empty() && events.back().type == EventType::CardMoved);
+    EXPECT(context, !events.empty() && events.back().card == spell_id);
+    EXPECT(context, !events.empty() && events.back().value == static_cast<int>(Zone::Graveyard));
 
     // Passing the counter layer must still resolve the first response and then
     // the original spell; it must not discard the base layer.
@@ -862,7 +890,7 @@ void test_spell_response_three_level_lifo_and_counter_pass(TestContext& context)
     Game pass_game = scenario_game_with_catalog(std::move(catalog), pass_scenario);
     const InstanceId pass_spell = *pass_game.find_in_hand(PlayerId::Player0, kTestSpell);
     const InstanceId pass_response = *pass_game.player(PlayerId::Player1).tactics[0];
-    EXPECT(context, pass_game.cast_spell(PlayerId::Player0, pass_spell));
+    EXPECT(context, pass_game.cast_spell(PlayerId::Player0, pass_spell, 1));
     EXPECT(context, pass_game.activate_trap(PlayerId::Player1, pass_response));
     EXPECT(context, pass_game.response_depth() == 2);
     EXPECT(context, pass_game.pass_reaction(PlayerId::Player0));
@@ -870,6 +898,8 @@ void test_spell_response_three_level_lifo_and_counter_pass(TestContext& context)
     EXPECT(context, pass_game.player(PlayerId::Player0).leader_health == 24);
     EXPECT(context, pass_game.player(PlayerId::Player1).leader_health == 23);
     EXPECT(context, pass_game.instance(pass_response).zone == Zone::Graveyard);
+    EXPECT(context, pass_game.instance(pass_spell).zone == Zone::Graveyard);
+    EXPECT(context, !pass_game.player(PlayerId::Player0).tactics[1].has_value());
     expect_valid_state(context, game);
     expect_valid_state(context, pass_game);
 }
@@ -913,7 +943,7 @@ void test_response_target_invalidation_continues_effects(TestContext& context) {
     Game validation_game = scenario_game_with_catalog(catalog, invalid_declaration);
     const InstanceId conditional_id = *validation_game.find_in_hand(PlayerId::Player0, kConditionalSpell);
     const int pp_before = validation_game.player(PlayerId::Player0).current_pp;
-    EXPECT_CODE(context, validation_game.cast_spell(PlayerId::Player0, conditional_id), ErrorCode::InvalidTarget);
+    EXPECT_CODE(context, validation_game.cast_spell(PlayerId::Player0, conditional_id, 0), ErrorCode::InvalidTarget);
     EXPECT(context, validation_game.player(PlayerId::Player0).current_pp == pp_before);
     EXPECT(context, validation_game.instance(conditional_id).zone == Zone::Hand);
 
@@ -928,7 +958,11 @@ void test_response_target_invalidation_continues_effects(TestContext& context) {
     const InstanceId trap_id = *game.player(PlayerId::Player1).tactics[0];
     const int paid_from = game.player(PlayerId::Player0).current_pp;
     EXPECT(context, game.cast_spell(
-        PlayerId::Player0, spell_id, Target::unit_target(PlayerId::Player1, target_id)));
+        PlayerId::Player0, spell_id, 0, Target::unit_target(PlayerId::Player1, target_id)));
+    EXPECT(context, game.instance(spell_id).zone == Zone::Tactic);
+    EXPECT(context, game.player(PlayerId::Player0).tactics[0] == spell_id);
+    EXPECT(context, !game.instance(spell_id).face_down);
+    expect_valid_state(context, game);
     EXPECT(context, game.activate_trap(PlayerId::Player1, trap_id));
     EXPECT(context, game.instance(target_id).zone == Zone::Graveyard);
     EXPECT(context, game.instance(spell_id).zone == Zone::Graveyard);
@@ -990,7 +1024,36 @@ void test_tactic_zone_no_replacement(TestContext& context) {
     EXPECT_CODE(context, game.play_tactic(PlayerId::Player0, order, 0), ErrorCode::TacticZoneFull);
     EXPECT_CODE(context, game.play_tactic(PlayerId::Player0, order, 1), ErrorCode::TacticZoneFull);
     EXPECT_CODE(context, game.play_tactic(PlayerId::Player0, order, 2), ErrorCode::TacticZoneFull);
+
+    // Spells use the same no-replacement slots. Slot validation precedes all
+    // costs, and a successfully declared spell occupies the exact requested
+    // slot until its own link resolves.
+    Scenario spell_scenario = base_scenario();
+    spell_scenario.players[0].hand = {cards::midrange::kPrecisionStrike};
+    spell_scenario.players[0].tactics = {
+        cards::midrange::kCommandOrder,
+        cards::midrange::kCommandOrder,
+        cards::midrange::kCommandOrder,
+    };
+    spell_scenario.players[1].units = {cards::midrange::kGuardSentry};
+    Game spell_game = scenario_game(spell_scenario);
+    const InstanceId spell = *spell_game.find_in_hand(PlayerId::Player0, cards::midrange::kPrecisionStrike);
+    const auto spell_target = first_enemy_unit_target(spell_game, PlayerId::Player0);
+    const int pp_before = spell_game.player(PlayerId::Player0).current_pp;
+    EXPECT_CODE(
+        context,
+        spell_game.cast_spell(PlayerId::Player0, spell, kTacticZoneSize, spell_target),
+        ErrorCode::InvalidSlot);
+    for (std::size_t slot = 0; slot < kTacticZoneSize; ++slot) {
+        EXPECT_CODE(
+            context,
+            spell_game.cast_spell(PlayerId::Player0, spell, slot, spell_target),
+            ErrorCode::TacticZoneFull);
+    }
+    EXPECT(context, spell_game.player(PlayerId::Player0).current_pp == pp_before);
+    EXPECT(context, spell_game.instance(spell).zone == Zone::Hand);
     expect_valid_state(context, game);
+    expect_valid_state(context, spell_game);
 }
 
 // ---------------------------------------------------------------------------
@@ -1142,7 +1205,7 @@ void test_documented_overdraw_walkthrough(TestContext& context) {
     EXPECT(context, game.player(PlayerId::Player0).current_pp == 3);
 
     const InstanceId blast = *game.find_in_hand(PlayerId::Player0, cards::advance::kBurnBlast);
-    EXPECT(context, game.cast_spell(PlayerId::Player0, blast, Target::unit_target(PlayerId::Player1, enemy)));
+    EXPECT(context, game.cast_spell(PlayerId::Player0, blast, 0, Target::unit_target(PlayerId::Player1, enemy)));
     EXPECT(context, game.player(PlayerId::Player0).current_pp == 2);
     EXPECT(context, game.player(PlayerId::Player0).pp_capacity == 1);
     EXPECT(context, game.player(PlayerId::Player0).cracks == 5);
@@ -1236,6 +1299,150 @@ void test_terminal_state_is_idempotent(TestContext& context) {
     }));
     EXPECT(context, !events.empty() && events.back().type == EventType::MatchEnded);
 
+    // A spell that deals lethal damage remains on its declared tactic slot
+    // through its own effect, then leaves before the one terminal event.
+    constexpr CardId kTerminalSpell = 9022;
+    constexpr CardId kTerminalSpellTrap = 9023;
+    const auto make_terminal_spell_catalog = [=]() {
+        CardCatalog terminal_catalog = make_v04_catalog();
+        CardDefinition terminal_spell;
+        terminal_spell.id = kTerminalSpell;
+        terminal_spell.name = "terminal spell";
+        terminal_spell.kind = CardKind::Spell;
+        terminal_spell.effects = {
+            EffectRecord{EffectTrigger::OnPlay, EffectKind::DealDamageToLeader, 2, TargetSpec::None},
+        };
+        terminal_catalog.add(std::move(terminal_spell));
+
+        CardDefinition terminal_trap;
+        terminal_trap.id = kTerminalSpellTrap;
+        terminal_trap.name = "terminal spell response";
+        terminal_trap.kind = CardKind::Trap;
+        terminal_trap.effects = {
+            EffectRecord{EffectTrigger::OnSpellDeclared, EffectKind::DealDamageToLeader, 1, TargetSpec::None},
+        };
+        terminal_catalog.add(std::move(terminal_trap));
+        return terminal_catalog;
+    };
+
+    Scenario spell_lethal = base_scenario();
+    spell_lethal.players[0].hand = {kTerminalSpell};
+    spell_lethal.players[1].leader_health = 1;
+    Game spell_lethal_game = scenario_game_with_catalog(make_terminal_spell_catalog(), spell_lethal);
+    const InstanceId terminal_spell = *spell_lethal_game.find_in_hand(PlayerId::Player0, kTerminalSpell);
+    (void)spell_lethal_game.drain_events();
+    EXPECT(context, spell_lethal_game.cast_spell(PlayerId::Player0, terminal_spell, 2));
+    events = spell_lethal_game.drain_events();
+    EXPECT(context, spell_lethal_game.result() == GameResult::Player0Won);
+    EXPECT(context, spell_lethal_game.instance(terminal_spell).zone == Zone::Graveyard);
+    EXPECT(context, count_events(events, EventType::MatchEnded) == 1);
+    const auto spell_cleanup = std::find_if(events.begin(), events.end(), [&](const GameEvent& event) {
+        return event.type == EventType::CardMoved && event.card == terminal_spell &&
+            event.value == static_cast<int>(Zone::Graveyard);
+    });
+    const auto spell_match_end = std::find_if(events.begin(), events.end(), [](const GameEvent& event) {
+        return event.type == EventType::MatchEnded;
+    });
+    EXPECT(context, spell_cleanup != events.end());
+    EXPECT(context, spell_match_end != events.end());
+    EXPECT(context, spell_cleanup < spell_match_end);
+    EXPECT(context, !events.empty() && events.back().type == EventType::MatchEnded);
+
+    // If a counter-response is lethal, the already-declared lower response is
+    // abandoned but still leaves its zone. Cleanup order is lower response,
+    // original spell, then the unique/final MatchEnded event.
+    Scenario counter_lethal = base_scenario();
+    counter_lethal.players[0].hand = {kTerminalSpell};
+    counter_lethal.players[0].tactics = {kTerminalSpellTrap};
+    counter_lethal.players[1].tactics = {kTerminalSpellTrap};
+    counter_lethal.players[1].leader_health = 1;
+    Game counter_lethal_game = scenario_game_with_catalog(make_terminal_spell_catalog(), counter_lethal);
+    const InstanceId counter_spell = *counter_lethal_game.find_in_hand(PlayerId::Player0, kTerminalSpell);
+    const InstanceId counter_trap = *counter_lethal_game.player(PlayerId::Player0).tactics[0];
+    const InstanceId lower_trap = *counter_lethal_game.player(PlayerId::Player1).tactics[0];
+    EXPECT(context, counter_lethal_game.cast_spell(PlayerId::Player0, counter_spell, 1));
+    EXPECT(context, counter_lethal_game.activate_trap(PlayerId::Player1, lower_trap));
+    EXPECT(context, counter_lethal_game.response_depth() == 2U);
+    (void)counter_lethal_game.drain_events();
+    EXPECT(context, counter_lethal_game.activate_trap(PlayerId::Player0, counter_trap));
+    events = counter_lethal_game.drain_events();
+    EXPECT(context, counter_lethal_game.result() == GameResult::Player0Won);
+    EXPECT(context, counter_lethal_game.player(PlayerId::Player0).leader_health == 25);
+    EXPECT(context, counter_lethal_game.instance(counter_trap).zone == Zone::Graveyard);
+    EXPECT(context, counter_lethal_game.instance(lower_trap).zone == Zone::Graveyard);
+    EXPECT(context, counter_lethal_game.instance(counter_spell).zone == Zone::Graveyard);
+    EXPECT(context, count_events(events, EventType::TrapActivated) == 1);
+    EXPECT(context, std::none_of(events.begin(), events.end(), [&](const GameEvent& event) {
+        return event.type == EventType::TrapActivated && event.card == lower_trap;
+    }));
+    EXPECT(context, count_events(events, EventType::MatchEnded) == 1);
+    const auto lethal_damage = std::find_if(events.begin(), events.end(), [](const GameEvent& event) {
+        return event.type == EventType::LeaderDamaged && event.player == PlayerId::Player1;
+    });
+    const auto lower_cleanup = std::find_if(events.begin(), events.end(), [&](const GameEvent& event) {
+        return event.type == EventType::CardMoved && event.card == lower_trap &&
+            event.value == static_cast<int>(Zone::Graveyard);
+    });
+    const auto original_cleanup = std::find_if(events.begin(), events.end(), [&](const GameEvent& event) {
+        return event.type == EventType::CardMoved && event.card == counter_spell &&
+            event.value == static_cast<int>(Zone::Graveyard);
+    });
+    const auto counter_match_end = std::find_if(events.begin(), events.end(), [](const GameEvent& event) {
+        return event.type == EventType::MatchEnded;
+    });
+    EXPECT(context, lethal_damage != events.end());
+    EXPECT(context, lower_cleanup != events.end());
+    EXPECT(context, original_cleanup != events.end());
+    EXPECT(context, counter_match_end != events.end());
+    EXPECT(context, lethal_damage < lower_cleanup);
+    EXPECT(context, lower_cleanup < original_cleanup);
+    EXPECT(context, original_cleanup < counter_match_end);
+    EXPECT(context, !events.empty() && events.back().type == EventType::MatchEnded);
+
+    // Surrender during the counter-choice layer follows the same cleanup path:
+    // surrender event, abandoned declared response, pending spell, MatchEnded.
+    Scenario reaction_surrender = base_scenario();
+    reaction_surrender.players[0].hand = {kTerminalSpell};
+    reaction_surrender.players[0].tactics = {kTerminalSpellTrap};
+    reaction_surrender.players[1].tactics = {kTerminalSpellTrap};
+    Game reaction_surrender_game = scenario_game_with_catalog(
+        make_terminal_spell_catalog(), reaction_surrender);
+    const InstanceId surrender_spell = *reaction_surrender_game.find_in_hand(PlayerId::Player0, kTerminalSpell);
+    const InstanceId unused_counter = *reaction_surrender_game.player(PlayerId::Player0).tactics[0];
+    const InstanceId declared_response = *reaction_surrender_game.player(PlayerId::Player1).tactics[0];
+    EXPECT(context, reaction_surrender_game.cast_spell(PlayerId::Player0, surrender_spell, 1));
+    EXPECT(context, reaction_surrender_game.activate_trap(PlayerId::Player1, declared_response));
+    EXPECT(context, reaction_surrender_game.response_depth() == 2U);
+    (void)reaction_surrender_game.drain_events();
+    EXPECT(context, reaction_surrender_game.surrender(PlayerId::Player0));
+    events = reaction_surrender_game.drain_events();
+    EXPECT(context, reaction_surrender_game.result() == GameResult::Player1Won);
+    EXPECT(context, reaction_surrender_game.instance(declared_response).zone == Zone::Graveyard);
+    EXPECT(context, reaction_surrender_game.instance(surrender_spell).zone == Zone::Graveyard);
+    EXPECT(context, reaction_surrender_game.instance(unused_counter).zone == Zone::Tactic);
+    EXPECT(context, count_events(events, EventType::TrapActivated) == 0);
+    EXPECT(context, count_events(events, EventType::MatchEnded) == 1);
+    EXPECT(context, !events.empty() && events.front().type == EventType::PlayerSurrendered);
+    const auto surrender_response_cleanup = std::find_if(
+        events.begin(), events.end(), [&](const GameEvent& event) {
+            return event.type == EventType::CardMoved && event.card == declared_response &&
+                event.value == static_cast<int>(Zone::Graveyard);
+        });
+    const auto surrender_spell_cleanup = std::find_if(
+        events.begin(), events.end(), [&](const GameEvent& event) {
+            return event.type == EventType::CardMoved && event.card == surrender_spell &&
+                event.value == static_cast<int>(Zone::Graveyard);
+        });
+    const auto surrender_match_end = std::find_if(events.begin(), events.end(), [](const GameEvent& event) {
+        return event.type == EventType::MatchEnded;
+    });
+    EXPECT(context, surrender_response_cleanup != events.end());
+    EXPECT(context, surrender_spell_cleanup != events.end());
+    EXPECT(context, surrender_match_end != events.end());
+    EXPECT(context, surrender_response_cleanup < surrender_spell_cleanup);
+    EXPECT(context, surrender_spell_cleanup < surrender_match_end);
+    EXPECT(context, !events.empty() && events.back().type == EventType::MatchEnded);
+
     // Even pathological setup draws keep MatchEnded terminal and unique.
     GameConfig fatal_start_config = deterministic_test_config();
     fatal_start_config.starting_hand_size = 1;
@@ -1271,6 +1478,9 @@ void test_terminal_state_is_idempotent(TestContext& context) {
     expect_valid_state(context, fatigue_game);
     expect_valid_state(context, surrender_game);
     expect_valid_state(context, trap_game);
+    expect_valid_state(context, spell_lethal_game);
+    expect_valid_state(context, counter_lethal_game);
+    expect_valid_state(context, reaction_surrender_game);
     expect_valid_state(context, fatal_start);
     expect_valid_state(context, short_deck_game);
 }
@@ -1353,7 +1563,7 @@ void test_invalid_player_commands(TestContext& context) {
     EXPECT_CODE(context, game.end_turn(invalid), ErrorCode::InvalidPlayer);
     EXPECT_CODE(context, game.surrender(invalid), ErrorCode::InvalidPlayer);
     EXPECT_CODE(context, game.play_unit(invalid, 0), ErrorCode::InvalidPlayer);
-    EXPECT_CODE(context, game.cast_spell(invalid, 0), ErrorCode::InvalidPlayer);
+    EXPECT_CODE(context, game.cast_spell(invalid, 0, 0), ErrorCode::InvalidPlayer);
     EXPECT_CODE(context, game.play_tactic(invalid, 0, 0), ErrorCode::InvalidPlayer);
     EXPECT_CODE(context, game.attack(invalid, 0, Target::leader(PlayerId::Player1)), ErrorCode::InvalidPlayer);
     EXPECT_CODE(context, game.validate_attack(invalid, 0, Target::leader(PlayerId::Player1)), ErrorCode::InvalidPlayer);
@@ -1463,8 +1673,10 @@ void take_smoke_action(Game& game, int& call_counter) {
         const CardDefinition& def = game.definition(id);
         if (def.kind == CardKind::Spell) {
             const auto target = first_enemy_unit_target(game, active);
-            if (game.cast_spell(active, id, target, can_advance)) {
-                return;
+            for (std::size_t slot = 0; slot < kTacticZoneSize; ++slot) {
+                if (game.cast_spell(active, id, slot, target, can_advance)) {
+                    return;
+                }
             }
         }
     }
@@ -1494,6 +1706,17 @@ void take_smoke_action(Game& game, int& call_counter) {
 }
 
 void test_invariants_and_smoke_matches(TestContext& context) {
+    Scenario invalid_spell_tactic = base_scenario();
+    invalid_spell_tactic.players[0].tactics = {cards::midrange::kPrecisionStrike};
+    Game invalid_spell_game = scenario_game(invalid_spell_tactic);
+    const std::vector<std::string> invalid_spell_problems = invalid_spell_game.validate_invariants();
+    EXPECT(context, std::any_of(
+                        invalid_spell_problems.begin(),
+                        invalid_spell_problems.end(),
+                        [](const std::string& problem) {
+                            return problem.find("non-pending spell instance") != std::string::npos;
+                        }));
+
 #ifdef _WIN32
     char* seed_buffer = nullptr;
     std::size_t seed_length = 0;

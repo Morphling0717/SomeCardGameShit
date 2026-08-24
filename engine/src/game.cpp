@@ -180,10 +180,8 @@ Status Game::surrender(const PlayerId player_id) {
         return allowed;
     }
     result_ = player_id == PlayerId::Player0 ? GameResult::Player1Won : GameResult::Player0Won;
-    phase_ = Phase::Finished;
-    response_stack_.clear();
     emit(EventType::PlayerSurrendered, player_id);
-    emit(EventType::MatchEnded, active_player_, 0, static_cast<int>(result_));
+    finalize_match_end();
     return Status::ok();
 }
 
@@ -388,6 +386,7 @@ Status Game::play_unit(
 Status Game::cast_spell(
     const PlayerId player_id,
     const InstanceId card_id,
+    const std::size_t slot,
     const std::optional<Target> ability_target,
     const bool use_advance) {
     const Status allowed = ensure_action_player(player_id);
@@ -405,6 +404,10 @@ Status Game::cast_spell(
     }
 
     PlayerState& state = players_[to_index(player_id)];
+    const Status slot_status = validate_empty_tactic_slot(player_id, slot);
+    if (!slot_status) {
+        return slot_status;
+    }
     const int advance_needed = std::max(0, def.cost - state.current_pp);
     if (advance_needed > 0 && !use_advance) {
         return Status::error(ErrorCode::InsufficientPP, "not enough PP");
@@ -428,14 +431,17 @@ Status Game::cast_spell(
     }
 
     ++state.spells_used_this_turn;
-    put_in_graveyard(player_id, card_id);
+    put_in_tactic_slot(player_id, card_id, slot);
 
     // v0.4 §26: spell use opens a response window; the spell's own effects
-    // resolve after the response chain (后加入者先结算).
+    // resolve after the response chain (后加入者先结算). The face-up spell
+    // continues to occupy its declared tactic slot until its own chain link
+    // resolves or terminal cleanup aborts the chain.
     SuspendedAction suspended;
     suspended.kind = SuspendedAction::Kind::Spell;
     suspended.player = player_id;
     suspended.card = card_id;
+    suspended.tactic_slot = slot;
     suspended.target = ability_target;
     suspended.advanced = advanced;
     open_response_window(ReactionWindow::SpellDeclared, opponent(player_id), card_id, suspended);
@@ -453,9 +459,6 @@ Status Game::play_tactic(
     if (!allowed) {
         return allowed;
     }
-    if (slot >= kTacticZoneSize) {
-        return Status::error(ErrorCode::InvalidSlot, "tactic slot is out of range");
-    }
     const auto iterator = instances_.find(card_id);
     if (iterator == instances_.end()) {
         return Status::error(ErrorCode::InvalidCard, "unknown card instance");
@@ -471,9 +474,9 @@ Status Game::play_tactic(
     if (def.kind == CardKind::Trap && state.trap_set_this_turn) {
         return Status::error(ErrorCode::TrapAlreadySetThisTurn, "only one trap may be set per turn");
     }
-    // v0.4 §5: the tactic zone never auto-replaces a card.
-    if (state.tactics[slot].has_value()) {
-        return Status::error(ErrorCode::TacticZoneFull, "tactic slot is occupied; no replacement without an effect");
+    const Status slot_status = validate_empty_tactic_slot(player_id, slot);
+    if (!slot_status) {
+        return slot_status;
     }
 
     const int advance_needed = std::max(0, def.cost - state.current_pp);
@@ -883,6 +886,7 @@ void Game::resolve_response_chain() {
     if (response_stack_.empty()) {
         return;
     }
+    begin_terminal_cleanup_defer();
     const SuspendedAction original = response_stack_.front().suspended;
     bool attack_cancelled = false;
     while (!response_stack_.empty() && result_ == GameResult::Ongoing) {
@@ -941,13 +945,73 @@ void Game::resolve_response_chain() {
             }
         }
     }
+    // A lethal higher layer abandons every lower declared response. Those
+    // already-activated traps still pay the zone-transition part of their
+    // declaration, in LIFO order, without resolving or emitting TrapActivated.
+    finalize_declared_response_cards();
     response_stack_.clear();
     if (result_ == GameResult::Ongoing &&
         !(original.kind == SuspendedAction::Kind::Attack && attack_cancelled)) {
         resolve_suspended_action(original);
     }
+    // A lethal response aborts the original link, but the already-declared
+    // spell must still leave its reserved tactic slot before MatchEnded.
+    finalize_suspended_spell(original);
     if (result_ == GameResult::Ongoing) {
         phase_ = Phase::Action;
+    }
+    end_terminal_cleanup_defer();
+}
+
+void Game::finalize_declared_response_cards() {
+    for (auto layer = response_stack_.rbegin(); layer != response_stack_.rend(); ++layer) {
+        if (!layer->activated_trap.has_value()) {
+            continue;
+        }
+        const InstanceId trap_id = *layer->activated_trap;
+        const auto iterator = instances_.find(trap_id);
+        if (iterator == instances_.end()) {
+            continue;
+        }
+        const CardInstance& trap = iterator->second;
+        if (trap.controller == layer->responder && trap.zone == Zone::Tactic) {
+            put_in_graveyard(layer->responder, trap_id);
+        }
+    }
+}
+
+void Game::finalize_suspended_spell(const SuspendedAction& suspended) {
+    if (suspended.kind != SuspendedAction::Kind::Spell || !suspended.tactic_slot.has_value()) {
+        return;
+    }
+    const auto iterator = instances_.find(suspended.card);
+    if (iterator == instances_.end()) {
+        return;
+    }
+    const CardInstance& card = iterator->second;
+    const std::size_t slot = *suspended.tactic_slot;
+    if (slot >= kTacticZoneSize || card.controller != suspended.player ||
+        card.zone != Zone::Tactic || card.sequence != slot) {
+        return;
+    }
+    const PlayerState& state = players_[to_index(suspended.player)];
+    if (!state.tactics[slot].has_value() || *state.tactics[slot] != suspended.card) {
+        return;
+    }
+    put_in_graveyard(suspended.player, suspended.card);
+}
+
+void Game::begin_terminal_cleanup_defer() {
+    ++terminal_cleanup_defer_depth_;
+}
+
+void Game::end_terminal_cleanup_defer() {
+    if (terminal_cleanup_defer_depth_ == 0U) {
+        throw std::logic_error("terminal cleanup defer depth underflow");
+    }
+    --terminal_cleanup_defer_depth_;
+    if (terminal_cleanup_defer_depth_ == 0U && result_ != GameResult::Ongoing) {
+        finalize_match_end();
     }
 }
 
@@ -956,6 +1020,7 @@ void Game::resolve_suspended_action(const SuspendedAction& suspended) {
         case SuspendedAction::Kind::None:
             return;
         case SuspendedAction::Kind::Spell: {
+            begin_terminal_cleanup_defer();
             const CardDefinition& def = definition(suspended.card);
             (void)resolve_effects(
                 def.effects,
@@ -965,6 +1030,10 @@ void Game::resolve_suspended_action(const SuspendedAction& suspended) {
                 def.effects, EffectTrigger::OnPlay, suspended.player, suspended.card, suspended.target, suspended.advanced);
             resolve_deaths();
             evaluate_result();
+            // The spell stays face-up in the selected tactic slot throughout
+            // every higher response layer and leaves after its own link ends.
+            finalize_suspended_spell(suspended);
+            end_terminal_cleanup_defer();
             return;
         }
         case SuspendedAction::Kind::EntryEffect: {
@@ -1030,6 +1099,10 @@ bool Game::trap_matches_window(
 }
 
 void Game::close_reaction_window() {
+    if (!response_stack_.empty()) {
+        finalize_declared_response_cards();
+        finalize_suspended_spell(response_stack_.front().suspended);
+    }
     response_stack_.clear();
     if (result_ == GameResult::Ongoing) {
         phase_ = Phase::Action;
@@ -1048,6 +1121,7 @@ Status Game::load_scenario(const Scenario& scenario) {
     next_instance_id_ = 1;
     result_ = GameResult::Ongoing;
     response_stack_.clear();
+    terminal_cleanup_defer_depth_ = 0;
     events_.clear();
     revision_ = 0;
     next_event_sequence_ = 1;
@@ -1213,6 +1287,19 @@ std::vector<std::string> Game::validate_invariants() const {
         }
     };
 
+    const auto is_pending_spell = [&](
+                                      const PlayerId player_id,
+                                      const std::size_t slot,
+                                      const InstanceId id) {
+        if (phase_ != Phase::Reaction || response_stack_.empty()) {
+            return false;
+        }
+        const SuspendedAction& suspended = response_stack_.front().suspended;
+        return suspended.kind == SuspendedAction::Kind::Spell &&
+            suspended.player == player_id && suspended.card == id &&
+            suspended.tactic_slot.has_value() && *suspended.tactic_slot == slot;
+    };
+
     for (std::size_t player_index = 0; player_index < kPlayerCount; ++player_index) {
         const PlayerId player_id = static_cast<PlayerId>(player_index);
         const PlayerState& state = players_[player_index];
@@ -1289,7 +1376,19 @@ std::vector<std::string> Game::validate_invariants() const {
             }
             const CardInstance& tactic = iterator->second;
             const CardDefinition& card_definition = catalog_.at(tactic.definition_id);
-            if (card_definition.kind != CardKind::Relic && card_definition.kind != CardKind::Trap) {
+            if (card_definition.kind == CardKind::Spell) {
+                if (!is_pending_spell(player_id, sequence, id)) {
+                    problems.push_back(
+                        "non-pending spell instance " + std::to_string(id) +
+                        " occupies a tactic slot");
+                }
+                if (tactic.face_down || tactic.countdown != 0) {
+                    problems.push_back(
+                        "pending spell instance " + std::to_string(id) +
+                        " has invalid tactic presentation state");
+                }
+            } else if (card_definition.kind != CardKind::Relic &&
+                       card_definition.kind != CardKind::Trap) {
                 problems.push_back("non-tactic instance " + std::to_string(id) + " occupies a tactic slot");
             }
             if (card_definition.kind == CardKind::Trap && !tactic.face_down) {
@@ -1343,6 +1442,23 @@ std::vector<std::string> Game::validate_invariants() const {
         } else if (response_stack_.size() > 2) {
             problems.push_back("response stack exceeds the v0.4 three-layer limit");
         } else {
+            const SuspendedAction& base = response_stack_.front().suspended;
+            if (base.kind == SuspendedAction::Kind::Spell) {
+                if (!base.tactic_slot.has_value() || *base.tactic_slot >= kTacticZoneSize ||
+                    !instances_.contains(base.card)) {
+                    problems.push_back("pending spell response has no valid tactic slot");
+                } else {
+                    const PlayerState& caster = players_[to_index(base.player)];
+                    const std::size_t slot = *base.tactic_slot;
+                    if (!caster.tactics[slot].has_value() ||
+                        *caster.tactics[slot] != base.card ||
+                        instances_.at(base.card).zone != Zone::Tactic) {
+                        problems.push_back("pending spell response is not occupying its tactic slot");
+                    }
+                }
+            } else if (base.tactic_slot.has_value()) {
+                problems.push_back("non-spell response unexpectedly carries a tactic slot");
+            }
             const ResponseLayer& top = response_stack_.back();
             if (top.window == ReactionWindow::None) {
                 problems.push_back("response layer has no reaction-window type");
@@ -1372,6 +1488,9 @@ std::vector<std::string> Game::validate_invariants() const {
     if (result_ == GameResult::Ongoing && phase_ != Phase::NotStarted &&
         (players_[0].leader_health <= 0 || players_[1].leader_health <= 0)) {
         problems.push_back("ongoing match has a defeated leader");
+    }
+    if (terminal_cleanup_defer_depth_ != 0U) {
+        problems.push_back("terminal cleanup deferral escaped a command resolution");
     }
 
     return problems;
@@ -1426,6 +1545,20 @@ Status Game::ensure_action_player(const PlayerId player_id) const {
 Status Game::ensure_not_finished() const {
     if (result_ != GameResult::Ongoing || phase_ == Phase::Finished) {
         return Status::error(ErrorCode::GameOver, "the match has already finished");
+    }
+    return Status::ok();
+}
+
+Status Game::validate_empty_tactic_slot(
+    const PlayerId player_id,
+    const std::size_t slot) const {
+    if (slot >= kTacticZoneSize) {
+        return Status::error(ErrorCode::InvalidSlot, "tactic slot is out of range");
+    }
+    if (players_[to_index(player_id)].tactics[slot].has_value()) {
+        return Status::error(
+            ErrorCode::TacticZoneFull,
+            "tactic slot is occupied; no replacement without an effect");
     }
     return Status::ok();
 }
@@ -1494,6 +1627,7 @@ void Game::initialize_decks() {
     next_instance_id_ = 1;
     result_ = GameResult::Ongoing;
     response_stack_.clear();
+    terminal_cleanup_defer_depth_ = 0;
     events_.clear();
     revision_ = 0;
     next_event_sequence_ = 1;
@@ -2234,23 +2368,38 @@ bool Game::deployment_condition_met(const PlayerId player_id, const DeploymentSp
 
 void Game::evaluate_result() {
     if (result_ != GameResult::Ongoing) {
+        if (terminal_cleanup_defer_depth_ == 0U) {
+            finalize_match_end();
+        }
         return;
     }
     const bool p0_dead = players_[0].leader_health <= 0;
     const bool p1_dead = players_[1].leader_health <= 0;
     if (p0_dead && p1_dead) {
         result_ = GameResult::Draw;
-        phase_ = Phase::Finished;
     } else if (p0_dead) {
         result_ = GameResult::Player1Won;
-        phase_ = Phase::Finished;
     } else if (p1_dead) {
         result_ = GameResult::Player0Won;
-        phase_ = Phase::Finished;
     } else {
         return;
     }
+
+    if (terminal_cleanup_defer_depth_ == 0U) {
+        finalize_match_end();
+    }
+}
+
+void Game::finalize_match_end() {
+    if (result_ == GameResult::Ongoing || phase_ == Phase::Finished) {
+        return;
+    }
+    if (!response_stack_.empty()) {
+        finalize_declared_response_cards();
+        finalize_suspended_spell(response_stack_.front().suspended);
+    }
     response_stack_.clear();
+    phase_ = Phase::Finished;
     emit(EventType::MatchEnded, active_player_, 0, static_cast<int>(result_));
 }
 

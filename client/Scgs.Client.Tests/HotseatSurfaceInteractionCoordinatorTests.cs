@@ -21,7 +21,8 @@ public sealed class HotseatSurfaceInteractionCoordinatorTests
                 ActionKind.CastSpell,
                 102,
                 HotseatSurfaceRef.HandCard(PlayerId.Player0, 1, 102),
-                Target: Target.Leader(PlayerId.Player1)),
+                Target: Target.Leader(PlayerId.Player1),
+                Slot: 1),
             new SourceCase(
                 ActionKind.PlayTactic,
                 103,
@@ -181,19 +182,28 @@ public sealed class HotseatSurfaceInteractionCoordinatorTests
             ActionKind.CastSpell,
             75,
             source: 102,
-            target: enemyUnit);
+            target: enemyUnit,
+            slot: 1);
         using (SurfaceFixture fixture = CreateActionFixture(75, [targetedSpell]))
         {
+            HotseatSurfaceIntentResult source = fixture.Coordinator.ApplyIntent(new(
+                75,
+                HotseatSurfaceGesture.Click,
+                HotseatSurfaceRef.HandCard(PlayerId.Player0, 1, 102)));
+            HotseatSurfaceIntentResult slot = fixture.Coordinator.ApplyIntent(new(
+                75,
+                HotseatSurfaceGesture.Click,
+                HotseatSurfaceRef.TacticSlot(PlayerId.Player0, 1)));
             HotseatSurfaceIntentResult result = fixture.Coordinator.ApplyIntent(new(
                 75,
-                HotseatSurfaceGesture.Drag,
-                HotseatSurfaceRef.HandCard(PlayerId.Player0, 1, 102))
-            {
-                Destination = HotseatSurfaceRef.Unit(PlayerId.Player1, 0, 501),
-            });
+                HotseatSurfaceGesture.Click,
+                HotseatSurfaceRef.Unit(PlayerId.Player1, 0, 501)));
 
+            Assert.AreEqual(HotseatSelectionStep.ChooseSlot, source.NextStep);
+            Assert.AreEqual(HotseatSelectionStep.ChooseTarget, slot.NextStep);
             Assert.AreEqual(HotseatSurfaceIntentStatus.CommandPrepared, result.Status);
             Assert.AreEqual(enemyUnit, result.CanonicalCommand!.Target);
+            Assert.AreEqual(1UL, result.CanonicalCommand.Slot);
         }
     }
 
@@ -233,40 +243,201 @@ public sealed class HotseatSurfaceInteractionCoordinatorTests
     }
 
     [TestMethod]
-    public void CastZoneChoosesNoTargetVariantAndExplicitlyPrepares()
+    public void CastSpellClickAndDragChooseSlotBeforeTargetAndConverge()
     {
-        LegalAction noTarget = HotseatTestModel.Action(
-            PlayerId.Player0,
-            ActionKind.CastSpell,
-            77,
-            source: 102);
-        LegalAction targeted = HotseatTestModel.Action(
+        Target enemy = Target.UnitTarget(PlayerId.Player1, 501);
+        LegalAction cast = HotseatTestModel.Action(
             PlayerId.Player0,
             ActionKind.CastSpell,
             77,
             source: 102,
-            target: Target.Leader(PlayerId.Player1));
-        using SurfaceFixture clickFixture = CreateActionFixture(77, [noTarget, targeted]);
-        using SurfaceFixture dragFixture = CreateActionFixture(77, [noTarget, targeted]);
+            target: enemy,
+            slot: 2);
+        using SurfaceFixture clickFixture = CreateActionFixture(77, [cast]);
+        using SurfaceFixture dragFixture = CreateActionFixture(77, [cast]);
         HotseatSurfaceRef card = HotseatSurfaceRef.HandCard(PlayerId.Player0, 1, 102);
+        HotseatSurfaceRef slot = HotseatSurfaceRef.TacticSlot(PlayerId.Player0, 2);
+        HotseatSurfaceRef target = HotseatSurfaceRef.Unit(PlayerId.Player1, 0, 501);
 
         _ = clickFixture.Coordinator.ApplyIntent(new(77, HotseatSurfaceGesture.Click, card));
+        HotseatSurfaceIntentResult clickedSlot = clickFixture.Coordinator.ApplyIntent(new(
+            77,
+            HotseatSurfaceGesture.Click,
+            slot));
         HotseatSurfaceIntentResult clicked = clickFixture.Coordinator.ApplyIntent(new(
             77,
             HotseatSurfaceGesture.Click,
-            HotseatSurfaceRef.CastZone()));
+            target));
+        HotseatSurfaceIntentResult draggedSlot = dragFixture.Coordinator.ApplyIntent(new(
+            77,
+            HotseatSurfaceGesture.Drag,
+            card)
+        {
+            Destination = slot,
+        });
         HotseatSurfaceIntentResult dragged = dragFixture.Coordinator.ApplyIntent(new(
             77,
             HotseatSurfaceGesture.Drag,
             card)
         {
-            Destination = HotseatSurfaceRef.CastZone(),
+            Destination = target,
+        });
+
+        Assert.AreEqual(HotseatSelectionStep.ChooseTarget, clickedSlot.NextStep);
+        Assert.AreEqual(HotseatSelectionStep.ChooseTarget, draggedSlot.NextStep);
+        Assert.AreEqual(HotseatSurfaceIntentStatus.CommandPrepared, clicked.Status);
+        Assert.AreEqual(HotseatSurfaceIntentStatus.CommandPrepared, dragged.Status);
+        Assert.AreEqual(2UL, clicked.CanonicalCommand!.Slot);
+        Assert.AreEqual(enemy, clicked.CanonicalCommand.Target);
+        Assert.AreEqual(clicked.CanonicalCommand, dragged.CanonicalCommand);
+    }
+
+    [TestMethod]
+    public void NoTargetCastClickAndDragToEmptySlotPrepareTheSameSlottedCommand()
+    {
+        LegalAction cast = HotseatTestModel.Action(
+            PlayerId.Player0,
+            ActionKind.CastSpell,
+            87,
+            source: 102,
+            slot: 2);
+        using SurfaceFixture clickFixture = CreateActionFixture(87, [cast]);
+        using SurfaceFixture dragFixture = CreateActionFixture(87, [cast]);
+        HotseatSurfaceRef card = HotseatSurfaceRef.HandCard(PlayerId.Player0, 1, 102);
+        HotseatSurfaceRef slot = HotseatSurfaceRef.TacticSlot(PlayerId.Player0, 2);
+
+        _ = clickFixture.Coordinator.ApplyIntent(new(87, HotseatSurfaceGesture.Click, card));
+        HotseatSurfaceIntentResult clicked = clickFixture.Coordinator.ApplyIntent(new(
+            87,
+            HotseatSurfaceGesture.Click,
+            slot));
+        HotseatSurfaceIntentResult dragged = dragFixture.Coordinator.ApplyIntent(new(
+            87,
+            HotseatSurfaceGesture.Drag,
+            card)
+        {
+            Destination = slot,
         });
 
         Assert.AreEqual(HotseatSurfaceIntentStatus.CommandPrepared, clicked.Status);
         Assert.AreEqual(HotseatSurfaceIntentStatus.CommandPrepared, dragged.Status);
-        Assert.IsNull(clicked.CanonicalCommand!.Target);
+        Assert.AreEqual(2UL, clicked.CanonicalCommand!.Slot);
+        Assert.IsNull(clicked.CanonicalCommand.Target);
         Assert.AreEqual(clicked.CanonicalCommand, dragged.CanonicalCommand);
+    }
+
+    [TestMethod]
+    public void DirectCastTargetIsRejectedUntilAnEmptyOwnTacticSlotIsChosen()
+    {
+        Target enemy = Target.UnitTarget(PlayerId.Player1, 501);
+        LegalAction cast = HotseatTestModel.Action(
+            PlayerId.Player0,
+            ActionKind.CastSpell,
+            84,
+            source: 102,
+            target: enemy,
+            slot: 1);
+        HotseatSurfaceRef card = HotseatSurfaceRef.HandCard(PlayerId.Player0, 1, 102);
+        HotseatSurfaceRef target = HotseatSurfaceRef.Unit(PlayerId.Player1, 0, 501);
+
+        using (SurfaceFixture directFixture = CreateActionFixture(84, [cast]))
+        {
+            HotseatUiState initial = directFixture.Controller.State;
+            int calls = directFixture.Session.Calls.Count;
+            AssertRejectedWithoutEffects(
+                directFixture,
+                new HotseatSurfaceIntent(84, HotseatSurfaceGesture.Drag, card)
+                {
+                    Destination = target,
+                },
+                HotseatSurfaceIntentStatus.InvalidSurface,
+                initial,
+                calls);
+        }
+
+        using SurfaceFixture selectedFixture = CreateActionFixture(84, [cast]);
+        _ = selectedFixture.Coordinator.ApplyIntent(new(
+            84,
+            HotseatSurfaceGesture.Click,
+            card));
+        HotseatUiState selected = selectedFixture.Controller.State;
+        int selectedCalls = selectedFixture.Session.Calls.Count;
+        AssertRejectedWithoutEffects(
+            selectedFixture,
+            new HotseatSurfaceIntent(84, HotseatSurfaceGesture.Click, target),
+            HotseatSurfaceIntentStatus.InvalidSurface,
+            selected,
+            selectedCalls);
+    }
+
+    [TestMethod]
+    public void RetiredCastZoneAndNonOwnOrOccupiedTacticSlotsHaveNoSideEffects()
+    {
+        LegalAction cast = HotseatTestModel.Action(
+            PlayerId.Player0,
+            ActionKind.CastSpell,
+            85,
+            source: 102,
+            slot: 1);
+        using SurfaceFixture fixture = CreateActionFixture(85, [cast]);
+        HotseatSurfaceRef card = HotseatSurfaceRef.HandCard(PlayerId.Player0, 1, 102);
+        _ = fixture.Coordinator.ApplyIntent(new(85, HotseatSurfaceGesture.Click, card));
+        HotseatUiState selected = fixture.Controller.State;
+        int calls = fixture.Session.Calls.Count;
+
+        HotseatSurfaceRef[] rejected =
+        [
+            HotseatSurfaceRef.TacticSlot(PlayerId.Player0, 0),
+            HotseatSurfaceRef.TacticSlot(PlayerId.Player1, 1),
+            HotseatSurfaceRef.CastZone(),
+        ];
+        foreach (HotseatSurfaceRef surface in rejected)
+        {
+            AssertRejectedWithoutEffects(
+                fixture,
+                new HotseatSurfaceIntent(85, HotseatSurfaceGesture.Click, surface),
+                HotseatSurfaceIntentStatus.InvalidSurface,
+                selected,
+                calls);
+        }
+
+        using SurfaceFixture dragFixture = CreateActionFixture(85, [cast]);
+        HotseatUiState dragInitial = dragFixture.Controller.State;
+        int dragCalls = dragFixture.Session.Calls.Count;
+        foreach (HotseatSurfaceRef surface in rejected)
+        {
+            AssertRejectedWithoutEffects(
+                dragFixture,
+                new HotseatSurfaceIntent(85, HotseatSurfaceGesture.Drag, card)
+                {
+                    Destination = surface,
+                },
+                HotseatSurfaceIntentStatus.InvalidSurface,
+                dragInitial,
+                dragCalls);
+        }
+    }
+
+    [TestMethod]
+    public void FullTacticRowRejectsSpellCandidatesInsteadOfProvidingAFallback()
+    {
+        CardView[] fullTactics =
+        [
+            HotseatTestModel.Card(401, PlayerId.Player0, Zone.Tactic),
+            HotseatTestModel.Card(402, PlayerId.Player0, Zone.Tactic),
+            HotseatTestModel.Card(403, PlayerId.Player0, Zone.Tactic),
+        ];
+        LegalAction forged = HotseatTestModel.Action(
+            PlayerId.Player0,
+            ActionKind.CastSpell,
+            86,
+            source: 102,
+            slot: 1);
+
+        Assert.ThrowsExactly<ScgsProtocolException>(() =>
+        {
+            using SurfaceFixture _ = CreateActionFixture(86, [forged], player0Tactics: fullTactics);
+        });
     }
 
     [TestMethod]
@@ -537,7 +708,8 @@ public sealed class HotseatSurfaceInteractionCoordinatorTests
     private static SurfaceFixture CreateActionFixture(
         ulong revision,
         IReadOnlyList<LegalAction> actions,
-        MatchPhase phase = MatchPhase.Action)
+        MatchPhase phase = MatchPhase.Action,
+        IReadOnlyList<CardView?>? player0Tactics = null)
     {
         CardView unit = HotseatTestModel.Card(201, PlayerId.Player0, Zone.Unit);
         CardView enemy = HotseatTestModel.Card(501, PlayerId.Player1, Zone.Unit);
@@ -560,7 +732,7 @@ public sealed class HotseatSurfaceInteractionCoordinatorTests
                 responder: PlayerId.Player0,
                 player0Units: [unit, null, null, null, null],
                 player1Units: [enemy, null, null, null, null],
-                player0Tactics: [tactic, null, null],
+                player0Tactics: player0Tactics ?? [tactic, null, null],
                 player0Standby: [standby]),
             ActionsHandler = query => HotseatTestModel.Filter(query, revision, actions),
             EventsHandler = (viewer, after) =>

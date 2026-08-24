@@ -499,7 +499,7 @@ public sealed class HotseatMatchController : IDisposable
             }
 
             legalActions = result.Actions.ToArray();
-            ValidateLegalActions(legalActions, viewer, view.Revision);
+            ValidateLegalActions(legalActions, viewer, view);
         }
 
         EventBatch eventBatch = session.ReadEvents(viewer, eventCursors.For(viewer));
@@ -716,7 +716,7 @@ public sealed class HotseatMatchController : IDisposable
             }
 
             LegalAction[] actions = result.Actions.ToArray();
-            ValidateLegalActions(actions, query.Player, result.Revision);
+            ValidateLegalActions(actions, query.Player, State.Snapshot!);
             foreach (LegalAction action in actions)
             {
                 _ = FindCanonicalAction(action.Command);
@@ -791,14 +791,26 @@ public sealed class HotseatMatchController : IDisposable
     private static void ValidateLegalActions(
         IEnumerable<LegalAction> actions,
         PlayerId viewer,
-        ulong revision)
+        MatchView view)
     {
-        if (actions.Any(action =>
+        LegalAction[] materialized = actions.ToArray();
+        if (materialized.Any(action =>
                 action.Command.Player != viewer ||
-                action.Command.ExpectedRevision != revision))
+                action.Command.ExpectedRevision != view.Revision))
         {
             throw new ScgsProtocolException(
                 "A legal action belongs to a different actor or revision.");
+        }
+
+        PlayerView player = view.Players[(int)viewer];
+        if (materialized.Any(action =>
+                action.Command.Action == ActionKind.CastSpell &&
+                (action.Command.Slot is not { } slot ||
+                 slot >= (ulong)player.Tactics.Length ||
+                 player.Tactics[(int)slot] is not null)))
+        {
+            throw new ScgsProtocolException(
+                "A spell legal action must name an empty tactic slot owned by its actor.");
         }
     }
 
@@ -1061,10 +1073,14 @@ public sealed class HotseatMatchController : IDisposable
             ActionKind.PlayUnit or ActionKind.PlayTactic when needsAdvance =>
                 HotseatSelectionStep.ChooseAdvance,
 
-            ActionKind.CastSpell or ActionKind.Attack or ActionKind.Evolve or
-                ActionKind.ActivateTrap when needsTarget => HotseatSelectionStep.ChooseTarget,
-            ActionKind.CastSpell or ActionKind.Attack or ActionKind.Evolve or
-                ActionKind.ActivateTrap when needsAdvance => HotseatSelectionStep.ChooseAdvance,
+            ActionKind.CastSpell when needsSlot => HotseatSelectionStep.ChooseSlot,
+            ActionKind.CastSpell when needsTarget => HotseatSelectionStep.ChooseTarget,
+            ActionKind.CastSpell when needsAdvance => HotseatSelectionStep.ChooseAdvance,
+
+            ActionKind.Attack or ActionKind.Evolve or ActionKind.ActivateTrap when needsTarget =>
+                HotseatSelectionStep.ChooseTarget,
+            ActionKind.Attack or ActionKind.Evolve or ActionKind.ActivateTrap when needsAdvance =>
+                HotseatSelectionStep.ChooseAdvance,
 
             _ when needsDonor => HotseatSelectionStep.ChooseDonor,
             _ when needsSlot => HotseatSelectionStep.ChooseSlot,

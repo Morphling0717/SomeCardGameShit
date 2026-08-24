@@ -324,18 +324,24 @@ void for_each_candidate(
                 }
             } else if (definition.kind == CardKind::Spell && wants(ActionKind::CastSpell)) {
                 const auto targets = unit_target_options(game, player, definition, ActionKind::CastSpell);
-                for (const auto& target : targets) {
-                    for (const bool advance : {false, true}) {
-                        if (advance && definition.cost <= own.current_pp) {
-                            continue;
+                for (std::size_t slot = 0; slot < kTacticZoneSize; ++slot) {
+                    if (own.tactics[slot].has_value()) {
+                        continue;
+                    }
+                    for (const auto& target : targets) {
+                        for (const bool advance : {false, true}) {
+                            if (advance && definition.cost <= own.current_pp) {
+                                continue;
+                            }
+                            GameCommand command;
+                            command.player = player;
+                            command.action = ActionKind::CastSpell;
+                            command.source = id;
+                            command.target = target;
+                            command.slot = slot;
+                            command.use_advance = advance;
+                            consider(std::move(command));
                         }
-                        GameCommand command;
-                        command.player = player;
-                        command.action = ActionKind::CastSpell;
-                        command.source = id;
-                        command.target = target;
-                        command.use_advance = advance;
-                        consider(std::move(command));
                     }
                 }
             } else if ((definition.kind == CardKind::Relic || definition.kind == CardKind::Trap) &&
@@ -481,7 +487,11 @@ Status dispatch_command(Game& game, const GameCommand& command) {
             return game.play_unit(
                 command.player, command.source, command.slot, command.target, command.use_advance);
         case ActionKind::CastSpell:
-            return game.cast_spell(command.player, command.source, command.target, command.use_advance);
+            if (!command.slot.has_value()) {
+                return Status::error(ErrorCode::InvalidSlot, "casting a spell requires a tactic slot");
+            }
+            return game.cast_spell(
+                command.player, command.source, *command.slot, command.target, command.use_advance);
         case ActionKind::PlayTactic:
             if (!command.slot.has_value()) {
                 return Status::error(ErrorCode::InvalidSlot, "playing a tactic requires a slot");

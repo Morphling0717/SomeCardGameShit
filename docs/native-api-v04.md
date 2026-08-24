@@ -120,7 +120,7 @@ seed 省略表示产品熵源；`first_player_mode` 为 0 Random、1 Player0、2
 ```
 
 `player`、`action`、`expected_revision` 必填。`source`、`target`、`slot`、
-`component_donor`、`use_advance`、`mulligan_cards` 按动作选填；缺省 source 为 0、
+`component_donor`、`use_advance`、`mulligan_cards` 按动作选填；CastSpell 与 PlayTactic 要求具体 `slot`，其中 CastSpell 必须选择己方空策略位；PlayUnit 与 Deploy 省略 `slot` 时仍可由引擎选择空单位位。缺省 source 为 0、
 `use_advance` 为 false、调度列表为空。target kind 0 是主战者，kind 1 是单位且要求
 `unit`。规则是否合法只由 Gate 1 `submit_command` 判断。
 

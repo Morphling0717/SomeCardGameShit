@@ -154,7 +154,6 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         _privateRender = true;
         RenderPrivatePlayer(FindPlayer(view, PlayerId.Player0), view.Viewer);
         RenderPrivatePlayer(FindPlayer(view, PlayerId.Player1), view.Viewer);
-        RenderCastZone(view.Viewer, interactive: true);
         FinishRender();
     }
 
@@ -174,7 +173,6 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         _privateRender = false;
         RenderPublicPlayer(FindPlayer(board, PlayerId.Player0), perspectiveViewer);
         RenderPublicPlayer(FindPlayer(board, PlayerId.Player1), perspectiveViewer);
-        RenderCastZone(perspectiveViewer, interactive: false);
         FinishRender();
         SetInputEnabled(false);
     }
@@ -706,16 +704,6 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
             BattlefieldPerspective.LeaderTransform(player, viewer),
             $"主战者\n{health}/{maximumHealth}",
             surface);
-        Register(surface, actor);
-    }
-
-    private void RenderCastZone(PlayerId viewer, bool interactive)
-    {
-        BattlefieldSurfaceRef? surface = interactive
-            ? new BattlefieldSurfaceRef(BattlefieldSurfaceKind.CastZone)
-            : null;
-        SlotActor3D actor = RentSlot();
-        actor.Bind(BattlefieldPerspective.CastZoneTransform(viewer), "施放区", surface);
         Register(surface, actor);
     }
 

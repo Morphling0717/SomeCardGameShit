@@ -23,6 +23,13 @@ from validate_gate4b_visual_suite import EXPECTED_STATES  # noqa: E402
 
 
 class Gate4BGoldenMetadataTests(unittest.TestCase):
+    def test_asset_manifest_checkout_is_locked_to_lf(self) -> None:
+        attributes = (ROOT / ".gitattributes").read_text(encoding="utf-8")
+        self.assertIn(
+            "client/godot/assets/visual/ASSET_MANIFEST.json text eol=lf",
+            attributes.splitlines(),
+        )
+
     def _fixture(self, root: Path) -> tuple[Path, Path]:
         root.mkdir(parents=True, exist_ok=True)
         states = sorted(EXPECTED_STATES)

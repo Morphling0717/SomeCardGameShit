@@ -1,4 +1,4 @@
-# 工程交接：Gate 3C 直接交互 → Gate 4A 默认 3D/2.5D
+# 工程交接：Gate 4A 默认 3D/2.5D → Gate 4A.1 策略位法术
 
 > 现行交接文档。旧 [`DSH-HANDOFF.md`](DSH-HANDOFF.md) 与 [`ygopro-integration.md`](ygopro-integration.md) 是历史归档，不是执行指令。
 
@@ -16,15 +16,18 @@
 - Gate 3C 被测实现：`087d53a5dad3285478e78381914d34acfcaa79f3`；自动验收 run `32592594368`
 - Gate 4A 自动化验收尖端：`codex/godot-hotseat-gate4a@7a6808ddcd76d2c78fd906a9235f867c11c84e7c`
 - Gate 4A 实现 CI：[run `32617860778`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32617860778)，四项 job 全绿；准确命令、数量和制品摘要见 [`../TEST_REPORT.md`](../TEST_REPORT.md)
+- Gate 4A.1 起始基线：`codex/godot-hotseat-gate4a-layout-fix@0d1d4e5`
+- Gate 4A.1 被测实现：`codex/godot-hotseat-gate4a-spell-slots@4be6e09ef9edc363b064b4a7aaba4551359ecb05`
+- Gate 4A.1 实现 CI：[run `32696171327`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32696171327)，四项 job 全绿；准确命令、数量和制品摘要见 [`../TEST_REPORT.md`](../TEST_REPORT.md)
 - 规则真值：[`rules-v0.4.md`](rules-v0.4.md)，用户最新明确决定优先于旧文档歧义
 - 客户端架构：[`godot-client-architecture.md`](godot-client-architecture.md)
 - UI 状态：[`ui-state-map.md`](ui-state-map.md)
 - 验收清单：[`hotseat-acceptance.md`](hotseat-acceptance.md)
 - 真实构建/测试/CI：[`../TEST_REPORT.md`](../TEST_REPORT.md)
 
-Gate 4A 保留 Gate 3C 的完整对局、直接交互、公共投影、原生与导出基线，只把战场表现升级为默认 3D/2.5D，并保留隐藏 legacy 2D 回归。本文描述源码职责和必须保持的约束；详细命令、数量、制品摘要和未完成边界只以 `TEST_REPORT.md` 为准。
+Gate 4A 保留 Gate 3C 的完整对局、直接交互、公共投影、原生与导出基线，只把战场表现升级为默认 3D/2.5D，并保留隐藏 legacy 2D 回归。Gate 4A.1 进一步把法术发动改为占用玩家明确选择的己方空策略位，并从两种 presenter 中移除中央施放区。本文描述源码职责和必须保持的约束；详细命令、数量、制品摘要和未完成边界只以 `TEST_REPORT.md` 为准。
 
-本 Gate 不修改 legacy v1 wire 字节，不改变 `scgs_v04` ABI 1.0/schema 1/精确 14 导出，不提交原生 DLL/dylib，不创建 PR、不合并、不打标签。
+Gate 4A.1 修改 C++ `CastSpell` 规则与强类型 `Game::cast_spell` 签名，但不修改 legacy v1 wire 字节，不改变 `scgs_v04` ABI 1.0/schema 1/精确 14 导出，不提交原生 DLL/dylib，不创建 PR、不合并、不打标签。
 
 ## 1. 不可推翻的架构决定
 
@@ -58,6 +61,7 @@ Game / C++20 规则引擎（唯一规则真值）
 - 响应栈按“反制 → 响应 → 原行动”LIFO；反制过牌不丢底层；法术必须正面占用己方明确选择的空策略位并支持 `OnSpellDeclared`，在自身链环结算后送墓。
 - 支付前完整验证目标；响应中目标失效只跳过依赖该目标的效果。
 - 每局至多一个 `MatchEnded`，终局后无抽牌、设施倒计时或其他状态变化。
+- 致命响应或响应期间投降时，已声明但未结算的伏策按 LIFO 清理、原法术随后送墓；未声明伏策保留，`MatchEnded` 唯一且最后。
 - 进化解锁前不职业充能；先手解锁得 2、后手得 3；解锁后充能封顶 4。
 - 产品默认随机先手并洗牌；测试可指定 seed/先手。快照和开局事件记录实际结果。
 - 成功命令 revision 恰好 +1；失败命令不改变状态、事件或 revision。
@@ -71,14 +75,16 @@ Game / C++20 规则引擎（唯一规则真值）
 - `SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认开启；开启时必须找到 Python 3.10+，不得静默少跑。
 - legacy v1 wire 的 ID、字段顺序、长度、字节序和金标保持不变。
 
-## 3. Gate 3B 引擎/API 基线（Gate 3C/4A 不修改）
+## 3. Gate 3B API 基线与 Gate 4A.1 CastSpell 增量
 
 - `PaymentPreview` 与实际支付共享费用投影，只描述 PP、容量、裂痕、进化能量与费用组成；它不结算效果，也不因隐藏伏策存在与否改变结果。
 - 部署、进化和普通卡牌支付都走同一投影；提交时仍进行完整规则验证。
 - `ReactionContext.origin` 在 pending 时提供公开原行动的 `action`、`player`、`source` 和可选 `target`，非 pending 时省略。
 - 未知未来 origin action 可作为通用文本保留；player/target 等结构性未知值继续视为协议错误。
+- `GameCommand.slot` 对 `CastSpell` 是必填语义；合法行动按“己方空策略位 × 合法目标 × 预支选择”展开，后排全满时不枚举法术。
+- 待结算法术在观看者快照中正面公开，并只允许占据响应栈记录的唯一策略位；自身链环结束或终局清理时送墓。
 
-这些变化只扩展 schema 1 中原有 JSON 对象的可选/公开字段，不增加 C 导出，也不改变 legacy wire。
+Gate 3B 的 origin 等增量只扩展 schema 1 既有 JSON 对象；Gate 4A.1 只收紧现有 `slot` 字段和 C++ 规则语义。两者都不增加 C 导出、不提升 schema 版本，也不改变 legacy wire。
 
 ## 4. 托管项目
 
@@ -164,18 +170,18 @@ Gate 3B 的 `ActionPromptPanel` / `ConfirmationPanel` 场景可以暂留作源�
 
 - Windows 产品 DLL 使用 `/MT`，审计禁止动态 MSVC runtime。
 - macOS CI 使用派生 arm64 template，放置 dylib 后重新 ad-hoc codesign，所有 Mach-O 必须 arm64-only。
-- 两个平台导出包携带 GPL、Godot/.NET/nlohmann/Noto 和第三方声明；`BUILD_INFO.txt` 必须精确记录 Gate 4A、锁定工具链和当前 CI checkout commit。
+- 两个平台导出包携带 GPL、Godot/.NET/nlohmann/Noto 和第三方声明；Gate 4A.1 沿用 Gate 4A 的 `BUILD_INFO.txt` gate 名和制品名，但文件必须精确记录锁定工具链和当前 CI checkout commit。
 - smoke 必须有超时、只出现一次 `SCGS_GODOT_CI_SMOKE_OK`，并拒绝 Godot error/C# exception。
-- Gate 4A 结构化报告使用 schema version 3 固定字段白名单；它完整继承 Gate 3C 的 `ActionKind` 0～10、真实 signal 两局、选择、公共投影、viewer 和释放约束，并新增 presentation、surface/raycast、HUD、8 px、70°/58°、透视、actor 池、锁定输入与空间隐私证据。
+- Gate 4A/4A.1 结构化报告沿用 schema version 3 固定字段白名单；它完整继承 Gate 3C 的 `ActionKind` 0～10、真实 signal 两局、选择、公共投影、viewer 和释放约束，并新增 presentation、surface/raycast、HUD、8 px、70°/58°、透视、actor 池、锁定输入与空间隐私证据。
 - zip 必须解包到新目录后重新审计并真实启动，不能只验证压缩前目录。
 
-Gate 3C run `32592594368` 只是历史回归基线。Gate 4A 实现已由 [run `32617860778`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32617860778) 在四项 job 中验证严格 v3 报告：Windows/macOS 各运行默认 3D 当前工程、默认 3D 导出、默认 3D ZIP 往返和一次 legacy 2D 源码整局，并上传 `SomeCardGameShit-gate4a-*` 制品。后续任何代码尖端都必须重新满足同一矩阵，不能沿用本次 run 冒充新提交证据。
+Gate 3C run `32592594368` 与 Gate 4A run `32617860778` 只是历史回归基线。Gate 4A.1 实现已由 [run `32696171327`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32696171327) 在四项 job 中验证严格 v3 报告：Windows/macOS 各运行默认 3D 当前工程、默认 3D 导出、默认 3D ZIP 往返和一次 legacy 2D 源码整局，并上传沿用名称的 `SomeCardGameShit-gate4a-*` 制品。其 checkout SHA 必须是 `4be6e09ef9edc363b064b4a7aaba4551359ecb05`；后续任何代码尖端都必须重新满足同一矩阵，不能沿用本次 run 冒充新提交证据。
 
 ## 8. 接手者必须完成的发布前硬门
 
 源码、单元测试、headless smoke 和 CI 导出完成后，仍必须：
 
-1. 在 1600×900 与 1280×720 逐页验收普通行动、目标选择、响应目标、`Resolving` 和 `Covered`，确认中文、HUD 遮挡、三重合法提示与匿名牌背；
+1. 本轮已在 1280×720、1600×900 与 2560×1440 验收 `Action` / `Resolving`；仍须逐页验收目标选择、响应目标和 `Covered`，确认中文、HUD 遮挡、三重合法提示与匿名牌背；
 2. 在物理 Apple Silicon Mac 上启动 arm64 `.app`，完成整局、退出和重开；
 3. 让两名真人在目标桌面构建完成一局，逐次观察全遮挡、设备交接和主动揭示；
 4. 在未安装 Visual Studio 的 Windows x86-64 机器验证包可启动并完成整局；

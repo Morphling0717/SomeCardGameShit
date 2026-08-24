@@ -15,6 +15,7 @@ public static class BattlefieldPerspective
     public const float CardDepth = 2.18f;
     public const float SlotWidth = 1.88f;
     public const float SlotDepth = 2.48f;
+    public const float TerritoryBoundaryClearance = 0.12f;
     public const float CameraFovDegrees = 70.0f;
     public const float CameraPitchDegrees = 58.0f;
     public const float MinimumZoom = 0.82f;
@@ -22,6 +23,8 @@ public static class BattlefieldPerspective
 
     private const float UnitSpacing = 2.4f;
     private const float TacticSpacing = 3.15f;
+    private const float UnitRowDepth = 1.55f;
+    private const float TacticRowDepth = 4.10f;
     private const float NearHandNominalSpacing = 1.34f;
     private const float FarHandNominalSpacing = 1.20f;
     private const float NearHandMaximumSpan = 9.4f;
@@ -29,7 +32,12 @@ public static class BattlefieldPerspective
     private const float NearHandPreferredScale = 0.76f;
     private const float FarHandPreferredScale = 0.68f;
     private const float MinimumHandGap = 0.08f;
-    private const float SidePileSpacing = 2.65f;
+    private const float SideZoneX = 7.1f;
+    private const float ZonePileScale = 0.82f;
+    private const float DeckDepth = 1.25f;
+    private const float GraveyardDepth = 3.45f;
+    private const float ArchiveDepth = 5.65f;
+    private const float StandbyDepth = 1.45f;
     private const float CornerZoneDepth = 5.35f;
 
     public static bool IsNear(PlayerId player, PlayerId viewer)
@@ -63,7 +71,7 @@ public static class BattlefieldPerspective
     {
         int visual = VisualSlotIndex(player, viewer, slot, UnitSlotCount);
         float x = (visual - ((UnitSlotCount - 1) / 2.0f)) * UnitSpacing;
-        float z = IsNear(player, viewer) ? 1.45f : -1.45f;
+        float z = IsNear(player, viewer) ? UnitRowDepth : -UnitRowDepth;
         return CreateFlatTransform(player, viewer, new Vector3(x, 0.22f, z));
     }
 
@@ -74,7 +82,7 @@ public static class BattlefieldPerspective
     {
         int visual = VisualSlotIndex(player, viewer, slot, TacticSlotCount);
         float x = (visual - ((TacticSlotCount - 1) / 2.0f)) * TacticSpacing;
-        float z = IsNear(player, viewer) ? 4.0f : -4.0f;
+        float z = IsNear(player, viewer) ? TacticRowDepth : -TacticRowDepth;
         return CreateFlatTransform(player, viewer, new Vector3(x, 0.18f, z));
     }
 
@@ -149,21 +157,25 @@ public static class BattlefieldPerspective
         int count)
     {
         ValidateCountAndIndex(count, index);
-        float z = IsNear(player, viewer) ? 4.55f : -4.55f;
-        float xBase = IsNear(player, viewer) ? 7.1f : -7.1f;
-        float offset = (index - ((count - 1) / 2.0f)) * 0.34f;
+        float side = IsNear(player, viewer) ? 1.0f : -1.0f;
+        float z = StandbyDepth * side;
+        float xBase = -SideZoneX * side;
+        float offset = (index - ((count - 1) / 2.0f)) * 0.26f * side;
         return CreateFlatTransform(
             player,
             viewer,
-            new Vector3(xBase + offset, 0.3f + (index * 0.025f), z));
+            new Vector3(xBase + offset, 0.3f + (index * 0.025f), z),
+            ZonePileScale);
     }
 
     public static Transform3D StandbyPileTransform(PlayerId player, PlayerId viewer)
     {
-        bool near = IsNear(player, viewer);
-        float z = near ? CornerZoneDepth : -CornerZoneDepth;
-        float x = near ? 7.05f : -7.05f;
-        return CreateFlatTransform(player, viewer, new Vector3(x, 0.3f, z));
+        float side = IsNear(player, viewer) ? 1.0f : -1.0f;
+        return CreateFlatTransform(
+            player,
+            viewer,
+            new Vector3(-SideZoneX * side, 0.3f, StandbyDepth * side),
+            ZonePileScale);
     }
 
     public static Transform3D PileTransform(
@@ -175,58 +187,165 @@ public static class BattlefieldPerspective
         float side = near ? 1.0f : -1.0f;
         Vector3 position = zone switch
         {
-            Zone.Deck => new Vector3(7.1f * side, 0.25f, SidePileSpacing * side),
-            Zone.Graveyard => new Vector3(7.1f * side, 0.25f, 0.0f),
-            Zone.Archive => new Vector3(7.1f * side, 0.25f, -SidePileSpacing * side),
+            Zone.Deck => new Vector3(SideZoneX * side, 0.25f, DeckDepth * side),
+            Zone.Graveyard => new Vector3(SideZoneX * side, 0.25f, GraveyardDepth * side),
+            Zone.Archive => new Vector3(SideZoneX * side, 0.25f, ArchiveDepth * side),
             _ => throw new ArgumentOutOfRangeException(nameof(zone), zone, "Unsupported pile zone."),
         };
-        return CreateFlatTransform(player, viewer, position);
+        return CreateFlatTransform(player, viewer, position, ZonePileScale);
     }
 
     public static bool ValidateStaticSpacing(PlayerId viewer)
     {
         ValidatePlayer(viewer);
-        const float clearance = 0.12f;
-        float pileRequired = SlotDepth + clearance;
-        foreach (PlayerId player in Enum.GetValues<PlayerId>())
+        PlayerId opposingViewer = viewer == PlayerId.Player0
+            ? PlayerId.Player1
+            : PlayerId.Player0;
+        foreach (Zone zone in new[] { Zone.Deck, Zone.Graveyard, Zone.Archive })
         {
-            Vector3 deck = PileTransform(player, viewer, Zone.Deck).Origin;
-            Vector3 graveyard = PileTransform(player, viewer, Zone.Graveyard).Origin;
-            Vector3 archive = PileTransform(player, viewer, Zone.Archive).Origin;
-            if (MathF.Abs(deck.Z - graveyard.Z) < pileRequired ||
-                MathF.Abs(graveyard.Z - archive.Z) < pileRequired)
-            {
-                return false;
-            }
-
-            Vector3 standby = StandbyPileTransform(player, viewer).Origin;
-            if (MathF.Abs(standby.Z - deck.Z) < ((CardDepth + SlotDepth) / 2.0f) + clearance)
-            {
-                return false;
-            }
-
-            PlayerId opposing = player == PlayerId.Player0
-                ? PlayerId.Player1
-                : PlayerId.Player0;
-            Vector3 leader = LeaderTransform(player, viewer).Origin;
-            Vector3 opposingArchive = PileTransform(opposing, viewer, Zone.Archive).Origin;
-            if (MathF.Abs(leader.X - opposingArchive.X) <
-                    ((SlotWidth + CardWidth) / 2.0f) + clearance &&
-                MathF.Abs(leader.Z - opposingArchive.Z) <
-                    ((SlotDepth + CardDepth) / 2.0f) + clearance)
+            if (!OriginsAreMirrored(
+                    PileTransform(viewer, viewer, zone),
+                    PileTransform(opposingViewer, viewer, zone)))
             {
                 return false;
             }
         }
 
-        for (int count = 2; count <= MaximumHandCards; ++count)
+        if (!OriginsAreMirrored(
+                LeaderTransform(viewer, viewer),
+                LeaderTransform(opposingViewer, viewer)) ||
+            !OriginsAreMirrored(
+                StandbyPileTransform(viewer, viewer),
+                StandbyPileTransform(opposingViewer, viewer)))
+        {
+            return false;
+        }
+
+        for (int count = 1; count <= MaximumHandCards; ++count)
+        {
+            for (int index = 0; index < count; ++index)
+            {
+                Transform3D nearStandby = StandbyTransform(viewer, viewer, index, count);
+                Transform3D farStandby = StandbyTransform(
+                    opposingViewer,
+                    viewer,
+                    index,
+                    count);
+                if (!OriginsAreMirrored(nearStandby, farStandby) ||
+                    !IsEntirelyInPlayerTerritory(
+                        viewer,
+                        viewer,
+                        nearStandby,
+                        CardWidth,
+                        CardDepth) ||
+                    !IsEntirelyInPlayerTerritory(
+                        opposingViewer,
+                        viewer,
+                        farStandby,
+                        CardWidth,
+                        CardDepth) ||
+                    !IsEntirelyOnBoard(nearStandby, CardWidth, CardDepth) ||
+                    !IsEntirelyOnBoard(farStandby, CardWidth, CardDepth))
+                {
+                    return false;
+                }
+            }
+        }
+
+        foreach (PlayerId player in Enum.GetValues<PlayerId>())
+        {
+            Transform3D deck = PileTransform(player, viewer, Zone.Deck);
+            Transform3D graveyard = PileTransform(player, viewer, Zone.Graveyard);
+            Transform3D archive = PileTransform(player, viewer, Zone.Archive);
+            Transform3D standby = StandbyPileTransform(player, viewer);
+            Transform3D leader = LeaderTransform(player, viewer);
+            Transform3D[] piles = [deck, graveyard, archive];
+
+            if (piles.Any(transform =>
+                    !IsEntirelyInPlayerTerritory(
+                        player,
+                        viewer,
+                        transform,
+                        SlotWidth,
+                        SlotDepth) ||
+                    !IsEntirelyOnBoard(transform, SlotWidth, SlotDepth)))
+            {
+                return false;
+            }
+
+            if (!RectanglesAreSeparated(deck, SlotWidth, SlotDepth, graveyard, SlotWidth, SlotDepth) ||
+                !RectanglesAreSeparated(graveyard, SlotWidth, SlotDepth, archive, SlotWidth, SlotDepth) ||
+                !IsEntirelyInPlayerTerritory(player, viewer, standby, CardWidth, CardDepth) ||
+                !IsEntirelyOnBoard(standby, CardWidth, CardDepth) ||
+                !IsEntirelyInPlayerTerritory(player, viewer, leader, SlotWidth, SlotDepth) ||
+                !IsEntirelyOnBoard(leader, SlotWidth, SlotDepth) ||
+                !RectanglesAreSeparated(
+                    standby,
+                    CardWidth,
+                    CardDepth,
+                    leader,
+                    SlotWidth,
+                    SlotDepth))
+            {
+                return false;
+            }
+
+            for (int slot = 0; slot < UnitSlotCount; ++slot)
+            {
+                if (!IsEntirelyInPlayerTerritory(
+                        player,
+                        viewer,
+                        UnitTransform(player, viewer, slot),
+                        SlotWidth,
+                        SlotDepth))
+                {
+                    return false;
+                }
+            }
+
+            for (int slot = 0; slot < TacticSlotCount; ++slot)
+            {
+                if (!IsEntirelyInPlayerTerritory(
+                        player,
+                        viewer,
+                        TacticTransform(player, viewer, slot),
+                        SlotWidth,
+                        SlotDepth))
+                {
+                    return false;
+                }
+            }
+        }
+
+        for (int count = 1; count <= MaximumHandCards; ++count)
         {
             foreach (bool near in new[] { false, true })
             {
-                float scaledWidth = CardWidth * HandScale(near, count);
-                if (HandSpacing(near, count) < scaledWidth + MinimumHandGap - 0.001f)
+                if (count > 1)
                 {
-                    return false;
+                    float scaledWidth = CardWidth * HandScale(near, count);
+                    if (HandSpacing(near, count) < scaledWidth + MinimumHandGap - 0.001f)
+                    {
+                        return false;
+                    }
+                }
+
+                PlayerId player = near
+                    ? viewer
+                    : viewer == PlayerId.Player0
+                        ? PlayerId.Player1
+                        : PlayerId.Player0;
+                for (int index = 0; index < count; ++index)
+                {
+                    if (!IsEntirelyInPlayerTerritory(
+                            player,
+                            viewer,
+                            HandTransform(player, viewer, index, count),
+                            CardWidth,
+                            CardDepth))
+                    {
+                        return false;
+                    }
                 }
             }
         }
@@ -257,12 +376,74 @@ public static class BattlefieldPerspective
     private static Transform3D CreateFlatTransform(
         PlayerId player,
         PlayerId viewer,
-        Vector3 position)
+        Vector3 position,
+        float uniformScale = 1.0f)
     {
+        if (!float.IsFinite(uniformScale) || uniformScale <= 0.0f)
+        {
+            throw new ArgumentOutOfRangeException(nameof(uniformScale));
+        }
+
         float facingDegrees = IsNear(player, viewer) ? 0.0f : 180.0f;
-        Basis basis = Basis.FromEuler(new Vector3(0.0f, Mathf.DegToRad(facingDegrees), 0.0f));
+        Basis basis = Basis
+            .FromEuler(new Vector3(0.0f, Mathf.DegToRad(facingDegrees), 0.0f))
+            .Scaled(Vector3.One * uniformScale);
         return new Transform3D(basis, position);
     }
+
+    private static bool IsEntirelyInPlayerTerritory(
+        PlayerId player,
+        PlayerId viewer,
+        Transform3D transform,
+        float width,
+        float depth)
+    {
+        float side = IsNear(player, viewer) ? 1.0f : -1.0f;
+        return (transform.Origin.Z * side) - HalfDepth(transform, width, depth) >=
+               TerritoryBoundaryClearance;
+    }
+
+    private static bool IsEntirelyOnBoard(
+        Transform3D transform,
+        float width,
+        float depth)
+    {
+        float halfWidth = HalfWidth(transform, width, depth);
+        float halfDepth = HalfDepth(transform, width, depth);
+        return MathF.Abs(transform.Origin.X) + halfWidth <= (BoardWidth / 2.0f) &&
+               MathF.Abs(transform.Origin.Z) + halfDepth <= (BoardDepth / 2.0f);
+    }
+
+    private static bool RectanglesAreSeparated(
+        Transform3D left,
+        float leftWidth,
+        float leftDepth,
+        Transform3D right,
+        float rightWidth,
+        float rightDepth)
+    {
+        float requiredX = HalfWidth(left, leftWidth, leftDepth) +
+                          HalfWidth(right, rightWidth, rightDepth) +
+                          TerritoryBoundaryClearance;
+        float requiredZ = HalfDepth(left, leftWidth, leftDepth) +
+                          HalfDepth(right, rightWidth, rightDepth) +
+                          TerritoryBoundaryClearance;
+        return MathF.Abs(left.Origin.X - right.Origin.X) >= requiredX ||
+               MathF.Abs(left.Origin.Z - right.Origin.Z) >= requiredZ;
+    }
+
+    private static float HalfWidth(Transform3D transform, float width, float depth) =>
+        (MathF.Abs(transform.Basis.X.X) * width / 2.0f) +
+        (MathF.Abs(transform.Basis.Z.X) * depth / 2.0f);
+
+    private static float HalfDepth(Transform3D transform, float width, float depth) =>
+        (MathF.Abs(transform.Basis.X.Z) * width / 2.0f) +
+        (MathF.Abs(transform.Basis.Z.Z) * depth / 2.0f);
+
+    private static bool OriginsAreMirrored(Transform3D near, Transform3D far) =>
+        MathF.Abs(near.Origin.X + far.Origin.X) <= 0.0001f &&
+        MathF.Abs(near.Origin.Y - far.Origin.Y) <= 0.0001f &&
+        MathF.Abs(near.Origin.Z + far.Origin.Z) <= 0.0001f;
 
     private static void ValidateCountAndIndex(int count, int index)
     {

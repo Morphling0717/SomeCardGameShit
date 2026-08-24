@@ -999,19 +999,28 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         };
         AddChild(table);
 
+        AddTerritorySurface(
+            "OpponentTerritory",
+            -1.0f,
+            new Color("172f3b"));
+        AddTerritorySurface(
+            "ViewerTerritory",
+            1.0f,
+            new Color("183d43"));
+
         var centerLine = new MeshInstance3D
         {
             Name = "CenterLine",
             Mesh = new BoxMesh
             {
-                Size = new Vector3(BattlefieldPerspective.BoardWidth - 0.5f, 0.015f, 0.055f),
+                Size = new Vector3(BattlefieldPerspective.BoardWidth - 0.35f, 0.022f, 0.13f),
             },
-            Position = new Vector3(0.0f, -0.045f, 0.0f),
+            Position = new Vector3(0.0f, -0.028f, 0.0f),
             MaterialOverride = new StandardMaterial3D
             {
-                AlbedoColor = new Color("3d7b78"),
+                AlbedoColor = new Color("59d8cf"),
                 EmissionEnabled = true,
-                Emission = new Color("235f5d") * 0.4f,
+                Emission = new Color("42bdb5") * 0.75f,
             },
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         };
@@ -1037,6 +1046,35 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
             ShadowEnabled = false,
         };
         AddChild(fillLight);
+    }
+
+    private void AddTerritorySurface(string name, float side, Color color)
+    {
+        float halfDepth = (BattlefieldPerspective.BoardDepth / 2.0f) - 0.09f;
+        var territory = new MeshInstance3D
+        {
+            Name = name,
+            Mesh = new BoxMesh
+            {
+                Size = new Vector3(
+                    BattlefieldPerspective.BoardWidth - 0.35f,
+                    0.012f,
+                    halfDepth),
+            },
+            Position = new Vector3(
+                0.0f,
+                -0.046f,
+                side * ((halfDepth / 2.0f) + 0.065f)),
+            MaterialOverride = new StandardMaterial3D
+            {
+                AlbedoColor = color,
+                EmissionEnabled = true,
+                Emission = color * 0.08f,
+                Roughness = 0.86f,
+            },
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+        };
+        AddChild(territory);
     }
 
     private void OnSurfaceClicked(ulong revision, BattlefieldSurfaceRef source)

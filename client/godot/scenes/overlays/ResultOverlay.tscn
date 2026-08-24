@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/UI/ResultOverlay.cs" id="1_script"]
+[ext_resource type="PackedScene" path="res://scenes/components/GlassSurface.tscn" id="2_glass"]
 
 [node name="ResultOverlay" type="Control"]
 visible = false
@@ -20,7 +21,7 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.018, 0.03, 0.052, 1)
+color = Color(0.01, 0.022, 0.04, 0.66)
 mouse_filter = 0
 
 [node name="Center" type="CenterContainer" parent="."]
@@ -31,33 +32,54 @@ anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
 
-[node name="Content" type="VBoxContainer" parent="Center"]
-custom_minimum_size = Vector2(620, 0)
+[node name="ResultCard" type="PanelContainer" parent="Center"]
+custom_minimum_size = Vector2(600, 0)
+layout_mode = 2
+theme_type_variation = &"GlassModal"
+
+[node name="GlassSurface" parent="Center/ResultCard" instance=ExtResource("2_glass")]
+show_behind_parent = true
+
+[node name="Margin" type="MarginContainer" parent="Center/ResultCard"]
+layout_mode = 2
+theme_override_constants/margin_left = 44
+theme_override_constants/margin_top = 38
+theme_override_constants/margin_right = 44
+theme_override_constants/margin_bottom = 38
+
+[node name="Content" type="VBoxContainer" parent="Center/ResultCard/Margin"]
 layout_mode = 2
 theme_override_constants/separation = 22
 
-[node name="ResultHeading" type="Label" parent="Center/Content"]
+[node name="ResultHeading" type="PanelContainer" parent="Center/ResultCard/Margin/Content"]
+layout_mode = 2
+theme_type_variation = &"PhaseChip"
+
+[node name="Label" type="Label" parent="Center/ResultCard/Margin/Content/ResultHeading"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.46, 0.86, 0.81, 1)
 theme_override_font_sizes/font_size = 28
 text = "比赛结果"
 horizontal_alignment = 1
 
-[node name="ResultTitle" type="Label" parent="Center/Content"]
+[node name="ResultTitle" type="Label" parent="Center/ResultCard/Margin/Content"]
 unique_name_in_owner = true
 layout_mode = 2
+theme_type_variation = &"HeroLabel"
 theme_override_font_sizes/font_size = 44
 text = "比赛结束"
 horizontal_alignment = 1
 
-[node name="RestartMatchButton" type="Button" parent="Center/Content"]
+[node name="RestartMatchButton" type="Button" parent="Center/ResultCard/Margin/Content"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 64)
 layout_mode = 2
+theme_type_variation = &"PrimaryButton"
 text = "使用相同牌组重新开始"
 
-[node name="ResultMenuButton" type="Button" parent="Center/Content"]
+[node name="ResultMenuButton" type="Button" parent="Center/ResultCard/Margin/Content"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 56)
 layout_mode = 2
+theme_type_variation = &"IconButton"
 text = "返回主菜单"

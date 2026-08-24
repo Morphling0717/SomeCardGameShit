@@ -2,6 +2,8 @@
 using Godot;
 using Scgs.Client;
 using Scgs.GodotClient.Presentation;
+using Scgs.GodotClient.Visual;
+using Scgs.GodotClient.Visuals;
 using Scgs.Hotseat;
 
 namespace Scgs.GodotClient.Battlefield;
@@ -13,10 +15,14 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
     private readonly List<SlotActor3D> _slotPool = [];
     private readonly Dictionary<BattlefieldSurfaceRef, IBattlefieldPickTarget> _surfaceActors = [];
     private readonly List<BattlefieldSurfaceRef> _keyboardSurfaces = [];
+    private ICardVisualCatalog _visualCatalog = CardVisualCatalog.Shared;
     private BattlefieldCameraRig _camera = null!;
     private BattlefieldRaycastInput _raycastInput = null!;
     private BattlefieldTargetArrow3D _targetArrow = null!;
     private BattlefieldPlacementGhost3D _placementGhost = null!;
+    private Label3D _fxLabel = null!;
+    private Tween? _fxTween;
+    private ulong _lastFxSequence;
     private int _cardCursor;
     private int _slotCursor;
     private BattlefieldSurfaceRef? _targetingSource;
@@ -52,6 +58,66 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
     public int CiSlotPoolSize => _slotPool.Count;
 
     public int CiActiveSlotCount => _slotPool.Count(actor => actor.Visible);
+
+    public Rect2 CiProjectedBoardRect
+    {
+        get
+        {
+            if (_camera is null || !GodotObject.IsInstanceValid(_camera))
+            {
+                return new Rect2();
+            }
+
+            float halfWidth = BattlefieldPerspective.BoardWidth / 2.0f;
+            float halfDepth = BattlefieldPerspective.BoardDepth / 2.0f;
+            Vector2[] projected =
+            [
+                _camera.UnprojectPosition(new Vector3(-halfWidth, 0.0f, -halfDepth)),
+                _camera.UnprojectPosition(new Vector3(halfWidth, 0.0f, -halfDepth)),
+                _camera.UnprojectPosition(new Vector3(-halfWidth, 0.0f, halfDepth)),
+                _camera.UnprojectPosition(new Vector3(halfWidth, 0.0f, halfDepth)),
+            ];
+            float minX = projected.Min(point => point.X);
+            float minY = projected.Min(point => point.Y);
+            float maxX = projected.Max(point => point.X);
+            float maxY = projected.Max(point => point.Y);
+            return new Rect2(
+                new Vector2(minX, minY),
+                new Vector2(maxX - minX, maxY - minY));
+        }
+    }
+
+    public Rect2 CiOwnHandScreenRect
+    {
+        get
+        {
+            if (_camera is null || !GodotObject.IsInstanceValid(_camera))
+            {
+                return new Rect2();
+            }
+
+            Vector2[] anchors = _cardPool
+                .Where(actor => actor.Visible &&
+                                actor.CiLayout == BattlefieldCardLayout.NearHand &&
+                                !_camera.IsPositionBehind(actor.WorldAnchor))
+                .Select(actor => _camera.UnprojectPosition(actor.WorldAnchor))
+                .ToArray();
+            if (anchors.Length == 0)
+            {
+                return new Rect2();
+            }
+
+            float minX = anchors.Min(point => point.X);
+            float minY = anchors.Min(point => point.Y);
+            float maxX = anchors.Max(point => point.X);
+            float maxY = anchors.Max(point => point.Y);
+            // This intentionally remains unclamped: visual contracts must see
+            // an off-screen hand instead of receiving a viewport-trimmed lie.
+            return new Rect2(
+                new Vector2(minX, minY),
+                new Vector2(maxX - minX, maxY - minY)).Grow(48.0f);
+        }
+    }
 
     public int CiStableSurfaceLookupCount =>
         _surfaceActors.Keys.Count(surface => surface.InstanceId.HasValue);
@@ -95,6 +161,103 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
     {
         EnsureBuilt();
         return _camera.SetZoom(zoom);
+    }
+
+    public void SetVisualCatalog(ICardVisualCatalog visualCatalog)
+    {
+        ArgumentNullException.ThrowIfNull(visualCatalog);
+        EnsureBuilt();
+        ClearSensitive();
+        _visualCatalog = visualCatalog;
+        foreach (CardActor3D actor in _cardPool)
+        {
+            actor.ConfigureVisualCatalog(visualCatalog);
+        }
+    }
+
+    public void PresentFx(BattlefieldFxCue cue)
+    {
+        EnsureBuilt();
+        if (!_privateRender || cue.Sequence <= _lastFxSequence)
+        {
+            return;
+        }
+
+        if (cue.Player.HasValue)
+        {
+            ValidatePlayer(cue.Player.Value);
+        }
+
+        _lastFxSequence = cue.Sequence;
+        CancelFxTween();
+        bool centeredBanner = cue.Kind is BattlefieldFxKind.Phase or
+            BattlefieldFxKind.Reaction;
+        _fxLabel.FontSize = centeredBanner ? 38 : 54;
+        _fxLabel.Text = cue.Kind switch
+        {
+            BattlefieldFxKind.Damage => $"-{Math.Abs(cue.Value)}",
+            BattlefieldFxKind.Healing => $"+{Math.Abs(cue.Value)}",
+            BattlefieldFxKind.Phase => "回合开始",
+            BattlefieldFxKind.Reaction => "响应",
+            BattlefieldFxKind.Graveyard => "送入墓地",
+            _ => string.Empty,
+        };
+        _fxLabel.Modulate = cue.Kind switch
+        {
+            BattlefieldFxKind.Damage => new Color("ff806d"),
+            BattlefieldFxKind.Healing => new Color("69e0a8"),
+            BattlefieldFxKind.Reaction => new Color("ffd06b"),
+            _ => new Color("d9fffa"),
+        };
+        Vector3 origin = cue.Player.HasValue && !centeredBanner
+            ? BattlefieldPerspective.LeaderTransform(
+                cue.Player.Value,
+                PerspectiveViewer).Origin + (Vector3.Up * 1.15f)
+            : new Vector3(0.0f, 2.35f, -0.65f);
+        _fxLabel.Position = origin;
+        _fxLabel.Visible = true;
+        float duration = ClientVisualSettingsRuntime.Duration(
+            cue.Kind is BattlefieldFxKind.Phase or BattlefieldFxKind.Reaction
+                ? 0.35f
+                : 0.28f);
+        if (duration <= 0.0f || !IsInsideTree())
+        {
+            _fxLabel.Visible = false;
+            return;
+        }
+
+        _fxTween = CreateTween().SetParallel().SetEase(Tween.EaseType.Out);
+        _fxTween.TweenProperty(
+            _fxLabel,
+            "position",
+            origin + (Vector3.Up * (centeredBanner ? 0.24f : 0.65f)),
+            duration);
+        _fxTween.TweenProperty(_fxLabel, "modulate:a", 0.0f, duration)
+            .SetDelay(duration * 0.45f);
+        _fxTween.Chain().TweenCallback(Callable.From(() =>
+        {
+            if (GodotObject.IsInstanceValid(_fxLabel))
+            {
+                _fxLabel.Visible = false;
+                _fxLabel.Text = string.Empty;
+            }
+        }));
+    }
+
+    public void ClearFx()
+    {
+        CancelFxTween();
+        _lastFxSequence = 0;
+        if (_fxLabel is not null && GodotObject.IsInstanceValid(_fxLabel))
+        {
+            _fxLabel.Text = string.Empty;
+            _fxLabel.Modulate = Colors.Transparent;
+            _fxLabel.Visible = false;
+            foreach (StringName key in _fxLabel.GetMetaList())
+            {
+                _fxLabel.RemoveMeta(key);
+            }
+        }
     }
 
     public override void _Ready()
@@ -351,6 +514,7 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
     public void ClearSensitive()
     {
         EnsureBuilt();
+        ClearFx();
         SetInputEnabled(false);
         _raycastInput.CancelTransient();
         _targetArrow.Stop();
@@ -397,7 +561,7 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
             _raycastInput.CiArmDragToken(actor, Revision);
         }
 
-        return true;
+        return actor.CiHasPrivacyTextureSentinel(token);
     }
 
     public bool CiTryGetScreenAnchor(BattlefieldSurfaceRef surface, out Vector2 screenAnchor)
@@ -406,7 +570,46 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
             !_camera.IsPositionBehind(worldAnchor))
         {
             screenAnchor = _camera.UnprojectPosition(worldAnchor);
-            return true;
+            if (_raycastInput is null ||
+                !GodotObject.IsInstanceValid(_raycastInput) ||
+                _raycastInput.CiTryPick(screenAnchor, out BattlefieldSurfaceRef picked) &&
+                picked == surface)
+            {
+                return true;
+            }
+
+            // A fanned hand deliberately overlaps.  Its geometric center can
+            // therefore be covered by the next card even though a generous
+            // visible strip remains selectable.  Return a physically pickable
+            // nearby point so world-space action pills and CI gestures address
+            // the same surface a player can actually click.
+            ReadOnlySpan<float> offsets =
+            [16.0f, 32.0f, 48.0f, 64.0f, 80.0f];
+            foreach (float offset in offsets)
+            {
+                ReadOnlySpan<Vector2> candidates =
+                [
+                    new Vector2(-offset, 0.0f),
+                    new Vector2(offset, 0.0f),
+                    new Vector2(0.0f, -offset),
+                    new Vector2(0.0f, offset),
+                    new Vector2(-offset, -offset * 0.5f),
+                    new Vector2(offset, -offset * 0.5f),
+                    new Vector2(-offset, offset * 0.5f),
+                    new Vector2(offset, offset * 0.5f),
+                ];
+                foreach (Vector2 candidateOffset in candidates)
+                {
+                    Vector2 candidate = screenAnchor + candidateOffset;
+                    if (_raycastInput.CiTryPick(candidate, out picked) && picked == surface)
+                    {
+                        screenAnchor = candidate;
+                        return true;
+                    }
+                }
+            }
+
+            return false;
         }
 
         screenAnchor = default;
@@ -700,9 +903,11 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
             ? new BattlefieldSurfaceRef(BattlefieldSurfaceKind.Leader, player)
             : null;
         SlotActor3D actor = RentSlot();
-        actor.Bind(
+        actor.BindLeader(
             BattlefieldPerspective.LeaderTransform(player, viewer),
-            $"主战者\n{health}/{maximumHealth}",
+            health,
+            maximumHealth,
+            BattlefieldPerspective.IsNear(player, viewer),
             surface);
         Register(surface, actor);
     }
@@ -736,10 +941,10 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         Zone zone,
         string title)
     {
-        RentSlot().Bind(
+        RentSlot().BindPile(
             BattlefieldPerspective.PileTransform(player, viewer, zone),
-            $"{title}\n0",
-            surface: null);
+            title,
+            0);
     }
 
     private CardActor3D RentCard()
@@ -747,6 +952,7 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         if (_cardCursor == _cardPool.Count)
         {
             var actor = new CardActor3D { Name = $"CardActor{_cardPool.Count}" };
+            actor.ConfigureVisualCatalog(_visualCatalog);
             _cardPool.Add(actor);
             AddChild(actor);
         }
@@ -920,7 +1126,13 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         }
 
         _built = true;
-        BuildTable();
+        // Product scenes author the static arena, materials and lights in the
+        // editor. Keep the procedural fallback for direct test construction and
+        // downstream embedders which instantiate the presenter without its scene.
+        if (GetNodeOrNull<Node3D>("AuthoredArena") is null)
+        {
+            BuildTable();
+        }
 
         _camera = new BattlefieldCameraRig { Name = "BattlefieldCamera" };
         AddChild(_camera);
@@ -948,6 +1160,30 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
 
         _placementGhost = new BattlefieldPlacementGhost3D { Name = "PlacementGhost" };
         AddChild(_placementGhost);
+
+        _fxLabel = new Label3D
+        {
+            Name = "SafeFxLabel",
+            Font = GD.Load<Font>("res://assets/fonts/NotoSansCJKsc-Regular.otf"),
+            FontSize = 58,
+            PixelSize = 0.012f,
+            OutlineSize = 10,
+            OutlineModulate = new Color(0.01f, 0.015f, 0.025f, 0.95f),
+            Billboard = BaseMaterial3D.BillboardModeEnum.Enabled,
+            NoDepthTest = true,
+            Visible = false,
+        };
+        AddChild(_fxLabel);
+    }
+
+    private void CancelFxTween()
+    {
+        if (_fxTween is not null && GodotObject.IsInstanceValid(_fxTween))
+        {
+            _fxTween.Kill();
+        }
+
+        _fxTween = null;
     }
 
     private void BuildTable()
@@ -1188,16 +1424,27 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
     private void ApplyObstructionInsets()
     {
         float viewportWidth = GetViewport().GetVisibleRect().Size.X;
-        _leftViewportInset = ObstructionInset(
+        float leftCandidate = ObstructionInset(
             _leftObstruction,
             viewportWidth,
             fromLeft: true,
             _obstructionPadding);
-        _rightViewportInset = ObstructionInset(
+        float rightCandidate = ObstructionInset(
             _rightObstruction,
             viewportWidth,
             fromLeft: false,
             _obstructionPadding);
+        // A drawer can temporarily hide while a source selection is cleared.
+        // Retain its last real lane instead of shifting every 3D hit target
+        // underneath the pointer; actual non-zero responsive resizes still apply.
+        if (leftCandidate > _obstructionPadding || _leftViewportInset <= 0.0f)
+        {
+            _leftViewportInset = leftCandidate;
+        }
+        if (rightCandidate > _obstructionPadding || _rightViewportInset <= 0.0f)
+        {
+            _rightViewportInset = rightCandidate;
+        }
         _camera.SetViewportInsets(_leftViewportInset, _rightViewportInset, viewportWidth);
     }
 
@@ -1244,13 +1491,20 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         bool fromLeft,
         float padding)
     {
-        if (control is null || !GodotObject.IsInstanceValid(control) ||
-            !control.IsVisibleInTree())
+        if (control is null || !GodotObject.IsInstanceValid(control))
         {
             return 0.0f;
         }
 
         Rect2 rect = control.GetGlobalRect();
+        if (rect.Size.X <= 0.0f)
+        {
+            return 0.0f;
+        }
+
+        // Visibility changes while selecting/clearing a card must not move the
+        // physical battlefield under the pointer. Responsive layout may still
+        // resize the reserved drawer, but a temporary hide keeps its safe lane.
         return fromLeft
             ? Mathf.Clamp(rect.End.X + padding, 0.0f, viewportWidth)
             : Mathf.Clamp(viewportWidth - rect.Position.X + padding, 0.0f, viewportWidth);

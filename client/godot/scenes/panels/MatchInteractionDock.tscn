@@ -1,4 +1,4 @@
-[gd_scene load_steps=8 format=3]
+[gd_scene load_steps=9 format=3]
 
 [ext_resource type="Script" path="res://scripts/UI/MatchInteractionDock.cs" id="1_script"]
 [ext_resource type="PackedScene" path="res://scenes/panels/MulliganPanel.tscn" id="2_mulligan"]
@@ -7,10 +7,15 @@
 [ext_resource type="PackedScene" path="res://scenes/panels/ReactionPanel.tscn" id="5_reaction"]
 [ext_resource type="PackedScene" path="res://scenes/panels/CardDetailPanel.tscn" id="6_detail"]
 [ext_resource type="PackedScene" path="res://scenes/panels/EventLogPanel.tscn" id="7_events"]
+[ext_resource type="PackedScene" path="res://scenes/components/GlassSurface.tscn" id="8_glass"]
 
 [node name="MatchInteractionDock" type="PanelContainer"]
-custom_minimum_size = Vector2(374, 0)
+custom_minimum_size = Vector2(258, 0)
+theme_type_variation = &"GlassPanel"
 script = ExtResource("1_script")
+
+[node name="GlassSurface" parent="." instance=ExtResource("8_glass")]
+show_behind_parent = true
 
 [node name="Margin" type="MarginContainer" parent="."]
 layout_mode = 2
@@ -32,12 +37,14 @@ layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(0.46, 0.86, 0.81, 1)
 theme_override_font_sizes/font_size = 21
-text = "卡牌与记录"
+theme_type_variation = &"SectionLabel"
+text = "对局信息"
 
 [node name="DockCollapseButton" type="Button" parent="Margin/Layout/TitleRow"]
 unique_name_in_owner = true
 custom_minimum_size = Vector2(68, 36)
 layout_mode = 2
+theme_type_variation = &"IconButton"
 theme_override_font_sizes/font_size = 14
 text = "收起"
 

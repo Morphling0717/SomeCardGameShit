@@ -118,8 +118,13 @@ def validate(
             raise ReportError("the 3D full-match did not verify HUD raycast blocking")
         if drag_threshold != 8:
             raise ReportError("the 3D drag threshold must remain exactly 8 pixels")
-        if camera_fov != 70 or camera_pitch != 58:
-            raise ReportError("the 3D camera contract must remain 70 FOV / 58 pitch")
+        # Gate 4A historical evidence used a 70-degree FOV. Gate 4B narrows
+        # authored framing to 58 degrees while preserving this validator for
+        # both already-published reports and current regression runs.
+        if camera_fov not in (58, 70) or camera_pitch != 58:
+            raise ReportError(
+                "the 3D camera contract must be historical 70 FOV or Gate 4B 58 FOV / 58 pitch"
+            )
         if perspective_rebuilds < 1:
             raise ReportError("the 3D full-match did not rebuild viewer perspective")
         if actor_pool_reuses < 1:

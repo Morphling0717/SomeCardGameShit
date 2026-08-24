@@ -31,6 +31,9 @@ LICENSES = {
         "nlohmann-json-LICENSE.MIT",
     ROOT / "client/godot/assets/fonts/OFL.txt": "NotoSansCJKsc-OFL.txt",
     ROOT / "client/godot/assets/fonts/NOTICE.md": "NotoSansCJKsc-NOTICE.md",
+    ROOT / "client/godot/ASSET_NOTICES.md": "ASSET_NOTICES.md",
+    ROOT / "client/godot/assets/visual/ASSET_MANIFEST.json":
+        "ASSET_MANIFEST.json",
 }
 
 
@@ -79,7 +82,7 @@ def main() -> int:
 
     build_info = license_directory / "BUILD_INFO.txt"
     build_info.write_text(
-        "SomeCardGameShit Gate 4A\n"
+        "SomeCardGameShit Gate 4B\n"
         f"commit={os.environ.get('GITHUB_SHA', 'local')}\n"
         "godot=4.7.2.stable.mono\n"
         "dotnet_sdk=10.0.400\n"

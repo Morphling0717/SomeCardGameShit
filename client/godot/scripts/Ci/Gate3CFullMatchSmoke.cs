@@ -53,6 +53,7 @@ internal sealed class Gate3CFullMatchSmoke
     private readonly Func<Task> nextFrame;
     private readonly string? resolvingScreenshotPath;
     private readonly string? actionScreenshotPath;
+    private readonly Gate4BVisualSuite? visualSuite;
     private readonly HashSet<ActionKind> submittedKinds = [];
     private readonly HashSet<(PlayerId Player, int OwnTurn)> reactionProbeTurns = [];
     private int endTurnCount;
@@ -62,17 +63,24 @@ internal sealed class Gate3CFullMatchSmoke
     private bool keyboardProbed;
     private bool reactionSpatialLockProbed;
     private bool actionScreenshotCaptured;
+    private bool visualActionCaptured;
+    private bool visualSelectionCaptured;
+    private bool visualReactionCaptured;
+    private bool visualResolvingCaptured;
+    private bool visualPerformanceCaptured;
 
     internal Gate3CFullMatchSmoke(
         MatchScreen match,
         Func<Task> nextFrame,
         string? resolvingScreenshotPath = null,
-        string? actionScreenshotPath = null)
+        string? actionScreenshotPath = null,
+        Gate4BVisualSuite? visualSuite = null)
     {
         this.match = match ?? throw new ArgumentNullException(nameof(match));
         this.nextFrame = nextFrame ?? throw new ArgumentNullException(nameof(nextFrame));
         this.resolvingScreenshotPath = resolvingScreenshotPath;
         this.actionScreenshotPath = actionScreenshotPath;
+        this.visualSuite = visualSuite;
     }
 
     internal async Task<Gate3CSmokeOutcome> RunAsync()
@@ -131,6 +139,11 @@ internal sealed class Gate3CFullMatchSmoke
                 "A player handoff did not clear private nodes behind an opaque cover.");
         }
 
+        if (visualSuite is not null && !visualSuite.HasCapture("covered"))
+        {
+            await visualSuite.CaptureAsync("covered");
+        }
+
         int revealCount = match.CiRevealRequestCount;
         int snapshotCount = match.SnapshotRequestCount;
         match.RevealForCiSmoke();
@@ -163,6 +176,14 @@ internal sealed class Gate3CFullMatchSmoke
                 "The mulligan UI did not present the exact empty replacement command.");
         }
 
+        if (visualSuite is not null && !visualSuite.HasCapture("mulligan"))
+        {
+            await visualSuite.CaptureAsync(
+                "mulligan",
+                state.Snapshot?.Viewer,
+                state.Snapshot?.Revision);
+        }
+
         await SubmitAndWaitAsync(
             ActionKind.Mulligan,
             match.ConfirmCurrentSelectionForCi);
@@ -186,6 +207,15 @@ internal sealed class Gate3CFullMatchSmoke
         ValidateVisibleSnapshot(state);
         await WaitForRenderedEventsAsync();
         state = match.CiState;
+        if (visualSuite is not null && state.Mode == HotseatUiMode.Reaction &&
+            !visualReactionCaptured)
+        {
+            await visualSuite.CaptureAsync(
+                "reaction",
+                state.Snapshot?.Viewer,
+                state.Snapshot?.Revision);
+            visualReactionCaptured = true;
+        }
         if (state.Mode == HotseatUiMode.Reaction &&
             state.Interaction.Step == HotseatSelectionStep.None &&
             !reactionSpatialLockProbed)
@@ -215,6 +245,15 @@ internal sealed class Gate3CFullMatchSmoke
             await match.CaptureActionLayoutScreenshotForCiAsync(screenshotPath);
             actionScreenshotCaptured = true;
         }
+        if (visualSuite is not null && state.Mode == HotseatUiMode.Action &&
+            !visualActionCaptured)
+        {
+            await visualSuite.CaptureAsync(
+                "action",
+                state.Snapshot?.Viewer,
+                state.Snapshot?.Revision);
+            visualActionCaptured = true;
+        }
         MatchView view = state.Snapshot ??
             throw new InvalidOperationException("A command state is missing its safe snapshot.");
         if (!keyboardProbed)
@@ -232,6 +271,36 @@ internal sealed class Gate3CFullMatchSmoke
         LegalAction selected = SelectCommand(state.LegalActions, view, view.Viewer) ??
             throw new InvalidOperationException(
                 $"The selector found no non-surrender command at revision {view.Revision}.");
+
+        if (visualSuite is not null && state.Mode == HotseatUiMode.Action &&
+            !visualSelectionCaptured)
+        {
+            LegalAction? selectionProbe = state.LegalActions.FirstOrDefault(candidate =>
+                candidate.Command.Source != 0 &&
+                (candidate.Command.Slot.HasValue || candidate.Command.Target is not null));
+            if (selectionProbe is not null)
+            {
+                visualSelectionCaptured = await match.CaptureSelectionStatesForCiAsync(
+                    selectionProbe,
+                    (name, capturedState) => visualSuite.CaptureAsync(
+                        name,
+                        capturedState.Snapshot?.Viewer,
+                        capturedState.Snapshot?.Revision));
+                state = match.CiState;
+                view = state.Snapshot ??
+                    throw new InvalidOperationException(
+                        "The visual selection probe lost the safe viewer snapshot.");
+                selected = SelectCommand(state.LegalActions, view, view.Viewer) ??
+                    throw new InvalidOperationException(
+                        "No command remained after the visual selection probe.");
+            }
+        }
+        if (visualSuite is not null && state.Mode == HotseatUiMode.Action &&
+            !visualPerformanceCaptured && match.CiSuccessfulSubmissionCount >= 48)
+        {
+            await visualSuite.RunPerformanceSmokeAsync();
+            visualPerformanceCaptured = true;
+        }
 
         if (!parityProbed)
         {
@@ -283,12 +352,27 @@ internal sealed class Gate3CFullMatchSmoke
             match.CiState.PublicBoard is null || match.CiResolvingPrivateLeakCount != 0)
         {
             throw new InvalidOperationException(
-                $"{expectedAction} did not enter a leak-free public resolving projection.");
+                $"{expectedAction} did not enter a leak-free public resolving projection: " +
+                $"mode={match.CiState.Mode}, public_board={match.CiState.PublicBoard is not null}, " +
+                $"private_leaks={match.CiResolvingPrivateLeakCount}.");
         }
         if (!match.VerifySpatialInputLockedForCi())
         {
             throw new InvalidOperationException(
                 $"{expectedAction} accepted spatial input while the public resolving view was locked.");
+        }
+
+        // The visual privacy screenshot must correspond to the first normal
+        // command whose private DTO/material sentinel was actually injected.
+        // Mulligan also enters Resolving, but capturing it would make the GPU
+        // #ff00ff scan a false green because no private texture existed yet.
+        if (visualSuite is not null && !visualResolvingCaptured &&
+            match.CiPrivacySentinelVerified)
+        {
+            await visualSuite.CaptureAsync(
+                "resolving",
+                revision: match.CiState.PublicBoard?.Revision);
+            visualResolvingCaptured = true;
         }
 
         // The native command may run only after the public projection has
@@ -334,6 +418,15 @@ internal sealed class Gate3CFullMatchSmoke
         if (finalView.Phase != MatchPhase.Finished || finalView.Result == GameResult.Ongoing)
         {
             throw new InvalidOperationException("The full-match smoke stopped before a terminal result.");
+        }
+        if (visualSuite is not null)
+        {
+            await visualSuite.CaptureAsync("result", finalView.Viewer, finalView.Revision);
+            if (!visualPerformanceCaptured)
+            {
+                await visualSuite.RunPerformanceSmokeAsync();
+                visualPerformanceCaptured = true;
+            }
         }
 
         ActionKind[] expectedKinds = Enum.GetValues<ActionKind>()
@@ -728,7 +821,9 @@ internal sealed class Gate3CSurrenderSmoke
             match.CiResolvingPrivateLeakCount != 0)
         {
             throw new InvalidOperationException(
-                $"{action} did not enter a leak-free public resolving projection.");
+                $"{action} did not enter a leak-free public resolving projection: " +
+                $"mode={match.CiState.Mode}, public_board={match.CiState.PublicBoard is not null}, " +
+                $"private_leaks={match.CiResolvingPrivateLeakCount}.");
         }
     }
 

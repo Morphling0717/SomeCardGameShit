@@ -39,6 +39,8 @@ jobs:
           ./build/package-smoke-gcc/scgs_native_v04_package_smoke
       - name: Audit native artifact
         run: python scripts/audit_native_artifact.py --library build/stage-gcc/lib/libscgs_v04.so --architecture x86_64
+      - name: Audit Gate 4B generated visual inventory
+        run: python scripts/audit_visual_assets.py
       - name: Check patch whitespace
         run: git diff --check
       - uses: actions/upload-artifact@v7
@@ -208,6 +210,63 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/ci/validate_gate4a_report.py --report "$report" --scenario full-match --presentation legacy-2d
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Godot Gate 4B display-backed visual and performance suite
+        env:
+          GODOT4: ${{ steps.godot.outputs.godot }}
+        shell: pwsh
+        run: |
+          $native = (Resolve-Path "build/stage-msvc/bin/scgs_v04.dll").Path
+          $sizes = @(
+            @{ Width = 1280; Height = 720 },
+            @{ Width = 1600; Height = 900 },
+            @{ Width = 2560; Height = 1440 },
+            @{ Width = 2560; Height = 1600 }
+          )
+          foreach ($size in $sizes) {
+            $width = $size.Width
+            $height = $size.Height
+            $suite = Join-Path "${{ github.workspace }}" "artifacts/visual-suite/windows-$width`x$height"
+            New-Item -ItemType Directory -Path $suite -Force | Out-Null
+            python scripts/ci/run_with_timeout.py `
+              --timeout 300 `
+              --expect-output SCGS_GODOT_CI_SMOKE_OK `
+              --expect-output-count 1 `
+              --forbid-output "SCRIPT ERROR:" `
+              --forbid-output "ERROR:" `
+              --forbid-output "Unhandled exception" `
+              -- "$env:GODOT4" --path client/godot --windowed --resolution "$width`x$height" -- `
+              --ci-smoke "--native-library=$native" "--ci-visual-suite=$suite" `
+              "--ci-visual-viewport=$width`x$height"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            $report = Join-Path $suite "visual-suite.json"
+            python scripts/ci/validate_gate4b_visual_suite.py `
+              --report "$report" --width $width --height $height `
+              --asset-manifest client/godot/assets/visual/ASSET_MANIFEST.json
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if ($width -eq 1600 -and $height -eq 900) {
+              $goldenRoot = Join-Path "${{ github.workspace }}" "client/godot/tests/visual_goldens/gate4b/windows-1600x900"
+              $manifest = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+              foreach ($capture in $manifest.captures) {
+                $actual = Join-Path $suite $capture.file
+                $expected = Join-Path $goldenRoot "$($capture.state).png"
+                $expectedCopy = Join-Path $suite "expected/$($capture.state).png"
+                $heatmap = Join-Path $suite "heatmaps/$($capture.state).png"
+                New-Item -ItemType Directory -Path (Split-Path $expectedCopy) -Force | Out-Null
+                New-Item -ItemType Directory -Path (Split-Path $heatmap) -Force | Out-Null
+                Copy-Item -LiteralPath $expected -Destination $expectedCopy -Force
+                python scripts/ci/compare_visual_golden.py `
+                  --actual "$actual" --expected "$expected" --heatmap "$heatmap" `
+                  --mae-limit 0.025 --edge-limit 0.08
+                if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              }
+            }
+          }
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: SomeCardGameShit-gate4b-windows-visual-suite
+          path: artifacts/visual-suite
+          if-no-files-found: error
       - name: Export and finalize Windows client
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
@@ -255,12 +314,12 @@ jobs:
           New-Item -ItemType Directory -Path $packageDirectory -Force | Out-Null
           Compress-Archive `
             -Path "artifacts/godot/windows-x86_64/*" `
-            -DestinationPath "$packageDirectory/SomeCardGameShit-gate4a-windows-x86_64.zip" `
+            -DestinationPath "$packageDirectory/SomeCardGameShit-gate4b-windows-x86_64.zip" `
             -CompressionLevel Optimal
       - name: Round-trip audit and launch packaged Windows default 3D client
         shell: pwsh
         run: |
-          $package = Join-Path "${{ github.workspace }}" "artifacts/packages/SomeCardGameShit-gate4a-windows-x86_64.zip"
+          $package = Join-Path "${{ github.workspace }}" "artifacts/packages/SomeCardGameShit-gate4b-windows-x86_64.zip"
           $roundTrip = Join-Path "${{ github.workspace }}" "artifacts/roundtrip/windows-x86_64"
           New-Item -ItemType Directory -Path $roundTrip -Force | Out-Null
           Expand-Archive -LiteralPath $package -DestinationPath $roundTrip -Force
@@ -285,8 +344,8 @@ jobs:
         run: git diff --check
       - uses: actions/upload-artifact@v7
         with:
-          name: SomeCardGameShit-gate4a-windows-x86_64
-          path: artifacts/packages/SomeCardGameShit-gate4a-windows-x86_64.zip
+          name: SomeCardGameShit-gate4b-windows-x86_64
+          path: artifacts/packages/SomeCardGameShit-gate4b-windows-x86_64.zip
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
@@ -328,6 +387,8 @@ jobs:
           ./build/package-smoke-macos/scgs_native_v04_package_smoke
       - name: Audit native artifact
         run: python scripts/audit_native_artifact.py --library build/stage-macos/lib/libscgs_v04.dylib --architecture arm64
+      - name: Audit Gate 4B generated visual inventory
+        run: python scripts/audit_visual_assets.py
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
@@ -446,10 +507,10 @@ jobs:
           mkdir -p artifacts/packages
           ditto -c -k --sequesterRsrc --keepParent \
             artifacts/godot/macos-arm64/SomeCardGameShit.app \
-            artifacts/packages/SomeCardGameShit-gate4a-macos-arm64.app.zip
+            artifacts/packages/SomeCardGameShit-gate4b-macos-arm64.app.zip
       - name: Round-trip audit and launch packaged macOS default 3D client
         run: |
-          package="${GITHUB_WORKSPACE}/artifacts/packages/SomeCardGameShit-gate4a-macos-arm64.app.zip"
+          package="${GITHUB_WORKSPACE}/artifacts/packages/SomeCardGameShit-gate4b-macos-arm64.app.zip"
           round_trip="${GITHUB_WORKSPACE}/artifacts/roundtrip/macos-arm64"
           mkdir -p "$round_trip"
           ditto -x -k "$package" "$round_trip"
@@ -472,8 +533,8 @@ jobs:
         run: git diff --check
       - uses: actions/upload-artifact@v7
         with:
-          name: SomeCardGameShit-gate4a-macos-arm64
-          path: artifacts/packages/SomeCardGameShit-gate4a-macos-arm64.app.zip
+          name: SomeCardGameShit-gate4b-macos-arm64
+          path: artifacts/packages/SomeCardGameShit-gate4b-macos-arm64.app.zip
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:

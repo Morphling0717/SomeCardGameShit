@@ -1,12 +1,17 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/UI/DirectActionPanel.cs" id="1_script"]
+[ext_resource type="PackedScene" path="res://scenes/components/GlassSurface.tscn" id="2_glass"]
 
 [node name="DirectActionPanel" type="PanelContainer"]
 visible = false
 custom_minimum_size = Vector2(360, 92)
+theme_type_variation = &"GlassActionChip"
 mouse_filter = 2
 script = ExtResource("1_script")
+
+[node name="GlassSurface" parent="." instance=ExtResource("2_glass")]
+show_behind_parent = true
 
 [node name="Margin" type="MarginContainer" parent="."]
 layout_mode = 2
@@ -24,6 +29,7 @@ unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(0.62, 0.91, 0.86, 1)
 theme_override_font_sizes/font_size = 17
+theme_type_variation = &"SectionLabel"
 text = "选择行动"
 horizontal_alignment = 1
 text_overrun_behavior = 3
@@ -51,4 +57,5 @@ theme_override_constants/separation = 8
 unique_name_in_owner = true
 custom_minimum_size = Vector2(88, 42)
 layout_mode = 2
+theme_type_variation = &"IconButton"
 text = "返回"

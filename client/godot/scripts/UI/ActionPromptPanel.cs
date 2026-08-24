@@ -49,6 +49,7 @@ public sealed partial class ActionPromptPanel : PanelContainer
             {
                 Text = ActionPresentation.FormatAction(action),
                 CustomMinimumSize = new Vector2(0, 42),
+                ThemeTypeVariation = "PrimaryButton",
                 Disabled = !supported,
                 FocusMode = supported ? FocusModeEnum.All : FocusModeEnum.None,
                 TooltipText = supported
@@ -118,6 +119,7 @@ public sealed partial class ActionPromptPanel : PanelContainer
             {
                 Text = label,
                 CustomMinimumSize = new Vector2(0, 42),
+                ThemeTypeVariation = "PrimaryButton",
                 FocusMode = FocusModeEnum.All,
             };
             string capturedKey = key;

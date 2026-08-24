@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Audit a finalized Gate 4A Windows or macOS Godot export."""
+"""Audit a finalized Gate 4B Windows or macOS Godot export."""
 
 from __future__ import annotations
 
@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from audit_native_artifact import AuditError, _mach_architectures, audit  # noqa: E402
+from audit_visual_assets import audit as audit_visual_assets  # noqa: E402
 
 
 class ExportAuditError(RuntimeError):
@@ -44,6 +45,8 @@ LICENSE_MARKERS = {
     "nlohmann-json-LICENSE.MIT": "Niels Lohmann",
     "NotoSansCJKsc-OFL.txt": "SIL OPEN FONT LICENSE",
     "NotoSansCJKsc-NOTICE.md": "Noto Sans CJK SC",
+    "ASSET_NOTICES.md": "OpenAI's built-in image generation workflow",
+    "ASSET_MANIFEST.json": "schema_version",
     "BUILD_INFO.txt": "godot=4.7.2.stable.mono",
 }
 
@@ -101,8 +104,8 @@ def _audit_licenses(directory: Path, expected_commit: str | None = None) -> None
             raise ExportAuditError(f"packaged notice has unexpected content: {path}")
     build_info = (directory / "BUILD_INFO.txt").read_text(encoding="utf-8")
     lines = build_info.splitlines()
-    if not lines or lines[0] != "SomeCardGameShit Gate 4A":
-        raise ExportAuditError("packaged build info does not identify Gate 4A")
+    if not lines or lines[0] != "SomeCardGameShit Gate 4B":
+        raise ExportAuditError("packaged build info does not identify Gate 4B")
     entries: dict[str, str] = {}
     for line in lines[1:]:
         if line.count("=") != 1:
@@ -235,6 +238,7 @@ def main() -> int:
     try:
         export = args.export.resolve(strict=True)
         _audit_font_source()
+        audit_visual_assets(ROOT)
         expected_commit = os.environ.get("GITHUB_SHA")
         if args.platform == "windows-x86_64":
             _audit_windows(export, expected_commit)

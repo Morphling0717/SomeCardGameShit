@@ -108,6 +108,10 @@ class Gate4aReportTests(unittest.TestCase):
     def test_valid_default_3d_full_match(self) -> None:
         validate(valid_report(), "full-match", "3d")
 
+        gate4b_framing = valid_report()
+        gate4b_framing["camera_fov_degrees"] = 58
+        validate(gate4b_framing, "full-match", "3d")
+
     def test_valid_legacy_2d_full_match(self) -> None:
         validate(valid_report("legacy-2d"), "full-match", "legacy-2d")
 

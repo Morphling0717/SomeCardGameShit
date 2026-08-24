@@ -17,6 +17,10 @@
              Link="GodotContracts\ViewerRevealGate.cs" />
     <Compile Include="..\godot\scripts\Native\NativeLibraryLayout.cs"
              Link="GodotContracts\NativeLibraryLayout.cs" />
+    <Compile Include="..\godot\scripts\Visual\ClientVisualSettings.cs"
+             Link="GodotContracts\ClientVisualSettings.cs" />
+    <Compile Include="..\godot\scripts\UI\ProductMenuModel.cs"
+             Link="GodotContracts\ProductMenuModel.cs" />
   </ItemGroup>
 
 </Project>

@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using Godot;
 using Scgs.Client;
+using Scgs.GodotClient.Visuals;
 using Scgs.Hotseat;
 
 namespace Scgs.GodotClient.Battlefield;
@@ -20,6 +21,12 @@ public interface IBattlefieldPresenter
     ulong Revision { get; }
 
     PlayerId PerspectiveViewer { get; }
+
+    void SetVisualCatalog(ICardVisualCatalog visualCatalog);
+
+    void PresentFx(BattlefieldFxCue cue);
+
+    void ClearFx();
 
     void RenderPrivate(MatchView view, HotseatInteractionContext interaction);
 

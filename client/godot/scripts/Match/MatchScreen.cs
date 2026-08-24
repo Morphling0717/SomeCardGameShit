@@ -4,6 +4,7 @@ using Scgs.Client;
 using Scgs.GodotClient.Battlefield;
 using Scgs.GodotClient.Presentation;
 using Scgs.GodotClient.UI;
+using Scgs.GodotClient.Visuals;
 using Scgs.Hotseat;
 
 namespace Scgs.GodotClient.Match;
@@ -86,6 +87,11 @@ public sealed partial class MatchScreen : Control
     private bool _ciPhysicalDragSubmitted;
     private bool _ciKeyboardE2e;
     private bool _ciExternalStandbyDrag;
+    private bool _showDebugUi;
+    private MatchHudPresenter _hudPresenter = null!;
+    private MatchVisualIdentity _visualIdentity = MatchVisualIdentity.FromDecks(
+        MatchSetup.Defaults.Player0Deck,
+        MatchSetup.Defaults.Player1Deck);
 
     private CardDetailPanel ActiveCardDetails =>
         _legacy2dBoard ? _dock.CardDetails : _battlefieldDetails;
@@ -201,6 +207,9 @@ public sealed partial class MatchScreen : Control
         _legacy2dBoard = OS.GetCmdlineUserArgs().Contains(
             "--legacy-2d-board",
             StringComparer.Ordinal);
+        _showDebugUi = OS.GetCmdlineUserArgs().Contains(
+            "--show-debug-ui",
+            StringComparer.Ordinal);
         _battlefield3d = GetNode<Battlefield3DPresenter>("%Battlefield3D");
         _privacyOverlay = GetNode<PassDeviceOverlay>("%PassDeviceOverlay");
         _dock = GetNode<MatchInteractionDock>("%InteractionDock");
@@ -215,6 +224,8 @@ public sealed partial class MatchScreen : Control
         _standbyTray = GetNode<Control>("%StandbyTray");
         _resultOverlay = GetNode<ResultOverlay>("%ResultOverlay");
         _errorOverlay = GetNode<ErrorOverlay>("%ErrorOverlay");
+        _hudPresenter = new MatchHudPresenter(this);
+        _hudPresenter.ConfigureIdentity(_visualIdentity, LeaderPortraitCatalog.Shared);
 
         _battlefield3d.Visible = !_legacy2dBoard;
         _battlefieldDetails.Visible = !_legacy2dBoard;
@@ -228,6 +239,9 @@ public sealed partial class MatchScreen : Control
             _legacy2dBoard ? null : _battlefieldDetails,
             _legacy2dBoard ? null : _battlefieldControlRail);
         ConfigurePresentationLayout();
+        Resized += ApplyHudLayout;
+        ApplyHudLayout();
+        ApplyDebugUiVisibility();
 
         _privacyOverlay.RevealRequested += OnRevealRequested;
         _privacyOverlay.ExitRequested += RequestExit;
@@ -259,7 +273,16 @@ public sealed partial class MatchScreen : Control
         GetNode<Button>("%OpponentStandbyButton").Pressed += () => OpenStandby(own: false);
         GetNode<Button>("%CloseStandbyButton").Pressed += CloseStandby;
         GetNode<Button>("%EndTurnButton").Pressed += OnEndTurnRequested;
+        GetNode<Button>("%LogButton").Pressed += ToggleLogDock;
         GetNode<Button>("%SurrenderButton").Pressed += OnSurrenderRequested;
+        GetNode<Button>("%PauseButton").Pressed += OpenPauseMenu;
+        PopupMenu pauseMenu = GetNode<PopupMenu>("%PauseMenu");
+        pauseMenu.Clear();
+        pauseMenu.AddItem("继续对局", 0);
+        pauseMenu.AddSeparator();
+        pauseMenu.AddItem("投降", 1);
+        pauseMenu.AddItem("返回主菜单", 2);
+        pauseMenu.IdPressed += OnPauseMenuItemPressed;
     }
 
     private void ConfigurePresentationLayout()
@@ -268,7 +291,94 @@ public sealed partial class MatchScreen : Control
         background.Color = _legacy2dBoard
             ? new Color(0.028f, 0.045f, 0.075f, 1.0f)
             : new Color(0.028f, 0.045f, 0.075f, 0.16f);
-        SetLegacyBoardPanelsVisible(_legacy2dBoard, showMulliganHand: false);
+        SetLegacyBoardPanelsVisible(_legacy2dBoard);
+        GetNode<Button>("%SurrenderButton").Visible = _legacy2dBoard;
+        GetNode<Button>("%ReturnButton").Visible = _legacy2dBoard;
+        GetNode<Button>("%PauseButton").Visible = !_legacy2dBoard;
+        _dock.SetExpandedWidth(_legacy2dBoard ? 374.0f : 258.0f);
+        _dock.SetCollapsed(!_legacy2dBoard);
+        _dock.Visible = _legacy2dBoard;
+        OnDockCollapsedChanged(_dock.IsCollapsed);
+        if (_legacy2dBoard)
+        {
+            _battlefieldControlRail.OffsetLeft = -400.0f;
+            _battlefieldControlRail.OffsetRight = -18.0f;
+            _dock.OffsetLeft = -400.0f;
+            _dock.OffsetRight = -18.0f;
+        }
+    }
+
+    private void ApplyHudLayout()
+    {
+        if (_legacy2dBoard || !IsNodeReady())
+        {
+            return;
+        }
+
+        _hudPresenter.ApplyLayout(
+            GetViewportRect().Size,
+            _battlefieldDetails,
+            _battlefieldControlRail,
+            GetNode<Control>("%PhaseCapsule"),
+            _dock,
+            GetNode<Control>("%EndTurnButton"));
+        if (_dock.Mulligan.Visible)
+        {
+            // ApplyLayout positions the normal compact log drawer. Mulligan is
+            // a separate responsive bottom tray and must re-assert its layout
+            // after a live window resize.
+            _dock.SetMulliganTray(true);
+        }
+        _battlefield3d.SetViewportObstructions(_battlefieldDetails, _battlefieldControlRail);
+    }
+
+    private void OpenPauseMenu()
+    {
+        PopupMenu pauseMenu = GetNode<PopupMenu>("%PauseMenu");
+        pauseMenu.SetItemDisabled(
+            pauseMenu.GetItemIndex(1),
+            GetNode<Button>("%SurrenderButton").Disabled);
+        pauseMenu.PopupCentered(new Vector2I(320, 210));
+    }
+
+    private void ToggleLogDock()
+    {
+        if (_legacy2dBoard)
+        {
+            _dock.SetCollapsed(!_dock.IsCollapsed);
+            return;
+        }
+
+        if (_controller?.State.Mode is not HotseatUiMode.Action and not HotseatUiMode.Reaction)
+        {
+            return;
+        }
+
+        bool show = !_dock.Visible;
+        _dock.Visible = show;
+        _dock.SetCollapsed(!show);
+    }
+
+    private void OnPauseMenuItemPressed(long id)
+    {
+        switch (id)
+        {
+            case 0:
+                break;
+            case 1:
+                OnSurrenderRequested();
+                break;
+            case 2:
+                RequestExit();
+                break;
+        }
+    }
+
+    private void ApplyDebugUiVisibility()
+    {
+        GetNode<Label>("%RevisionLabel").Visible = _showDebugUi;
+        GetNode<Label>("%MatchMetaLabel").Visible = _showDebugUi;
+        GetNode<Label>("%PrivacyProof").Visible = _showDebugUi;
     }
 
     private void OnBattlefieldProjectionChanged(object? sender, EventArgs eventArgs)
@@ -290,13 +400,15 @@ public sealed partial class MatchScreen : Control
         }
     }
 
-    private void SetLegacyBoardPanelsVisible(bool showLegacyBoard, bool showMulliganHand)
+    private void SetLegacyBoardPanelsVisible(bool showLegacyBoard)
     {
         GetNode<Control>("SafeMargin/Layout/OpponentPanel").Visible = showLegacyBoard;
         GetNode<Control>("SafeMargin/Layout/Board").Visible = showLegacyBoard;
         GetNode<Control>("SafeMargin/Layout/OwnPanel").Visible = showLegacyBoard;
-        GetNode<Control>("SafeMargin/Layout/HandPanel").Visible =
-            showLegacyBoard || showMulliganHand;
+        // Default 3D owns its hand actors in world space, including during
+        // mulligan. Showing the legacy HandPanel here duplicates private card
+        // data in a full-width debug strip above the product battlefield.
+        GetNode<Control>("SafeMargin/Layout/HandPanel").Visible = showLegacyBoard;
     }
 
     private void OnBattlefieldSurfaceGestureRequested(
@@ -453,7 +565,9 @@ public sealed partial class MatchScreen : Control
             {
                 continue;
             }
-            if (hovered.IsVisibleInTree() && hovered.MouseFilter != MouseFilterEnum.Ignore)
+            if (hovered.IsVisibleInTree() &&
+                hovered.MouseFilter != MouseFilterEnum.Ignore &&
+                hovered.GetGlobalRect().HasPoint(position))
             {
                 _ciHudRaycastBlocks++;
                 return true;
@@ -465,6 +579,19 @@ public sealed partial class MatchScreen : Control
 
     public override void _UnhandledInput(InputEvent @event)
     {
+        if (@event is InputEventKey
+            {
+                Pressed: true,
+                Echo: false,
+                Keycode: Key.F3,
+            })
+        {
+            _showDebugUi = !_showDebugUi;
+            ApplyDebugUiVisibility();
+            GetViewport().SetInputAsHandled();
+            return;
+        }
+
         if (!@event.IsActionPressed("ui_cancel") ||
             _controller?.State.Interaction.CanStepBack != true)
         {
@@ -576,12 +703,20 @@ public sealed partial class MatchScreen : Control
 
     public override void _ExitTree()
     {
+        Resized -= ApplyHudLayout;
         DisposeController();
     }
 
-    public void Begin(IScgsGameSession session, PlayerId initialViewer)
+    public void Begin(IScgsGameSession session, PlayerId initialViewer) =>
+        Begin(session, initialViewer, _visualIdentity);
+
+    public void Begin(
+        IScgsGameSession session,
+        PlayerId initialViewer,
+        MatchVisualIdentity visualIdentity)
     {
         ArgumentNullException.ThrowIfNull(session);
+        ArgumentNullException.ThrowIfNull(visualIdentity);
         if (initialViewer != PlayerId.Player0)
         {
             throw new ArgumentOutOfRangeException(
@@ -591,6 +726,8 @@ public sealed partial class MatchScreen : Control
         }
 
         DisposeController();
+        _visualIdentity = visualIdentity;
+        _hudPresenter.ConfigureIdentity(_visualIdentity, LeaderPortraitCatalog.Shared);
         ResetCiMetrics();
         _countingSession = new CountingSession(session);
         _controller = new HotseatMatchController(_countingSession);
@@ -726,6 +863,84 @@ public sealed partial class MatchScreen : Control
         }
     }
 
+    internal async Task<bool> CaptureSelectionStatesForCiAsync(
+        LegalAction action,
+        Func<string, HotseatUiState, Task> capture)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        ArgumentNullException.ThrowIfNull(capture);
+        if (_controller?.State is not { Mode: HotseatUiMode.Action, Snapshot: not null } before ||
+            before.Interaction.Step != HotseatSelectionStep.None ||
+            action.Command.Source == 0 ||
+            (action.Command.Slot is null && action.Command.Target is null))
+        {
+            return false;
+        }
+        if (!before.LegalActions.Any(candidate =>
+                CommandsEquivalent(candidate.Command, action.Command)))
+        {
+            return false;
+        }
+
+        _ciSuppressAutoPrepare = true;
+        try
+        {
+            if (_legacy2dBoard)
+            {
+                SnapshotSlot source = FindVisibleSlotForCard(action.Command.Source) ??
+                    throw new InvalidOperationException(
+                        "The visual-suite source is not visible on the legacy board.");
+                source.EmitSignal(Button.SignalName.Pressed);
+            }
+            else if (!TryClickBattlefieldSourceForCi(action.Command.Source))
+            {
+                return false;
+            }
+
+            RenderState(_controller.State);
+            await capture("source-selection", _controller.State);
+            for (int step = 0; step < 8; step++)
+            {
+                HotseatUiState state = _controller.State;
+                switch (state.Interaction.Step)
+                {
+                    case HotseatSelectionStep.ChooseSlot:
+                    case HotseatSelectionStep.ChooseTarget:
+                        RenderState(state);
+                        await capture("slot-or-target-selection", state);
+                        return true;
+                    case HotseatSelectionStep.ChooseAction:
+                        _controller.ChooseAction(action.Command.Action);
+                        break;
+                    case HotseatSelectionStep.ChooseDonor:
+                        _controller.SelectDonor(action.Command.ComponentDonor);
+                        break;
+                    case HotseatSelectionStep.ChooseAdvance:
+                        _controller.SelectAdvance(action.Command.UseAdvance);
+                        break;
+                    case HotseatSelectionStep.Ready:
+                    case HotseatSelectionStep.None:
+                    default:
+                        return false;
+                }
+                RenderState(_controller.State);
+            }
+            return false;
+        }
+        finally
+        {
+            _ciSuppressAutoPrepare = false;
+            if (_controller?.State is
+                {
+                    Mode: HotseatUiMode.Action or HotseatUiMode.Reaction,
+                } cleanup && cleanup.Interaction.Step != HotseatSelectionStep.None)
+            {
+                _controller.CancelSelection();
+                RenderState(_controller.State);
+            }
+        }
+    }
+
     private bool TryClickBattlefieldSourceForCi(ulong source)
     {
         if (_controller?.State.Snapshot is not { } view ||
@@ -756,7 +971,19 @@ public sealed partial class MatchScreen : Control
             return _controller.State.Selection.Source == source;
         }
 
-        return _battlefield3d.CiRaycastInput.CiClickAt(screen);
+        bool clicked = _battlefield3d.CiRaycastInput.CiClickAt(screen);
+        if (!clicked)
+        {
+            bool picked = _battlefield3d.CiRaycastInput.CiTryPick(
+                screen,
+                out BattlefieldSurfaceRef pickedSurface);
+            bool blocked = IsGuiBlockingBattlefield(screen);
+            GD.PushWarning(
+                $"3D CI source click failed: source={source}, expected={battlefieldSurface}, " +
+                $"screen={screen}, picked={picked}:{pickedSurface}, blocked={blocked}, " +
+                $"input={_battlefield3d.InputEnabled}.");
+        }
+        return clicked;
     }
 
     private bool TryExternalStandbyDragForCi(GameCommandRequest command)
@@ -1035,7 +1262,17 @@ public sealed partial class MatchScreen : Control
                 _controller.CancelSelection();
                 RenderState(_controller.State);
 
-                if (!_battlefield3d.CiRaycastInput.CiDragAt(sourceScreen, destinationScreen) ||
+                // Expanding/collapsing the hover detail drawer changes the
+                // camera safe rectangle. Re-project after the click path has
+                // been cancelled so the synthetic drag uses the same current
+                // geometry a real pointer would see.
+                if (!_battlefield3d.CiTryGetScreenAnchor(source3d, out Vector2 dragSourceScreen) ||
+                    !_battlefield3d.CiTryGetScreenAnchor(
+                        destination3d,
+                        out Vector2 dragDestinationScreen) ||
+                    !_battlefield3d.CiRaycastInput.CiDragAt(
+                        dragSourceScreen,
+                        dragDestinationScreen) ||
                     _controller.State.Mode == HotseatUiMode.Resolving)
                 {
                     return false;
@@ -1303,16 +1540,65 @@ public sealed partial class MatchScreen : Control
 
     internal bool VerifyDockCollapseForCi()
     {
+        if (!_legacy2dBoard)
+        {
+            // The product 3D path treats the former right rail as an optional,
+            // compact log drawer.  Do not reuse the legacy collapse probe here:
+            // its SafeMargin and negative-offset assumptions stretch a
+            // top-left-anchored glass drawer across the battlefield and turn an
+            // otherwise invisible control into a raycast blocker.
+            bool initialVisible = _dock.Visible;
+            bool initialProductCollapsed = _dock.IsCollapsed;
+            try
+            {
+                _dock.Visible = true;
+                _dock.SetCollapsed(false);
+                ApplyHudLayout();
+                Rect2 viewport = GetViewportRect();
+                Rect2 expandedRect = _dock.GetGlobalRect();
+                bool productExpanded = !_dock.IsCollapsed &&
+                                       !_dock.CardDetails.Visible &&
+                                       _battlefieldDetails.Visible &&
+                                       _dock.EventLog.Visible &&
+                                       viewport.Encloses(expandedRect) &&
+                                       expandedRect.Size.X <= 320.0f;
+
+                _dock.SetCollapsed(true);
+                bool productCollapsed = _dock.IsCollapsed && !_dock.EventLog.Visible;
+                return productExpanded && productCollapsed;
+            }
+            finally
+            {
+                _dock.SetCollapsed(initialProductCollapsed);
+                _dock.Visible = initialVisible;
+                ApplyHudLayout();
+            }
+        }
+
         MarginContainer safe = GetNode<MarginContainer>("SafeMargin");
-        _dock.ToggleForSmoke();
+        bool initialCollapsed = _dock.IsCollapsed;
+        _dock.SetCollapsed(true);
         bool collapsed = _dock.IsCollapsed && !_dock.EventLog.Visible &&
                          safe.GetThemeConstant("margin_right") == 96;
-        _dock.ToggleForSmoke();
+        _dock.SetCollapsed(false);
         bool detailsCorrect = _legacy2dBoard
             ? _dock.CardDetails.Visible
             : !_dock.CardDetails.Visible && _battlefieldDetails.Visible;
-        return collapsed && !_dock.IsCollapsed && detailsCorrect &&
-               _dock.EventLog.Visible && safe.GetThemeConstant("margin_right") == 420;
+        int expectedExpandedMargin = _legacy2dBoard ? 420 : 300;
+        bool expanded = !_dock.IsCollapsed && detailsCorrect &&
+                        _dock.EventLog.Visible &&
+                        safe.GetThemeConstant("margin_right") == expectedExpandedMargin;
+        _dock.SetCollapsed(initialCollapsed);
+        bool valid = collapsed && expanded;
+        if (!valid)
+        {
+            GD.PushWarning(
+                $"Dock probe failed: collapsed={collapsed}, expanded={expanded}, " +
+                $"initial={initialCollapsed}, event_visible={_dock.EventLog.Visible}, " +
+                $"margin={safe.GetThemeConstant("margin_right")}, " +
+                $"expected_expanded={expectedExpandedMargin}.");
+        }
+        return valid;
     }
 
     internal bool VerifyGate4PresentationForCi()
@@ -1330,7 +1616,8 @@ public sealed partial class MatchScreen : Control
         int reuseBefore = _ciActorPoolReuses;
         RenderBattlefieldPrivate(view, state);
 
-        bool hudBlocked = IsGuiBlockingBattlefield(_dock.GetGlobalRect().GetCenter());
+        bool hudBlocked = IsGuiBlockingBattlefield(
+            _battlefieldControlRail.GetGlobalRect().GetCenter());
         bool minimumApplied = _battlefield3d.CiSetCameraZoom(-100.0f) &&
                               Mathf.IsEqualApprox(
                                   _battlefield3d.CiCameraZoom,
@@ -1357,12 +1644,31 @@ public sealed partial class MatchScreen : Control
                                 _battlefield3d.CiTripleAffordanceSurfaceCount > 0 &&
                                 _battlefield3d.CiOutlineVisibleCount > 0;
         bool readableLayout = _battlefield3d.CiValidateReadableLayout(view);
-        return _battlefield3d.Visible && _battlefield3d.InputEnabled && hudBlocked &&
-               minimumApplied && maximumApplied && perspective && actorPool &&
-               tripleAffordance && readableLayout &&
-               Mathf.IsEqualApprox(
-                   _battlefield3d.CiCameraPitch,
-                   BattlefieldPerspective.CameraPitchDegrees);
+        CardView? knownCard = view.Players[(int)view.Viewer].Hand.FirstOrDefault(card =>
+            card.InstanceId.HasValue && card.DefinitionId.HasValue && card.Definition is not null);
+        bool knownDetail = knownCard is not null;
+        if (knownCard is not null)
+        {
+            _battlefieldDetails.ShowCard(knownCard, "卡牌详情（右键固定）");
+            knownDetail = _battlefieldDetails.ShowsKnownCardForSmoke(knownCard);
+            _battlefieldDetails.ShowPlaceholder();
+        }
+        bool valid = _battlefield3d.Visible && _battlefield3d.InputEnabled && hudBlocked &&
+                     minimumApplied && maximumApplied && perspective && actorPool &&
+                     tripleAffordance && readableLayout && knownDetail &&
+                     Mathf.IsEqualApprox(
+                         _battlefield3d.CiCameraPitch,
+                         BattlefieldPerspective.CameraPitchDegrees);
+        if (!valid)
+        {
+            GD.PushWarning(
+                $"Gate4 presenter probe failed: visible={_battlefield3d.Visible}, " +
+                $"input={_battlefield3d.InputEnabled}, hud={hudBlocked}, min={minimumApplied}, " +
+                $"max={maximumApplied}, perspective={perspective}, pool={actorPool}, " +
+                $"affordance={tripleAffordance}, readable={readableLayout}, " +
+                $"known_detail={knownDetail}.");
+        }
+        return valid;
     }
 
     internal bool VerifySpatialInputLockedForCi()
@@ -1488,6 +1794,7 @@ public sealed partial class MatchScreen : Control
         if (!_battlefieldDetails.IsVisibleInTree() || !_battlefieldControlRail.IsVisibleInTree() ||
             left.Position.X < 0.0f || left.End.X >= right.Position.X || right.End.X > viewport.X + 1.0f)
         {
+            GD.PushWarning($"Rendered HUD bounds failed: viewport={viewport}, left={left}, right={right}.");
             return false;
         }
 
@@ -1495,6 +1802,7 @@ public sealed partial class MatchScreen : Control
         float safeRight = right.Position.X - 8.0f;
         if (safeRight - safeLeft < 500.0f)
         {
+            GD.PushWarning($"Rendered safe width failed: left={safeLeft}, right={safeRight}.");
             return false;
         }
 
@@ -1530,6 +1838,9 @@ public sealed partial class MatchScreen : Control
             if (anchor.X < safeLeft || anchor.X > safeRight ||
                 anchor.Y < 36.0f || anchor.Y > viewport.Y - 36.0f)
             {
+                GD.PushWarning(
+                    $"Rendered anchor failed: surface={surface}, anchor={anchor}, " +
+                    $"safe_x={safeLeft}-{safeRight}, viewport={viewport}.");
                 return false;
             }
         }
@@ -1891,10 +2202,7 @@ public sealed partial class MatchScreen : Control
 
         MatchView view = state.Snapshot ??
             throw new InvalidOperationException("A visible hot-seat state is missing its viewer snapshot.");
-        SetLegacyBoardPanelsVisible(
-            _legacy2dBoard,
-            !_legacy2dBoard && state.Mode is HotseatUiMode.MulliganSelecting or
-                HotseatUiMode.MulliganReview);
+        SetLegacyBoardPanelsVisible(_legacy2dBoard);
         _resolvingShield.Visible = false;
         _lastVisibleViewer = view.Viewer;
         _resultOverlay.Dismiss();
@@ -1915,11 +2223,13 @@ public sealed partial class MatchScreen : Control
 
         RenderSnapshot(view, state);
         _dock.EventLog.Replace(view.Viewer, state.Events);
+        PresentViewerSafeFx(state.PendingEvents);
         ScheduleEventAcknowledge(state);
 
         switch (state.Mode)
         {
             case HotseatUiMode.MulliganSelecting:
+                _dock.Visible = true;
                 _dock.ShowMulligan();
                 _dock.Mulligan.PresentSelection(
                     state.MulliganCards.Count,
@@ -1927,6 +2237,7 @@ public sealed partial class MatchScreen : Control
                     state.SelectedAction is not null);
                 break;
             case HotseatUiMode.MulliganReview:
+                _dock.Visible = true;
                 _dock.ShowMulligan();
                 _dock.Mulligan.PresentReview(view.Players[(int)view.Viewer].Hand);
                 break;
@@ -1954,7 +2265,8 @@ public sealed partial class MatchScreen : Control
     private void RenderCoveredState(HotseatUiState state)
     {
         HasPresentedSnapshot = false;
-        SetLegacyBoardPanelsVisible(_legacy2dBoard, showMulliganHand: false);
+        _dock.Visible = _legacy2dBoard;
+        SetLegacyBoardPanelsVisible(_legacy2dBoard);
         ClearSensitiveVisuals();
         _resolvingShield.Visible = false;
         _resultOverlay.Dismiss();
@@ -1973,7 +2285,8 @@ public sealed partial class MatchScreen : Control
     private void RenderResolvingState(HotseatUiState state)
     {
         HasPresentedSnapshot = false;
-        SetLegacyBoardPanelsVisible(_legacy2dBoard, showMulliganHand: false);
+        _dock.Visible = _legacy2dBoard;
+        SetLegacyBoardPanelsVisible(_legacy2dBoard);
         _privacyOverlay.CompleteReveal();
         _resultOverlay.Dismiss();
         _errorOverlay.Dismiss();
@@ -2013,6 +2326,7 @@ public sealed partial class MatchScreen : Control
     private void RenderDirectActionState(HotseatUiState state)
     {
         _dock.HideTransientPanels();
+        _dock.Visible = _legacy2dBoard;
         _reactionOverlay.ClearSensitive();
         ConfigureFixedActionButtons(state);
         PresentDirectInteraction(state, reaction: false);
@@ -2022,6 +2336,7 @@ public sealed partial class MatchScreen : Control
     {
         _sawReaction = true;
         _dock.HideTransientPanels();
+        _dock.Visible = _legacy2dBoard;
         ConfigureFixedActionButtons(state);
 
         MatchView view = state.Snapshot!;
@@ -2161,8 +2476,8 @@ public sealed partial class MatchScreen : Control
             : Math.Max(18.0f, _battlefieldDetails.GetGlobalRect().End.X + 16.0f);
         float availableWidth = Math.Max(360.0f, viewport.X - reservedRight - reservedLeft - 18.0f);
         Vector2 panelSize = new(
-            Math.Min(420.0f, availableWidth),
-            Mathf.Clamp(_directActions.GetCombinedMinimumSize().Y, 100.0f, 220.0f));
+            Math.Min(360.0f, availableWidth),
+            Mathf.Clamp(_directActions.GetCombinedMinimumSize().Y, 76.0f, 156.0f));
         float maxX = Math.Max(reservedLeft, viewport.X - reservedRight - panelSize.X);
         float maxY = Math.Max(70.0f, viewport.Y - panelSize.Y - 112.0f);
         Vector2 position;
@@ -2328,6 +2643,11 @@ public sealed partial class MatchScreen : Control
         {
             _dock.CardDetails.Visible = false;
             _battlefieldDetails.Visible = true;
+            if (_controller?.State is { } currentState && _directActions.Visible)
+            {
+                PositionDirectPanel(currentState);
+            }
+            return;
         }
         _dock.OffsetLeft = collapsed ? -78.0f : -400.0f;
         GetNode<MarginContainer>("SafeMargin")
@@ -2913,6 +3233,7 @@ public sealed partial class MatchScreen : Control
 
         PlayerView own = view.Players[(int)view.Viewer];
         PlayerView opponent = view.Players[(int)Other(view.Viewer)];
+        _hudPresenter.Render(view);
 
         GetNode<Label>("%ViewerLabel").Text = $"观看者：{PlayerLabel(view.Viewer)}";
         GetNode<Label>("%PhaseLabel").Text = $"阶段：{PhaseLabel(view.Phase)}";
@@ -2950,6 +3271,10 @@ public sealed partial class MatchScreen : Control
 
         GetNode<Label>("%PrivacyProof").Text =
             $"隐私校验：对手手牌仅显示数量 {opponent.HandCount}；安全快照中的对手 hand 数组为 {opponent.Hand.Length}。";
+        if (!_detailsPinned && !_legacy2dBoard)
+        {
+            ActiveCardDetails.ShowPlaceholder();
+        }
     }
 
     private void RenderBattlefieldPrivate(MatchView view, HotseatUiState state)
@@ -3984,6 +4309,7 @@ public sealed partial class MatchScreen : Control
         }
 
         PlayerId ownPlayer = _lastVisibleViewer ?? board.ActivePlayer;
+        _hudPresenter.RenderPublic(board);
         PlayerId opponentPlayer = Other(ownPlayer);
         HotseatPublicPlayerView own = board.Players[(int)ownPlayer];
         HotseatPublicPlayerView opponent = board.Players[(int)opponentPlayer];
@@ -4071,14 +4397,59 @@ public sealed partial class MatchScreen : Control
         $"裂痕 {player.Cracks}    进化能量 {player.EvolutionEnergy}";
 
     private static string FormatRailResources(PlayerView player, string relation) =>
-        $"{relation} · 生命 {player.LeaderHealth}/{player.MaximumLeaderHealth} · " +
-        $"PP {player.CurrentPp}/{player.PpCapacity} · 裂痕 {player.Cracks} · 进化 {player.EvolutionEnergy}";
+        $"{relation}   ♥ {player.LeaderHealth}/{player.MaximumLeaderHealth}   " +
+        $"PP {FormatPpPips(player.CurrentPp, player.PpCapacity)}\n" +
+        $"裂痕 {player.Cracks}     进化 {player.EvolutionEnergy}";
+
+    private void PresentViewerSafeFx(IEnumerable<GameEventView> events)
+    {
+        if (_legacy2dBoard)
+        {
+            return;
+        }
+
+        foreach (GameEventView gameEvent in events)
+        {
+            BattlefieldFxKind? kind = gameEvent.Type switch
+            {
+                EventType.FatigueDamage or EventType.UnitDamaged or EventType.LeaderDamaged =>
+                    BattlefieldFxKind.Damage,
+                EventType.LeaderHealed => BattlefieldFxKind.Healing,
+                EventType.TurnStarted => BattlefieldFxKind.Phase,
+                EventType.TrapWindowOpened or EventType.TrapActivated =>
+                    BattlefieldFxKind.Reaction,
+                _ => null,
+            };
+            if (kind.HasValue)
+            {
+                _battlefield3d.PresentFx(new BattlefieldFxCue(
+                    gameEvent.Sequence,
+                    kind.Value,
+                    gameEvent.Player,
+                    gameEvent.Value));
+            }
+        }
+    }
 
     private static string FormatPublicRailResources(
         HotseatPublicPlayerView player,
         string relation) =>
-        $"{relation} · 生命 {player.LeaderHealth}/{player.MaximumLeaderHealth} · " +
-        $"PP {player.CurrentPp}/{player.PpCapacity} · 裂痕 {player.Cracks} · 进化 {player.EvolutionEnergy}";
+        $"{relation}   ♥ {player.LeaderHealth}/{player.MaximumLeaderHealth}   " +
+        $"PP {FormatPpPips(player.CurrentPp, player.PpCapacity)}\n" +
+        $"裂痕 {player.Cracks}     进化 {player.EvolutionEnergy}";
+
+    private static string FormatPpPips(int current, int capacity)
+    {
+        int safeCapacity = Math.Clamp(capacity, 0, 10);
+        int safeCurrent = Math.Clamp(current, 0, safeCapacity);
+        if (safeCapacity == 0)
+        {
+            return "0";
+        }
+
+        return $"{new string('●', safeCurrent)}{new string('○', safeCapacity - safeCurrent)} " +
+               $"{current}/{capacity}";
+    }
 
     private static string FormatPublicZoneSummary(HotseatPublicPlayerView player) =>
         $"手牌 {player.HandCount} · 牌组 {player.DeckCount} · " +
@@ -4228,7 +4599,11 @@ public sealed partial class MatchScreen : Control
         }
         if (!_legacy2dBoard)
         {
-            _battlefield3d.CiArmPrivacySentinel(PrivacySentinel);
+            if (!_battlefield3d.CiArmPrivacySentinel(PrivacySentinel))
+            {
+                throw new InvalidOperationException(
+                    "The private GPU texture sentinel could not be installed on a visible 3D card.");
+            }
         }
     }
 

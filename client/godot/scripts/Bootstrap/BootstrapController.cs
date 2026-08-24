@@ -4,6 +4,7 @@ using Scgs.GodotClient.Ci;
 using Scgs.GodotClient.Match;
 using Scgs.GodotClient.Native;
 using Scgs.GodotClient.UI;
+using Scgs.GodotClient.Visuals;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
@@ -29,6 +30,8 @@ public sealed partial class BootstrapController : Control
     private string? _ciScreenshotPath;
     private string? _ciActionScreenshotPath;
     private string? _ciReportPath;
+    private string? _ciVisualSuitePath;
+    private Gate4BVisualSuite? _ciVisualSuite;
     private bool _ciSmoke;
     private bool _ciRunStarted;
     private bool _ciTerminalSignaled;
@@ -41,14 +44,23 @@ public sealed partial class BootstrapController : Control
     public override void _Ready()
     {
         _screenHost = GetNode<Control>("%ScreenHost");
-        _ciSmoke = OS.GetCmdlineUserArgs().Contains("--ci-smoke", StringComparer.Ordinal);
+        IReadOnlyList<string> arguments = OS.GetCmdlineUserArgs();
+        _ciSmoke = arguments.Contains("--ci-smoke", StringComparer.Ordinal) ||
+                   arguments.Any(argument => argument.StartsWith(
+                       "--ci-visual-suite=",
+                       StringComparison.Ordinal));
         ShowMainMenu();
 
         try
         {
-            _ciScreenshotPath = ResolveCiScreenshotPath(OS.GetCmdlineUserArgs());
-            _ciActionScreenshotPath = ResolveCiActionScreenshotPath(OS.GetCmdlineUserArgs());
-            _ciReportPath = ResolveCiReportPath(OS.GetCmdlineUserArgs());
+            _ciScreenshotPath = ResolveCiScreenshotPath(arguments);
+            _ciActionScreenshotPath = ResolveCiActionScreenshotPath(arguments);
+            _ciReportPath = ResolveCiReportPath(arguments);
+            _ciVisualSuitePath = ResolveCiVisualSuitePath(arguments);
+            if (_ciVisualSuitePath is not null)
+            {
+                _ciVisualSuite = new Gate4BVisualSuite(this, _ciVisualSuitePath);
+            }
         }
         catch (Exception exception)
         {
@@ -79,6 +91,8 @@ public sealed partial class BootstrapController : Control
                 throw new ScgsProtocolException(
                     "The pre-start reaction context has unexpected state.");
             }
+
+            _menu?.ShowAvailable();
         }
         catch (Exception exception)
         {
@@ -95,7 +109,14 @@ public sealed partial class BootstrapController : Control
 
         if (_ciSmoke)
         {
-            Callable.From(RunCiSmoke).CallDeferred();
+            if (_ciVisualSuite is not null)
+            {
+                Callable.From(RunCiVisualSuitePrelude).CallDeferred();
+            }
+            else
+            {
+                Callable.From(RunCiSmoke).CallDeferred();
+            }
         }
     }
 
@@ -103,6 +124,12 @@ public sealed partial class BootstrapController : Control
     {
         if (!@event.IsActionPressed("ui_cancel"))
         {
+            return;
+        }
+
+        if (_menu?.HandleCancelNavigation() == true)
+        {
+            GetViewport().SetInputAsHandled();
             return;
         }
 
@@ -131,11 +158,38 @@ public sealed partial class BootstrapController : Control
         _menu = MainMenuScene.Instantiate<MainMenuScreen>();
         _menu.StartRequested += setup => StartMatch(setup, deterministic: false);
         ReplaceScreen(_menu);
+        if (_nativeLibraryPath is not null)
+        {
+            _menu.ShowAvailable();
+        }
     }
 
     private void RunCiSmoke()
     {
         StartMatch(MatchSetup.Defaults, deterministic: true);
+    }
+
+    private async void RunCiVisualSuitePrelude()
+    {
+        try
+        {
+            Gate4BVisualSuite suite = _ciVisualSuite ??
+                throw new InvalidOperationException("The Gate 4B visual suite is unavailable.");
+            MainMenuScreen menu = _menu ??
+                throw new InvalidOperationException("The product menu is unavailable.");
+            menu.ShowRootForCi();
+            await suite.CaptureAsync("menu");
+            menu.ShowLocalSetupForCi();
+            await suite.CaptureAsync("match-setup");
+            menu.ShowErrorForCi("视觉套件：受控错误页示例（未访问原生会话）");
+            await suite.CaptureAsync("error");
+            menu.ShowLocalSetupForCi();
+            StartMatch(MatchSetup.Defaults, deterministic: true);
+        }
+        catch (Exception exception)
+        {
+            FailCiSmoke(exception.Message);
+        }
     }
 
     private void StartMatch(MatchSetup setup, bool deterministic)
@@ -178,7 +232,10 @@ public sealed partial class BootstrapController : Control
 
             // Gate 3C keeps the deterministic mulligan privacy order:
             // player 0 is covered first. Begin() must not call GetView.
-            _match.Begin(_session, PlayerId.Player0);
+            _match.Begin(
+                _session,
+                PlayerId.Player0,
+                MatchVisualIdentity.FromDecks(setup.Player0Deck, setup.Player1Deck));
             if (_match.SnapshotRequestCount != 0 || !_match.IsPrivacyCoverVisible)
             {
                 throw new InvalidOperationException("Privacy invariant failed before the reveal request.");
@@ -302,7 +359,8 @@ public sealed partial class BootstrapController : Control
                 match,
                 NextProcessFrameAsync,
                 _ciScreenshotPath,
-                _ciActionScreenshotPath);
+                _ciActionScreenshotPath,
+                _ciVisualSuite);
             Gate3CSmokeOutcome outcome = await runner.RunAsync();
             if (outcome.FinalView.RandomSeed != firstView.RandomSeed ||
                 outcome.FinalView.FirstPlayer != firstView.FirstPlayer ||
@@ -381,6 +439,7 @@ public sealed partial class BootstrapController : Control
                 throw new InvalidOperationException(
                     "The restart/surrender phase did not extend full-match coverage.");
             }
+            _ciVisualSuite?.Complete();
             WriteCiReport(combined);
             CompleteCiSmoke(combined);
         }
@@ -561,6 +620,31 @@ public sealed partial class BootstrapController : Control
             throw new InvalidOperationException("--ci-report requires one absolute output path.");
         }
 
+        return Path.GetFullPath(values[0]);
+    }
+
+    private static string? ResolveCiVisualSuitePath(IReadOnlyList<string> arguments)
+    {
+        const string prefix = "--ci-visual-suite=";
+        string[] values = arguments
+            .Where(argument => argument.StartsWith(prefix, StringComparison.Ordinal))
+            .Select(argument => argument[prefix.Length..])
+            .ToArray();
+        if (values.Length == 0)
+        {
+            return null;
+        }
+        if (values.Length != 1 || string.IsNullOrWhiteSpace(values[0]) ||
+            !Path.IsPathFullyQualified(values[0]))
+        {
+            throw new InvalidOperationException(
+                "--ci-visual-suite requires one absolute output directory.");
+        }
+        if (OS.GetCmdlineUserArgs().Contains("--legacy-2d-board", StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "--ci-visual-suite is available only for the default 3D product presentation.");
+        }
         return Path.GetFullPath(values[0]);
     }
 

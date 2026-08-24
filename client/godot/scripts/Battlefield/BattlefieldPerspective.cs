@@ -9,14 +9,14 @@ public static class BattlefieldPerspective
     public const int UnitSlotCount = 5;
     public const int TacticSlotCount = 3;
     public const int MaximumHandCards = 10;
-    public const float BoardWidth = 18.4f;
-    public const float BoardDepth = 13.6f;
+    public const float BoardWidth = 19.8f;
+    public const float BoardDepth = 16.6f;
     public const float CardWidth = 1.58f;
     public const float CardDepth = 2.18f;
     public const float SlotWidth = 1.88f;
     public const float SlotDepth = 2.48f;
     public const float TerritoryBoundaryClearance = 0.12f;
-    public const float CameraFovDegrees = 70.0f;
+    public const float CameraFovDegrees = 58.0f;
     public const float CameraPitchDegrees = 58.0f;
     public const float MinimumZoom = 0.82f;
     public const float MaximumZoom = 1.24f;
@@ -25,13 +25,13 @@ public static class BattlefieldPerspective
     private const float TacticSpacing = 3.15f;
     private const float UnitRowDepth = 1.55f;
     private const float TacticRowDepth = 4.10f;
-    private const float NearHandNominalSpacing = 1.34f;
-    private const float FarHandNominalSpacing = 1.20f;
-    private const float NearHandMaximumSpan = 9.4f;
-    private const float FarHandMaximumSpan = 8.4f;
-    private const float NearHandPreferredScale = 0.76f;
-    private const float FarHandPreferredScale = 0.68f;
-    private const float MinimumHandGap = 0.08f;
+    private const float NearHandNominalSpacing = 1.28f;
+    private const float FarHandNominalSpacing = 0.94f;
+    private const float NearHandMaximumSpan = 9.7f;
+    private const float FarHandMaximumSpan = 7.3f;
+    private const float NearHandPreferredScale = 0.94f;
+    private const float FarHandPreferredScale = 0.64f;
+    private const float MinimumVisibleHandStrip = 0.46f;
     private const float SideZoneX = 7.1f;
     private const float ZonePileScale = 0.82f;
     private const float DeckDepth = 1.25f;
@@ -146,8 +146,10 @@ public static class BattlefieldPerspective
             return preferred;
         }
 
-        float scaleForGap = (HandSpacing(near, count) - MinimumHandGap) / CardWidth;
-        return MathF.Min(preferred, scaleForGap);
+        // Product hands deliberately overlap like a physical fan.  Scaling is
+        // stable across a revision so hover never causes the whole hand to
+        // breathe, while spacing preserves a generous visible selection strip.
+        return preferred;
     }
 
     public static Transform3D StandbyTransform(
@@ -323,8 +325,7 @@ public static class BattlefieldPerspective
             {
                 if (count > 1)
                 {
-                    float scaledWidth = CardWidth * HandScale(near, count);
-                    if (HandSpacing(near, count) < scaledWidth + MinimumHandGap - 0.001f)
+                    if (HandSpacing(near, count) < MinimumVisibleHandStrip)
                     {
                         return false;
                     }
@@ -353,9 +354,9 @@ public static class BattlefieldPerspective
         return true;
     }
 
-    public static Vector3 CameraPosition(float zoom)
+    public static Vector3 CameraPosition(float zoom, float framingScale = 1.0f)
     {
-        if (!float.IsFinite(zoom))
+        if (!float.IsFinite(zoom) || !float.IsFinite(framingScale) || framingScale <= 0.0f)
         {
             throw new ArgumentOutOfRangeException(nameof(zoom));
         }
@@ -363,7 +364,7 @@ public static class BattlefieldPerspective
         float clamped = Mathf.Clamp(zoom, MinimumZoom, MaximumZoom);
         float radians = Mathf.DegToRad(CameraPitchDegrees);
         const float baseDistance = 17.0f;
-        float distance = baseDistance * clamped;
+        float distance = baseDistance * clamped * Mathf.Clamp(framingScale, 1.0f, 2.0f);
         return new Vector3(
             0.0f,
             MathF.Sin(radians) * distance,

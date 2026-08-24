@@ -1,7 +1,182 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=20 format=3]
 
 [ext_resource type="Script" path="res://scripts/Battlefield/Battlefield3DPresenter.cs" id="1_presenter"]
+[ext_resource type="Shader" path="res://assets/visual/shaders/battlefield_energy_grid.gdshader" id="2_grid"]
+
+[sub_resource type="Environment" id="Environment_arena"]
+background_mode = 1
+background_color = Color(0.006, 0.018, 0.034, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.38, 0.49, 0.62, 1)
+ambient_light_energy = 0.62
+reflected_light_source = 1
+
+[sub_resource type="StandardMaterial3D" id="Material_backdrop"]
+albedo_color = Color(0.006, 0.022, 0.038, 1)
+metallic = 0.32
+roughness = 0.74
+
+[sub_resource type="BoxMesh" id="Mesh_backdrop"]
+material = SubResource("Material_backdrop")
+size = Vector3(42, 0.22, 30)
+
+[sub_resource type="ShaderMaterial" id="Material_energy_grid"]
+render_priority = -1
+shader = ExtResource("2_grid")
+shader_parameter/base_color = Color(0.012, 0.035, 0.06, 0.88)
+shader_parameter/grid_color = Color(0.05, 0.31, 0.38, 0.22)
+shader_parameter/far_color = Color(0.19, 0.07, 0.31, 0.15)
+shader_parameter/grid_scale = 15.0
+
+[sub_resource type="PlaneMesh" id="Mesh_energy_grid"]
+material = SubResource("Material_energy_grid")
+size = Vector2(42, 30)
+
+[sub_resource type="StandardMaterial3D" id="Material_table"]
+albedo_color = Color(0.025, 0.078, 0.105, 1)
+metallic = 0.56
+roughness = 0.42
+
+[sub_resource type="BoxMesh" id="Mesh_table"]
+material = SubResource("Material_table")
+size = Vector3(19.8, 0.28, 16.6)
+
+[sub_resource type="StandardMaterial3D" id="Material_far"]
+albedo_color = Color(0.075, 0.035, 0.12, 1)
+roughness = 0.64
+metallic = 0.18
+emission_enabled = true
+emission = Color(0.055, 0.018, 0.105, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_far"]
+material = SubResource("Material_far")
+size = Vector3(19.45, 0.018, 8.18)
+
+[sub_resource type="StandardMaterial3D" id="Material_near"]
+albedo_color = Color(0.025, 0.095, 0.11, 1)
+roughness = 0.6
+metallic = 0.2
+emission_enabled = true
+emission = Color(0.012, 0.055, 0.06, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_near"]
+material = SubResource("Material_near")
+size = Vector3(19.45, 0.018, 8.18)
+
+[sub_resource type="StandardMaterial3D" id="Material_line"]
+albedo_color = Color(0.27, 0.9, 0.84, 1)
+roughness = 0.3
+emission_enabled = true
+emission = Color(0.14, 0.78, 0.72, 1)
+shading_mode = 0
+
+[sub_resource type="BoxMesh" id="Mesh_line"]
+material = SubResource("Material_line")
+size = Vector3(19.45, 0.028, 0.1)
+
+[sub_resource type="StandardMaterial3D" id="Material_trim_blue"]
+albedo_color = Color(0.18, 0.49, 0.68, 1)
+metallic = 0.72
+roughness = 0.22
+emission_enabled = true
+emission = Color(0.04, 0.18, 0.3, 1)
+
+[sub_resource type="StandardMaterial3D" id="Material_trim_violet"]
+albedo_color = Color(0.48, 0.3, 0.68, 1)
+metallic = 0.72
+roughness = 0.22
+emission_enabled = true
+emission = Color(0.16, 0.06, 0.28, 1)
+
+[sub_resource type="BoxMesh" id="Mesh_long_trim"]
+size = Vector3(19.9, 0.12, 0.08)
+
+[sub_resource type="BoxMesh" id="Mesh_side_trim"]
+size = Vector3(0.08, 0.12, 16.7)
 
 [node name="Battlefield3D" type="Node3D"]
 unique_name_in_owner = true
 script = ExtResource("1_presenter")
+
+[node name="AuthoredArena" type="Node3D" parent="."]
+
+[node name="Environment" type="WorldEnvironment" parent="AuthoredArena"]
+environment = SubResource("Environment_arena")
+
+[node name="ArenaBackdrop" type="MeshInstance3D" parent="AuthoredArena"]
+position = Vector3(0, -0.48, 0)
+mesh = SubResource("Mesh_backdrop")
+cast_shadow = 0
+
+[node name="EnergyGrid" type="MeshInstance3D" parent="AuthoredArena"]
+position = Vector3(0, -0.355, 0)
+mesh = SubResource("Mesh_energy_grid")
+cast_shadow = 0
+
+[node name="TableBase" type="MeshInstance3D" parent="AuthoredArena"]
+position = Vector3(0, -0.19, 0)
+mesh = SubResource("Mesh_table")
+
+[node name="OpponentTerritory" type="MeshInstance3D" parent="AuthoredArena"]
+position = Vector3(0, -0.038, -4.14)
+mesh = SubResource("Mesh_far")
+cast_shadow = 0
+
+[node name="ViewerTerritory" type="MeshInstance3D" parent="AuthoredArena"]
+position = Vector3(0, -0.038, 4.14)
+mesh = SubResource("Mesh_near")
+cast_shadow = 0
+
+[node name="CenterLine" type="MeshInstance3D" parent="AuthoredArena"]
+position = Vector3(0, -0.018, 0)
+mesh = SubResource("Mesh_line")
+cast_shadow = 0
+
+[node name="FarTrim" type="MeshInstance3D" parent="AuthoredArena"]
+position = Vector3(0, -0.015, -8.32)
+material_override = SubResource("Material_trim_violet")
+mesh = SubResource("Mesh_long_trim")
+cast_shadow = 0
+
+[node name="NearTrim" type="MeshInstance3D" parent="AuthoredArena"]
+position = Vector3(0, -0.015, 8.32)
+material_override = SubResource("Material_trim_blue")
+mesh = SubResource("Mesh_long_trim")
+cast_shadow = 0
+
+[node name="LeftTrim" type="MeshInstance3D" parent="AuthoredArena"]
+position = Vector3(-9.92, -0.015, 0)
+material_override = SubResource("Material_trim_blue")
+mesh = SubResource("Mesh_side_trim")
+cast_shadow = 0
+
+[node name="RightTrim" type="MeshInstance3D" parent="AuthoredArena"]
+position = Vector3(9.92, -0.015, 0)
+material_override = SubResource("Material_trim_violet")
+mesh = SubResource("Mesh_side_trim")
+cast_shadow = 0
+
+[node name="KeyLight" type="DirectionalLight3D" parent="AuthoredArena"]
+rotation_degrees = Vector3(-58, -25, 0)
+light_color = Color(0.84, 0.94, 1, 1)
+light_energy = 1.18
+shadow_enabled = true
+
+[node name="BlueFill" type="OmniLight3D" parent="AuthoredArena"]
+position = Vector3(-5.5, 5.5, 4.5)
+light_color = Color(0.24, 0.67, 1, 1)
+light_energy = 3.2
+omni_range = 18.0
+
+[node name="VioletFill" type="OmniLight3D" parent="AuthoredArena"]
+position = Vector3(5.5, 5.2, -4.5)
+light_color = Color(0.72, 0.4, 1, 1)
+light_energy = 2.8
+omni_range = 18.0
+
+[node name="UnderTableGlow" type="OmniLight3D" parent="AuthoredArena"]
+position = Vector3(0, 1.4, 0)
+light_color = Color(0.18, 0.62, 0.72, 1)
+light_energy = 1.2
+omni_range = 13.0
+shadow_enabled = false

@@ -1,0 +1,19 @@
+{
+  "schema_version": 2,
+  "gate": "4B-R1",
+  "source_manifest": "visual-suite.json",
+  "asset_manifest_sha256": "550cee89ccb1b384149d85aa45725474371b022a646fbef8de28d4c9bbae8eac",
+  "states": [
+    "action",
+    "covered",
+    "error",
+    "match-setup",
+    "menu",
+    "mulligan",
+    "reaction",
+    "resolving",
+    "result",
+    "slot-or-target-selection",
+    "source-selection"
+  ]
+}

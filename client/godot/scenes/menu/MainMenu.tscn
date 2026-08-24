@@ -1,6 +1,7 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/UI/MainMenuScreen.cs" id="1_script"]
+[ext_resource type="PackedScene" path="res://scenes/components/GlassSurface.tscn" id="2_glass"]
 
 [node name="MainMenu" type="Control"]
 layout_mode = 3
@@ -9,121 +10,563 @@ anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+mouse_filter = 1
 script = ExtResource("1_script")
 
-[node name="Background" type="ColorRect" parent="."]
+[node name="BackgroundBase" type="ColorRect" parent="."]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
-color = Color(0.035, 0.055, 0.09, 1)
+color = Color(0.008, 0.018, 0.031, 1)
 mouse_filter = 2
 
-[node name="Center" type="CenterContainer" parent="."]
+[node name="MenuBackground" type="TextureRect" parent="."]
+unique_name_in_owner = true
+modulate = Color(0.88, 0.94, 1, 0.82)
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 6
 
-[node name="Card" type="PanelContainer" parent="Center"]
-custom_minimum_size = Vector2(860, 640)
+[node name="BlueAtmosphere" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 0.62
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.015, 0.18, 0.23, 0.2)
+mouse_filter = 2
+
+[node name="VioletAtmosphere" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_left = 0.62
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 0
+grow_vertical = 2
+color = Color(0.16, 0.055, 0.2, 0.15)
+mouse_filter = 2
+
+[node name="Shade" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.005, 0.012, 0.022, 0.36)
+mouse_filter = 2
+
+[node name="GlassBackBuffer" type="BackBufferCopy" parent="."]
+copy_mode = 2
+
+[node name="TopRule" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 3.0
+grow_horizontal = 2
+color = Color(0.25, 0.94, 0.89, 0.72)
+mouse_filter = 2
+
+[node name="SafeArea" type="MarginContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 52
+theme_override_constants/margin_top = 38
+theme_override_constants/margin_right = 52
+theme_override_constants/margin_bottom = 34
+
+[node name="MainLayout" type="HBoxContainer" parent="SafeArea"]
+layout_mode = 2
+theme_override_constants/separation = 54
+
+[node name="BrandColumn" type="VBoxContainer" parent="SafeArea/MainLayout"]
+custom_minimum_size = Vector2(430, 0)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 10
+
+[node name="Protocol" type="Label" parent="SafeArea/MainLayout/BrandColumn"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.39, 0.9, 0.87, 1)
+theme_override_font_sizes/font_size = 16
+text = "SCGS // TACTICAL DUEL"
+
+[node name="HeaderRule" type="HSeparator" parent="SafeArea/MainLayout/BrandColumn"]
+custom_minimum_size = Vector2(300, 0)
 layout_mode = 2
 
-[node name="Margin" type="MarginContainer" parent="Center/Card"]
+[node name="TopSpacer" type="Control" parent="SafeArea/MainLayout/BrandColumn"]
+custom_minimum_size = Vector2(0, 54)
 layout_mode = 2
-theme_override_constants/margin_left = 64
-theme_override_constants/margin_top = 54
-theme_override_constants/margin_right = 64
-theme_override_constants/margin_bottom = 46
 
-[node name="Content" type="VBoxContainer" parent="Center/Card/Margin"]
+[node name="RiftMark" type="Label" parent="SafeArea/MainLayout/BrandColumn"]
 layout_mode = 2
-theme_override_constants/separation = 24
+theme_override_colors/font_color = Color(0.92, 0.73, 0.26, 1)
+theme_override_font_sizes/font_size = 36
+text = "◇  ╱╲  ◇"
 
-[node name="Title" type="Label" parent="Center/Card/Margin/Content"]
+[node name="Title" type="Label" parent="SafeArea/MainLayout/BrandColumn"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.46, 0.86, 0.81, 1)
-theme_override_font_sizes/font_size = 46
+theme_type_variation = &"HeroLabel"
 text = "SomeCardGameShit"
-horizontal_alignment = 1
 
-[node name="Subtitle" type="Label" parent="Center/Card/Margin/Content"]
-layout_mode = 2
-theme_override_font_sizes/font_size = 24
-text = "Godot 热座 Alpha · Gate 3A"
-horizontal_alignment = 1
-
-[node name="Divider" type="HSeparator" parent="Center/Card/Margin/Content"]
-layout_mode = 2
-
-[node name="Instructions" type="Label" parent="Center/Card/Margin/Content"]
-layout_mode = 2
-text = "选择两名玩家的固定测试牌组。先后手由引擎随机决定。"
-horizontal_alignment = 1
-
-[node name="Player0Row" type="HBoxContainer" parent="Center/Card/Margin/Content"]
-layout_mode = 2
-theme_override_constants/separation = 28
-
-[node name="Player0Label" type="Label" parent="Center/Card/Margin/Content/Player0Row"]
-custom_minimum_size = Vector2(190, 58)
-layout_mode = 2
-text = "玩家 0 牌组"
-vertical_alignment = 1
-
-[node name="Player0Deck" type="OptionButton" parent="Center/Card/Margin/Content/Player0Row"]
-unique_name_in_owner = true
+[node name="Subtitle" type="Label" parent="SafeArea/MainLayout/BrandColumn"]
 custom_minimum_size = Vector2(0, 58)
 layout_mode = 2
-size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.72, 0.8, 0.82, 1)
+theme_override_font_sizes/font_size = 21
+text = "双阵营科幻卡牌战术原型\n掌控战场，驾驭能量裂痕"
 
-[node name="Player1Row" type="HBoxContainer" parent="Center/Card/Margin/Content"]
-layout_mode = 2
-theme_override_constants/separation = 28
-
-[node name="Player1Label" type="Label" parent="Center/Card/Margin/Content/Player1Row"]
-custom_minimum_size = Vector2(190, 58)
-layout_mode = 2
-text = "玩家 1 牌组"
-vertical_alignment = 1
-
-[node name="Player1Deck" type="OptionButton" parent="Center/Card/Margin/Content/Player1Row"]
+[node name="AvailabilityLabel" type="Label" parent="SafeArea/MainLayout/BrandColumn"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 58)
+custom_minimum_size = Vector2(0, 52)
 layout_mode = 2
-size_flags_horizontal = 3
-
-[node name="PrivacyHint" type="Label" parent="Center/Card/Margin/Content"]
-layout_mode = 2
-theme_override_colors/font_color = Color(0.66, 0.72, 0.76, 1)
-theme_override_font_sizes/font_size = 19
-text = "比赛开始后先进入不透明交接页；只有当前玩家确认后才读取其快照。"
-horizontal_alignment = 1
+theme_type_variation = &"StatusLabel"
+text = "● 原生引擎连接中"
+vertical_alignment = 1
 autowrap_mode = 2
 
-[node name="StartButton" type="Button" parent="Center/Card/Margin/Content"]
-unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 72)
+[node name="BrandSpacer" type="Control" parent="SafeArea/MainLayout/BrandColumn"]
 layout_mode = 2
-theme_override_font_sizes/font_size = 26
-text = "创建热座比赛"
+size_flags_vertical = 3
 
-[node name="ErrorLabel" type="Label" parent="Center/Card/Margin/Content"]
+[node name="Edition" type="Label" parent="SafeArea/MainLayout/BrandColumn"]
+layout_mode = 2
+theme_type_variation = &"MutedLabel"
+text = "本地热座原型 · 版本 0.4"
+
+[node name="AboutButton" type="Button" parent="SafeArea/MainLayout/BrandColumn"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(260, 42)
+layout_mode = 2
+size_flags_horizontal = 0
+theme_type_variation = &"NavButton"
+text = "版本 · 许可证 · 制作信息"
+alignment = 0
+
+[node name="RightShell" type="PanelContainer" parent="SafeArea/MainLayout"]
+custom_minimum_size = Vector2(452, 0)
+layout_mode = 2
+size_flags_vertical = 4
+theme_type_variation = &"GlassPanel"
+
+[node name="GlassSurface" parent="SafeArea/MainLayout/RightShell" instance=ExtResource("2_glass")]
+show_behind_parent = true
+
+[node name="PageRoot" type="Control" parent="SafeArea/MainLayout/RightShell"]
+custom_minimum_size = Vector2(416, 550)
+layout_mode = 2
+
+[node name="HomePage" type="VBoxContainer" parent="SafeArea/MainLayout/RightShell/PageRoot"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 7
+
+[node name="HomeHeading" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/HomePage"]
+layout_mode = 2
+theme_type_variation = &"SectionLabel"
+text = "作战终端"
+
+[node name="HomeSubheading" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/HomePage"]
+layout_mode = 2
+theme_type_variation = &"MutedLabel"
+text = "选择一个入口。标记为开发中的模式暂不可用。"
+autowrap_mode = 2
+
+[node name="HomeDivider" type="HSeparator" parent="SafeArea/MainLayout/RightShell/PageRoot/HomePage"]
+layout_mode = 2
+
+[node name="LocalHotseatButton" type="Button" parent="SafeArea/MainLayout/RightShell/PageRoot/HomePage"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_type_variation = &"PrimaryButton"
+text = "本地热座  ›"
+alignment = 0
+
+[node name="SinglePlayerButton" type="Button" parent="SafeArea/MainLayout/RightShell/PageRoot/HomePage"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 43)
+layout_mode = 2
+theme_type_variation = &"NavButton"
+text = "单人挑战        · 开发中"
+alignment = 0
+
+[node name="OnlineButton" type="Button" parent="SafeArea/MainLayout/RightShell/PageRoot/HomePage"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 43)
+layout_mode = 2
+theme_type_variation = &"NavButton"
+text = "在线对战        · 开发中"
+alignment = 0
+
+[node name="DeckEditorButton" type="Button" parent="SafeArea/MainLayout/RightShell/PageRoot/HomePage"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 43)
+layout_mode = 2
+theme_type_variation = &"NavButton"
+text = "牌组编辑        · 开发中"
+alignment = 0
+
+[node name="CardLibraryButton" type="Button" parent="SafeArea/MainLayout/RightShell/PageRoot/HomePage"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 43)
+layout_mode = 2
+theme_type_variation = &"NavButton"
+text = "卡牌图鉴        · 开发中"
+alignment = 0
+
+[node name="ReplayButton" type="Button" parent="SafeArea/MainLayout/RightShell/PageRoot/HomePage"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 43)
+layout_mode = 2
+theme_type_variation = &"NavButton"
+text = "录像回放        · 开发中"
+alignment = 0
+
+[node name="HomeActions" type="HBoxContainer" parent="SafeArea/MainLayout/RightShell/PageRoot/HomePage"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="SettingsButton" type="Button" parent="SafeArea/MainLayout/RightShell/PageRoot/HomePage/HomeActions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 43)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"NavButton"
+text = "设置"
+
+[node name="QuitButton" type="Button" parent="SafeArea/MainLayout/RightShell/PageRoot/HomePage/HomeActions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 43)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"DangerButton"
+text = "退出"
+
+[node name="FeatureNotice" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/HomePage"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 42)
+layout_mode = 2
+theme_type_variation = &"StatusLabel"
+text = "本地热座已可用；其他作战模块正在开发中。"
+vertical_alignment = 1
+autowrap_mode = 2
+
+[node name="SetupPage" type="VBoxContainer" parent="SafeArea/MainLayout/RightShell/PageRoot"]
 unique_name_in_owner = true
 visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 10
+
+[node name="SetupHeading" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage"]
 layout_mode = 2
-theme_override_colors/font_color = Color(1, 0.42, 0.42, 1)
+theme_type_variation = &"SectionLabel"
+text = "本地热座"
+
+[node name="SetupHint" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage"]
+layout_mode = 2
+theme_type_variation = &"MutedLabel"
+text = "分别选择两席牌组；允许使用相同牌组。先后手与洗牌由引擎处理。"
+autowrap_mode = 2
+
+[node name="SetupDivider" type="HSeparator" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage"]
+layout_mode = 2
+
+[node name="Player0Card" type="PanelContainer" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage"]
+layout_mode = 2
+
+[node name="Player0Content" type="VBoxContainer" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage/Player0Card"]
+layout_mode = 2
+theme_override_constants/separation = 5
+
+[node name="Player0Header" type="HBoxContainer" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage/Player0Card/Player0Content"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Player0Label" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage/Player0Card/Player0Content/Player0Header"]
+custom_minimum_size = Vector2(96, 42)
+layout_mode = 2
+text = "玩家 0"
+vertical_alignment = 1
+
+[node name="Player0Deck" type="OptionButton" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage/Player0Card/Player0Content/Player0Header"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 42)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Player0Faction" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage/Player0Card/Player0Content"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.38, 0.9, 0.96, 1)
+theme_override_font_sizes/font_size = 17
+
+[node name="Player0Preview" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage/Player0Card/Player0Content"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"MutedLabel"
+autowrap_mode = 2
+
+[node name="Player1Card" type="PanelContainer" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage"]
+layout_mode = 2
+
+[node name="Player1Content" type="VBoxContainer" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage/Player1Card"]
+layout_mode = 2
+theme_override_constants/separation = 5
+
+[node name="Player1Header" type="HBoxContainer" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage/Player1Card/Player1Content"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="Player1Label" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage/Player1Card/Player1Content/Player1Header"]
+custom_minimum_size = Vector2(96, 42)
+layout_mode = 2
+text = "玩家 1"
+vertical_alignment = 1
+
+[node name="Player1Deck" type="OptionButton" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage/Player1Card/Player1Content/Player1Header"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 42)
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="Player1Faction" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage/Player1Card/Player1Content"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.86, 0.58, 1, 1)
+theme_override_font_sizes/font_size = 17
+
+[node name="Player1Preview" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage/Player1Card/Player1Content"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"MutedLabel"
+autowrap_mode = 2
+
+[node name="PrivacyHint" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.68, 0.76, 0.79, 1)
+theme_override_font_sizes/font_size = 16
+text = "隐私保护：比赛开始后先进入完全不透明的交接页，主动揭示后才读取当前玩家快照。"
+autowrap_mode = 2
+
+[node name="ErrorLabel" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.44, 0.46, 1)
+theme_override_font_sizes/font_size = 16
+autowrap_mode = 2
+
+[node name="SetupSpacer" type="Control" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="SetupActions" type="HBoxContainer" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="SetupBackButton" type="Button" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage/SetupActions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "返回"
+
+[node name="StartButton" type="Button" parent="SafeArea/MainLayout/RightShell/PageRoot/SetupPage/SetupActions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"PrimaryButton"
+text = "开始对局"
+
+[node name="SettingsPage" type="VBoxContainer" parent="SafeArea/MainLayout/RightShell/PageRoot"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 10
+
+[node name="SettingsHeading" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/SettingsPage"]
+layout_mode = 2
+theme_type_variation = &"SectionLabel"
+text = "视觉与显示"
+
+[node name="SettingsHint" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/SettingsPage"]
+layout_mode = 2
+theme_type_variation = &"MutedLabel"
+text = "设置将保存在本机；无效配置会在下次启动时自动恢复默认值。"
+autowrap_mode = 2
+
+[node name="SettingsDivider" type="HSeparator" parent="SafeArea/MainLayout/RightShell/PageRoot/SettingsPage"]
+layout_mode = 2
+
+[node name="SettingsScroll" type="ScrollContainer" parent="SafeArea/MainLayout/RightShell/PageRoot/SettingsPage"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 0
+
+[node name="SettingsFields" type="VBoxContainer" parent="SafeArea/MainLayout/RightShell/PageRoot/SettingsPage/SettingsScroll"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 12
+
+[node name="WindowModeLabel" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/SettingsPage/SettingsScroll/SettingsFields"]
+layout_mode = 2
+text = "显示模式"
+
+[node name="WindowModeOption" type="OptionButton" parent="SafeArea/MainLayout/RightShell/PageRoot/SettingsPage/SettingsScroll/SettingsFields"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+
+[node name="ResolutionLabel" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/SettingsPage/SettingsScroll/SettingsFields"]
+layout_mode = 2
+text = "窗口尺寸"
+
+[node name="ResolutionOption" type="OptionButton" parent="SafeArea/MainLayout/RightShell/PageRoot/SettingsPage/SettingsScroll/SettingsFields"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+
+[node name="UiScaleLabel" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/SettingsPage/SettingsScroll/SettingsFields"]
+layout_mode = 2
+text = "界面缩放"
+
+[node name="UiScaleOption" type="OptionButton" parent="SafeArea/MainLayout/RightShell/PageRoot/SettingsPage/SettingsScroll/SettingsFields"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 44)
+layout_mode = 2
+
+[node name="VSyncCheck" type="CheckButton" parent="SafeArea/MainLayout/RightShell/PageRoot/SettingsPage/SettingsScroll/SettingsFields"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 42)
+layout_mode = 2
+text = "垂直同步（VSync）"
+
+[node name="ReduceMotionCheck" type="CheckButton" parent="SafeArea/MainLayout/RightShell/PageRoot/SettingsPage/SettingsScroll/SettingsFields"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 42)
+layout_mode = 2
+text = "减少动画（持续时间压缩到 0～50 ms）"
+
+[node name="SettingsStatus" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/SettingsPage"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 32)
+layout_mode = 2
+theme_type_variation = &"StatusLabel"
+autowrap_mode = 2
+
+[node name="SettingsActions" type="HBoxContainer" parent="SafeArea/MainLayout/RightShell/PageRoot/SettingsPage"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="SettingsBackButton" type="Button" parent="SafeArea/MainLayout/RightShell/PageRoot/SettingsPage/SettingsActions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+size_flags_horizontal = 3
+text = "取消"
+
+[node name="SaveSettingsButton" type="Button" parent="SafeArea/MainLayout/RightShell/PageRoot/SettingsPage/SettingsActions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 50)
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"PrimaryButton"
+text = "保存并应用"
+
+[node name="ErrorPage" type="VBoxContainer" parent="SafeArea/MainLayout/RightShell/PageRoot"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 16
+
+[node name="ErrorTopSpacer" type="Control" parent="SafeArea/MainLayout/RightShell/PageRoot/ErrorPage"]
+custom_minimum_size = Vector2(0, 58)
+layout_mode = 2
+
+[node name="ErrorGlyph" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/ErrorPage"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.48, 0.45, 1)
+theme_override_font_sizes/font_size = 48
+text = "△"
+horizontal_alignment = 1
+
+[node name="ErrorHeading" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/ErrorPage"]
+layout_mode = 2
+theme_type_variation = &"SectionLabel"
+text = "客户端暂不可用"
+horizontal_alignment = 1
+
+[node name="ErrorPageMessage" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/ErrorPage"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.62, 0.58, 1)
 theme_override_font_sizes/font_size = 18
+text = "原生引擎未能通过预检。"
 horizontal_alignment = 1
 autowrap_mode = 2
 
-[node name="Footer" type="Label" parent="Center/Card/Margin/Content"]
+[node name="ErrorExplanation" type="Label" parent="SafeArea/MainLayout/RightShell/PageRoot/ErrorPage"]
 layout_mode = 2
-theme_override_colors/font_color = Color(0.48, 0.54, 0.6, 1)
-theme_override_font_sizes/font_size = 17
-text = "本阶段只展示第一张真实引擎快照，不在 C# 中复算规则。"
+theme_type_variation = &"MutedLabel"
+text = "主菜单与设置仍可使用；问题解决前，本地热座不会进入不完整的对局。"
 horizontal_alignment = 1
+autowrap_mode = 2
+
+[node name="ErrorSpacer" type="Control" parent="SafeArea/MainLayout/RightShell/PageRoot/ErrorPage"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="ErrorReturnButton" type="Button" parent="SafeArea/MainLayout/RightShell/PageRoot/ErrorPage"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 52)
+layout_mode = 2
+theme_type_variation = &"PrimaryButton"
+text = "返回主菜单"
+
+[node name="AboutDialog" type="AcceptDialog" parent="."]
+unique_name_in_owner = true
+title = "SomeCardGameShit"
+initial_position = 2
+size = Vector2i(640, 410)
+ok_button_text = "关闭"
+dialog_text = "SomeCardGameShit · 本地热座原型\n\n原创科幻卡牌对战原型。当前版本支持本地热座；其他产品入口仍在开发。\n\n客户端：Godot 4.7.2 .NET（MIT）\n字体：Noto Sans CJK SC（SIL OFL 1.1）\n原生规则引擎：项目 GPL-3.0-or-later\n\n完整许可证和第三方声明随导出包提供。"

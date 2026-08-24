@@ -52,6 +52,7 @@ public sealed partial class DirectActionPanel : PanelContainer
             {
                 Text = label,
                 CustomMinimumSize = new Vector2(108, 42),
+                ThemeTypeVariation = "PrimaryButton",
                 FocusMode = FocusModeEnum.All,
                 TooltipText = label,
             };

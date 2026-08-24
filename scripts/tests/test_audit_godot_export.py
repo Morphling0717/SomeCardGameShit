@@ -54,7 +54,7 @@ def _write_template_archive(path: Path, binary: bytes | None) -> str:
 
 
 class GodotExportAuditTests(unittest.TestCase):
-    def test_finalize_and_audit_lock_gate4a_build_info(self) -> None:
+    def test_finalize_and_audit_lock_gate4b_build_info(self) -> None:
         root = SCRIPTS.parent
         finalize = (root / "scripts/ci/finalize_godot_export.py").read_text(
             encoding="utf-8"
@@ -64,7 +64,7 @@ class GodotExportAuditTests(unittest.TestCase):
         )
         for source in (finalize, audit_source):
             with self.subTest(source=source.splitlines()[1]):
-                self.assertIn("SomeCardGameShit Gate 4A", source)
+                self.assertIn("SomeCardGameShit Gate 4B", source)
                 self.assertNotIn("SomeCardGameShit Gate 3C", source)
 
     def test_ci_waits_for_cold_import_and_uses_official_macos_template_shape(
@@ -92,6 +92,10 @@ class GodotExportAuditTests(unittest.TestCase):
             preset,
         )
         self.assertIn("texture_format/etc2_astc=true", preset)
+        self.assertEqual(
+            2,
+            preset.count("tests/visual_goldens/gate4b/windows-1600x900/*"),
+        )
         self.assertIn(
             "textures/vram_compression/import_etc2_astc=true", project
         )
@@ -104,9 +108,9 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertEqual(("Debug", "Release"), GODOT_BUILD_CONFIGURATIONS)
         self.assertEqual(8, workflow.count("validate_gate4a_report.py"))
         self.assertEqual(8, workflow.count("--scenario full-match"))
-        self.assertEqual(8, workflow.count("--expect-output SCGS_GODOT_CI_SMOKE_OK"))
-        self.assertEqual(8, workflow.count("--expect-output-count 1"))
-        self.assertEqual(8, workflow.count("Unhandled exception"))
+        self.assertEqual(9, workflow.count("--expect-output SCGS_GODOT_CI_SMOKE_OK"))
+        self.assertEqual(9, workflow.count("--expect-output-count 1"))
+        self.assertEqual(9, workflow.count("Unhandled exception"))
         self.assertEqual(4, workflow.count("gate4a-current-project-"))
         self.assertEqual(2, workflow.count("gate4a-export-"))
         self.assertEqual(2, workflow.count("gate4a-roundtrip-"))
@@ -123,8 +127,8 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertNotIn("validate_gate3c_report.py", workflow)
         self.assertNotIn("SomeCardGameShit-gate3b-", workflow)
         self.assertNotIn("SomeCardGameShit-gate3c-", workflow)
-        self.assertIn("SomeCardGameShit-gate4a-windows-x86_64", workflow)
-        self.assertIn("SomeCardGameShit-gate4a-macos-arm64", workflow)
+        self.assertIn("SomeCardGameShit-gate4b-windows-x86_64", workflow)
+        self.assertIn("SomeCardGameShit-gate4b-macos-arm64", workflow)
 
     def test_prepare_template_adds_executable_arm64_release(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -274,6 +278,8 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertIn("Godot-COPYRIGHT.txt", LICENSE_MARKERS)
         self.assertIn("Dotnet-Runtime-LICENSE.txt", LICENSE_MARKERS)
         self.assertIn("Dotnet-Runtime-THIRD-PARTY-NOTICES.txt", LICENSE_MARKERS)
+        self.assertIn("ASSET_NOTICES.md", LICENSE_MARKERS)
+        self.assertIn("ASSET_MANIFEST.json", LICENSE_MARKERS)
 
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -281,7 +287,7 @@ class GodotExportAuditTests(unittest.TestCase):
                 content = marker
                 if filename == "BUILD_INFO.txt":
                     content = (
-                        "SomeCardGameShit Gate 4A\n"
+                        "SomeCardGameShit Gate 4B\n"
                         "commit=0123456789abcdef0123456789abcdef01234567\n"
                         f"{marker}\n"
                         "dotnet_sdk=10.0.400\n"
@@ -301,7 +307,7 @@ class GodotExportAuditTests(unittest.TestCase):
                 content = marker
                 if filename == "BUILD_INFO.txt":
                     content = (
-                        "SomeCardGameShit Gate 4A\n"
+                        "SomeCardGameShit Gate 4B\n"
                         "commit=local\n"
                         "godot=4.7.2.stable.mono\n"
                         "dotnet_sdk=10.0.400\n"
@@ -318,7 +324,7 @@ class GodotExportAuditTests(unittest.TestCase):
             ):
                 with self.subTest(field=old):
                     valid = (
-                        "SomeCardGameShit Gate 4A\n"
+                        "SomeCardGameShit Gate 4B\n"
                         "commit=local\n"
                         "godot=4.7.2.stable.mono\n"
                         "dotnet_sdk=10.0.400\n"
@@ -329,7 +335,7 @@ class GodotExportAuditTests(unittest.TestCase):
                         _audit_licenses(directory)
 
             valid = (
-                "SomeCardGameShit Gate 4A\n"
+                "SomeCardGameShit Gate 4B\n"
                 "commit=0123456789abcdef0123456789abcdef01234567\n"
                 "godot=4.7.2.stable.mono\n"
                 "dotnet_sdk=10.0.400\n"

@@ -1,17 +1,23 @@
-[gd_scene load_steps=2 format=3]
+[gd_scene load_steps=3 format=3]
 
 [ext_resource type="Script" path="res://scripts/UI/ActionPromptPanel.cs" id="1_script"]
+[ext_resource type="PackedScene" path="res://scenes/components/GlassSurface.tscn" id="2_glass"]
 
 [node name="ActionPromptPanel" type="PanelContainer"]
 visible = false
+theme_type_variation = &"GlassModal"
+mouse_filter = 0
 script = ExtResource("1_script")
+
+[node name="GlassSurface" parent="." instance=ExtResource("2_glass")]
+show_behind_parent = true
 
 [node name="Margin" type="MarginContainer" parent="."]
 layout_mode = 2
-theme_override_constants/margin_left = 12
-theme_override_constants/margin_top = 8
-theme_override_constants/margin_right = 12
-theme_override_constants/margin_bottom = 8
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 14
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 14
 
 [node name="Layout" type="VBoxContainer" parent="Margin"]
 layout_mode = 2
@@ -22,6 +28,7 @@ unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(0.46, 0.86, 0.81, 1)
 theme_override_font_sizes/font_size = 17
+theme_type_variation = &"SectionLabel"
 text = "选择行动"
 autowrap_mode = 2
 
@@ -34,5 +41,6 @@ theme_override_constants/separation = 5
 unique_name_in_owner = true
 custom_minimum_size = Vector2(0, 40)
 layout_mode = 2
+theme_type_variation = &"IconButton"
 theme_override_font_sizes/font_size = 16
 text = "取消选择"

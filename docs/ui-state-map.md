@@ -1,6 +1,6 @@
 # Godot UI 状态图
 
-Gate 4A 在 Gate 3C 的完整热座闭环上把默认战场改为 3D/2.5D，同时保留隐藏的 legacy 2D 回归 presenter。`HotseatUiState` 与 `HotseatInteractionContext` 是两个 presenter 的共同输入，但不是规则真值；快照、合法行动、支付与胜负仍来自引擎。
+Gate 4B-R1 在 Gate 4A/4A.1 的默认 3D/2.5D 完整热座闭环上建立现代玻璃产品视觉基线，同时保留隐藏的 legacy 2D 回归 presenter。`HotseatUiState` 与 `HotseatInteractionContext` 是两个 presenter 的共同输入，但不是规则真值；快照、合法行动、支付与胜负仍来自引擎。Gate 4B-R1 只更换菜单、HUD、卡面、弹层和安全视觉提示，不改变 11 种 `ActionKind`、两阶段提交或热座隐私状态机。
 
 ## 应用生命周期
 
@@ -24,7 +24,16 @@ Booting ──ABI/schema 可用──> MainMenu ──开始──> CreatingMatc
 
 重开不是复用旧 handle：先 dispose 旧 controller/session，再按产品随机配置重新 create/start，并回到初始完全遮挡。重复 dispose 安全，`SafeHandle` 保证 native destroy 至多一次。
 
-表现后端只在应用启动时决定：默认进入 `3D`，精确启动参数 `--legacy-2d-board` 才进入 `legacy-2D`。它不是比赛中可切换的 UI 状态；两个后端必须走同一热座状态机与 surface intent 协调器。
+表现后端只在应用启动时决定：默认进入 `3D`，精确启动参数 `--legacy-2d-board` 才进入 `legacy-2D`。它不是比赛中可切换的 UI 状态；两个后端必须走同一热座状态机与 surface intent 协调器。legacy 2D 只是隐藏的自动回归后门，不在产品菜单中提供视觉等价的第二模式。
+
+## Gate 4B-R1 产品壳与玻璃 HUD
+
+- `MainMenu` 是完整产品入口：本地热座可用，单人、在线、牌组、图鉴与回放显示“开发中”且不创建 session；设置、退出、版本与许可证入口可用。
+- 本地热座设置允许两席独立选择 `midrange` / `advance`，允许同牌组。窗口/无边框全屏、窗口分辨率、UI 缩放、VSync 与减少动画持久化到 `user://settings.cfg`，非法值回退默认。
+- 对局 HUD 不再使用左右全高黑栏：左侧是可折叠、按分辨率自适应宽度的卡牌详情抽屉；右上是对手/己方双悬浮状态舱；阶段使用顶部玻璃胶囊；结束回合按钮靠近己方区域。开发诊断文字只能由 `F3` 或 `--show-debug-ui` 显示。
+- 两张临时主战者头像只按对局设置中的公开牌组映射；同牌组两席可使用同头像，由席位标签、位置和活动光环区分。未知牌组只使用中性 fallback，头像不读取 viewer 私密 DTO。
+- 调度、响应、战备、暂停、结果、错误和日志使用同一玻璃主题。`Covered` 是唯一必须保持全屏完全不透明的产品状态；`Resolving` 只保留公开战场和窄结算提示。
+- 卡图、卡背、菜单背景和头像都是可替换临时素材，不是最终发布美术；本 Gate 没有加入音频。
 
 ## 热座与提交状态
 
@@ -86,7 +95,7 @@ None
   ├─ HUD 命中或输入已被消费 ───────────> 停止；不发射空间射线
   ├─ mode 不是 Action / Reaction ─────> 停止；不读取碰撞对象
   └─ 允许空间输入
-       └─ Camera3D raycast → actor/slot/leader/cast-zone
+       └─ Camera3D raycast → card actor / slot / leader / standby surface
               └─ HotseatSurfaceRef → HotseatSurfaceIntent
 ```
 
@@ -101,7 +110,7 @@ None
 | 状态 | 可以访问 native | 可以显示敏感数据 | 用户动作 |
 |---|---|---|---|
 | `Booting` | 仅 ABI/version 与预检 session | 否 | 退出 |
-| `MainMenu` | 否 | 否 | 两席选牌组、开始、退出 |
+| `MainMenu` | 否 | 否 | 产品导航、两席选牌组、视觉设置、开始、退出 |
 | `CreatingMatch` | create/start | 否 | 退出 |
 | `Covered(InitialReveal/PassingDevice)` | 不得读取等待中的新 viewer | 否；全画面完全不透明 | 揭示、返回菜单 |
 | `MulliganSelecting` | 当前 viewer 的 view/actions/events | 是，仅该 viewer 安全视图 | 切换调度牌、整批确认 |
@@ -147,6 +156,19 @@ Player0 与 Player1 的 cursor 独立。未完成渲染前不得 ACK；重读同
 - engine 规则拒绝不是异常；回到刷新后的旧 viewer 状态并显示中文原因。
 - native/协议异常进入 `Faulted`，私密 UI 先清空；恢复路径释放旧 session。
 
+## Gate 4B-R1 视觉与资源自动契约
+
+- 视觉目录登记 34 项媒体：29 张独立卡图、通用正面 fallback、1 张卡背、1 张菜单背景和 2 张牌组头像。每项记录路径、SHA-256、用途、生成方式、日期与 prompt 摘要；未登记、缺失、重复或哈希不符都使自动审计失败。
+- display-backed 视觉套件在 1280×720、1600×900、2560×1440 与 2560×1600 运行，覆盖菜单、对局设置、错误、调度、`Covered`、普通行动、来源选择、格位/目标选择、`Resolving`、响应与结果 11 种状态。
+- 结构契约检查控件不越界、HUD 不重叠、无全高不透明黑栏、正常模式无调试标签、战场可见占比、调度托盘不遮手牌，并在 `Resolving` 最终 GPU 画面扫描隐私哨兵。1600×900 golden 只能在人工审阅后显式更新，CI 不自动批准新 golden。
+- 最大场面经过 300 帧预热和 300 帧测量，要求 actor/material/texture 数零增长。硬件加速 renderer 还必须满足 p95 ≤ 33.3 ms 且单帧 < 100 ms；被明确识别的纯软件 renderer 只豁免 GPU 时间阈值，11 状态功能、截图、布局、隐私、600 帧和资源零增长仍全部强制，其 timing 不作为硬件性能证据。
+
 ## 发布前人工硬门
 
-自动 signal smoke 可以覆盖状态遍历和导出启动，但不能替代两种参考分辨率的 3D 人工视觉遍历、物理 Apple Silicon Mac 整局/重开，也不能替代两名真人对空间拾取、公共结算、完全遮挡、透视翻转、设备交接和主动揭示的观察。
+Gate 4B-R1 的四分辨率、11 状态、隐私哨兵与性能/资源自动契约已完成，但仍不能替代以下三项发布硬门：
+
+1. 在物理 Apple Silicon Mac 上完成整局、退出与重开；
+2. 在未安装 Visual Studio 的 Windows x86-64 机器上从导出包完成整局；
+3. 两名真人完成一局热座，并逐次观察空间拾取、公共结算、完全遮挡、透视翻转、设备交接与主动揭示。
+
+三项都有真实记录前不允许标记 `v0.4-hotseat-alpha.1`。

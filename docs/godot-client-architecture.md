@@ -1,12 +1,13 @@
 # Godot 客户端架构
 
-本文描述 Gate 4A / 4A.1 的 Godot 4.7.2 .NET 桌面客户端边界。规则、费用、目标、响应与胜负仍完全由 C++ 引擎裁决；托管层只编排安全查询/规范命令，Godot 的默认 3D 与隐藏 legacy 2D presenter 都只把点击、拖拽和键盘输入转换成同一套 surface intent。
+本文描述 Gate 4B-R1 的 Godot 4.7.2 .NET 桌面客户端边界。规则、费用、目标、响应与胜负仍完全由 C++ 引擎裁决；托管层只编排安全查询/规范命令，Godot 的 authored 默认 3D 与隐藏 legacy 2D presenter 都只把点击、拖拽和键盘输入转换成同一套 surface intent。卡图、头像、玻璃 HUD 和基础特效是可替换的表现边界，不是第二套规则实现。
 
 ## 分层
 
 ```text
-Godot Match 场景、presenter 与观看者 HUD（net8.0，主线程）
-              │ 只依赖 HotseatUiState / surface intent
+Godot 产品菜单、Match 场景、presenter 与观看者 HUD（net8.0，主线程）
+ CardVisualCatalog / MatchVisualIdentity / Glass HUD / 安全 FX
+              │ 只依赖公开设置、HotseatUiState / surface intent
               ▼
 Scgs.Hotseat（纯托管，net8.0 / net10.0）
               │ 只依赖 IScgsGameSession
@@ -19,7 +20,7 @@ scgs_v04（C11 ABI 1.0，同提交构建）
 观看者安全 C++ API → Game / C++20 规则真值
 ```
 
-`BootstrapController` 是组合根：它创建 `ScgsGameSession`，启动比赛，再把 `IScgsGameSession` 交给 `HotseatMatchController`。Godot 工程不得引用引擎内部头、`PlayerState`、legacy YGOPro2 类型，也不得复制费用、合法目标、响应资格或胜负判断。
+`BootstrapController` 是组合根：它创建 `ScgsGameSession`，启动比赛，再把 `IScgsGameSession` 交给 `HotseatMatchController`，同时把两席公开牌组选择转换成 `MatchVisualIdentity`。Godot 工程不得引用引擎内部头、`PlayerState`、legacy YGOPro2 类型，也不得复制费用、合法目标、响应资格或胜负判断。
 
 ## 工具链与目标
 
@@ -105,9 +106,19 @@ CastSpell 的显式顺序固定为“选择手牌法术 → 选择己方空策�
 - 同 revision 的同一来源与目的地必须得到逐字段相等的 `GameCommandRequest`；
 - `Covered`、`Resolving`、`Finished`、`Faulted` 和 `Disposed` 都拒绝空间输入。
 
-默认 3D 使用 Compatibility renderer 下的固定透视相机：FOV 为 70°、俯角约 58°，并按当前 viewer 将己方一侧保持在近端。透视翻转只能在完全不透明遮挡中完成，不能在可见帧泄露下一位玩家的方向或对象。HUD 位于独立 `CanvasLayer`；鼠标先做 HUD hit-test，被 UI 消费时不得继续发射战场射线。空间点击/拖拽通过碰撞层命中 actor，移动达到 8 px 才进入拖拽，否则仍解释为点击。
+默认 3D 使用 Compatibility renderer 下的透视相机：FOV 为 58°、俯角约 58°，并按左侧详情抽屉、右上状态舱和 viewport 宽高比的安全矩形动态计算距离/水平偏移；当前 viewer 的己方一侧始终保持在近端。透视翻转只能在完全不透明遮挡中完成，不能在可见帧泄露下一位玩家的方向或对象。HUD 位于独立 `CanvasLayer`；鼠标先做 HUD hit-test，被 UI 消费时不得继续发射战场射线。空间点击/拖拽通过碰撞层命中 actor，移动达到 8 px 才进入拖拽，否则仍解释为点击。
 
-3D 卡牌 actor 使用对象池以避免同 revision 的整场销毁/重建。actor 归还池时必须清空 Label、材质参数、tooltip、metadata、碰撞层/掩码、signal/callback、拖拽 token、候选状态与 DTO 引用；取出时只从本次安全状态重新赋值。匿名牌背不能携带 definition ID、instance ID 或稳定的可关联 metadata。
+3D 卡牌 actor 使用对象池以避免同 revision 的整场销毁/重建。actor 归还池时必须清空 Label、definition-specific 卡图、材质/shader 参数、tooltip、metadata、碰撞层/掩码、signal/callback、tween、拖拽 token、候选状态与 DTO 引用；取出时只从本次安全状态重新赋值。匿名 actor 只绑定全局共享卡背，不能携带 definition ID、instance ID、身份材质或稳定的可关联 metadata。
+
+## 视觉目录、身份与 HUD
+
+`CardVisualCatalog` 对 29 个现有 definition 提供唯一原创临时卡图，并暴露未知卡的无身份 fallback 正面和所有隐藏牌共享的卡背。`LeaderPortraitCatalog` 仅根据对局开始前公开的 `midrange` / `advance` 选择建立 `MatchVisualIdentity`；同牌组双席可以使用同一头像，席位标签和活动光环仍会区分玩家。未知牌组使用中性 fallback。
+
+`ASSET_MANIFEST.json` 严格记录 34 项视觉资产：29 张卡图、1 张卡背、1 张菜单背景、1 个 fallback 正面和 2 张头像。目录层只负责路径、阵营、框体与纹理选择；不推导卡牌费用、类型、效果或合法性。
+
+`GlassHudTheme` 管理 1280×720 以上的响应式安全矩形，`MatchHudPresenter` 只消费观看者安全 `MatchView`、`HotseatPublicBoardView` 和公开视觉身份。它将卡牌详情放在左侧 248/288/320 px 自适应抽屉，无卡时收窄；两个玩家状态舱独立悬浮在右上，阶段胶囊、结束回合、暂停和日志不构成全高侧栏。开发诊断只在 F3 或 `--show-debug-ui` 显示。
+
+同一 viewport 只实例化一个 `BackBufferCopy`，共享 screen-reading CanvasItem shader 对顶层玻璃控件做背景模糊、半透明渐变、圆角遮罩、柔和高光和细描边。普通玻璃合成保持可读而不形成全高不透明黑栏；完全不透明仅用于 `Covered` 物理交接。基础 FX 队列只消费安全 DTO、公开事件与公共投影，revision/viewer/mode 变化时取消旧 tween 和回调。
 
 ## Resolving 公共投影与交接遮挡
 
@@ -144,22 +155,29 @@ CastSpell 的显式顺序固定为“选择手牌法术 → 选择己方空策�
 ## Godot 场景与控件
 
 - `Bootstrap`：定位、加载并验证原生库，创建/释放 session，处理重开与受控错误；
-- `MainMenu`：两席分别选择 `midrange` 或 `advance`，允许相同牌组；
-- `Match`：渲染双方公开资源、战备、单位、策略、墓地/封存、己方手牌和对方牌背，并把点击/拖拽转交给热座控制器；
+- `MainMenu`：全屏菜单背景和悬浮玻璃导航。本地热座可用；单人、在线、牌组编辑、图鉴和录像只显示“开发中”且不访问 native；
+- 对局设置：两席分别选择 `midrange` 或 `advance`，允许相同牌组；卡组选择同时建立公开 `MatchVisualIdentity`；
+- 视觉设置：窗口/无边框全屏、四种窗口分辨率、四档 UI 缩放、VSync 和减少动画持久化到 `user://settings.cfg`，非法值归一默认；
+- `Match`：authored 3D 战场渲染双方公开资源、战备、单位、策略、墓地/封存、己方手牌和对方牌背，玻璃 HUD 绑定安全状态，点击/拖拽转交给热座控制器；
 - `PassDeviceOverlay`：仅用于初次揭示和真实换手的完全不透明遮挡；
 - `SnapshotSlot`：公开或脱敏卡位；隐藏卡绝不携带 definition/instance ID、tooltip 或可反推身份的 metadata；
-- 调度、卡牌详情、上下文动作、居中响应、事件日志与投降确认控件：承载复杂选择与信息；右侧栏只作可折叠详情/日志，不再是主要操作入口；
+- 调度玻璃托盘、左侧卡牌详情、卡旁上下文胶囊、居中响应、悬浮日志与投降确认：承载复杂选择与信息，不把主操作放回固定右侧列表；
 - `ResultOverlay`、`ErrorOverlay`：终局的重开/返回菜单，以及可恢复或不可恢复错误。
 
-产品启动省略 seed、随机决定先手并洗牌。测试路径可固定 seed、强制 Player0 且关闭洗牌。界面使用纯色几何和 DTO 派生的中文文本，不包含第二套正式卡牌表现 JSON。
+产品启动省略 seed、随机决定先手并洗牌。测试路径可固定 seed、强制 Player0 且关闭洗牌。界面使用严格目录管理的原创临时卡图/头像、Godot/SVG 卡框图标和 DTO 派生的中文文本，不包含第二套规则或独立正式卡牌表现 JSON。
 
-## Gate 4A / 4A.1 边界
+## Gate 4B-R1 视觉验收边界
 
-Gate 4A 在 Gate 3C 完整交互/隐私闭环上交付默认 3D/2.5D 占位战场、HUD/射线输入闸门、viewer 透视切换和安全 actor 池；Gate 4A.1 让法术正面占用玩家明确选择的策略位直至自身链环结算。legacy 2D 仅作隐藏回归。两者不增加卡牌、正式卡图、音效或复杂动画，也不改变 `scgs_v04` ABI/schema、14 个导出或 legacy v1 wire。自动化与导出验收状态以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准，不以本文替代测试报告。
+Gate 4A full-match 仍使用严格 schema version 3 验证 signal 两局、`ActionKind` 0～10、surface/raycast、两帧公共投影、透视、actor 池和零隐私泄露。Gate 4B-R1 另有独立的 visual-suite schema version 3：两者版本号相同，但字段白名单和 validator 不同，不得混用。
+
+display-backed 视觉套件在 1280×720、1600×900、2560×1440 和 2560×1600 捕获产品菜单、对局设置、Covered、调度、普通行动、来源选择、格位/目标选择、响应、Resolving、结果和错误 11 种状态。1600×900 感知 golden 的归一化 MAE 必须不高于 0.025，边缘差必须不高于 0.08。600 帧稳态证据由 300 帧预热 + 300 帧测量组成，预热后 actor/material/texture 数不得增长。
+
+报告同时记录 `adapter_name`、`adapter_type` 和 `timing_budget_applicable`。硬件适配器要求 p95 不高于 33.3 ms、单帧低于 100 ms；CPU 或明确的 Microsoft Basic Render Driver/llvmpipe/SwiftShader/software renderer 只不应用 GPU 时间预算，仍必须完成全部功能、截图结构、隐私哨兵、600 帧和资源零增长验证。34 项资产的路径、唯一性和哈希也是导出契约。自动化与导出验收状态以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准，不以本文替代测试报告。
 
 以下仍是发布标签前的硬门，不能因 headless 或 CI smoke 通过而省略：
 
 - 在物理 Apple Silicon Mac 上启动、完成整局、退出并重开；
+- 在未安装 Visual Studio 的 Windows x86-64 机器上启动导出包并完成整局；
 - 两名真人在目标桌面构建上完成热座整局并检查遮挡/交接。
 
-Developer ID 签名、公证、正式美术/音效/复杂动画、触摸/手柄、主战技、普通主动能力、同时触发人工排序、Web 与 Linux 正式客户端不属于本 Gate。Gate 4A 的源码完成也不能替代 1600×900/1280×720 人工视觉遍历、两名真人热座或物理目标机器验收。
+Developer ID 签名、公证、最终商业美术、音效/音乐、大型演出、触摸/手柄、联机、主战技、普通主动能力、同时触发人工排序、Web 与 Linux 正式客户端不属于本 Gate。临时原创美术、基础动效和自动视觉套件的完成不能替代两名真人热座或物理目标机器验收。

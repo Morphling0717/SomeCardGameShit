@@ -77,7 +77,7 @@ Gate 3A 的历史被测界面只显示 Mulligan 首张快照，不提交任何 `
 - [x] 支付预览与实际支付共享费用投影，不执行效果、不形成伏策侧信道
 - [x] pending 响应提供公开 `ReactionOrigin`，ABI 1.0/schema 1/14 导出与 legacy v1 wire 不变
 - [x] CI 脚本要求唯一 smoke 标记、Gate 3B 报告 schema、压缩包解包后复审与真实启动
-- [x] Gate 3B 被测实现的 Windows/macOS 导出与四项 CI 结果写入 `TEST_REPORT.md`
+- [x] Gate 3B 被测实现的 Windows/macOS 导出与四项 CI 结果写入对应被测提交中的历史 `TEST_REPORT.md`
 
 ### 发布标签前硬门
 
@@ -105,11 +105,11 @@ Gate 3B 使用 Noto 授权字体与原创纯色几何，不增加正式卡图、
 - [x] 初次揭示与真实操作者变化继续完全遮挡，新 viewer 主动揭示前零调用
 - [x] managed 覆盖每种动作的选择步骤/回退/规范命令；Godot 真实 signal E2E 覆盖自然终局、结果页重开与第二局投降终局
 - [x] Gate 3C schema v2 报告、Windows/macOS 导出与 ZIP 往返启动通过，制品改用 Gate 3C 名称
-- [x] 实现提交四项 CI 全绿并将真实命令、数量、run 与 artifact 摘要写入 `TEST_REPORT.md`；包含报告的分支尖端仍须再次全绿
+- [x] 实现提交四项 CI 全绿并将真实命令、数量、run 与 artifact 摘要写入对应被测提交中的历史 `TEST_REPORT.md`；包含报告的分支尖端仍须再次全绿
 
 Gate 3C 不改变 C++ 规则、`scgs_v04` ABI/schema、14 个导出、两副固定牌组或 legacy v1 wire。正式素材、复杂动画、触摸与手柄仍延后。
 
-Gate 3C 的剩余发布硬门是：主要选择/响应/结算/换手状态的逐页人工视觉遍历、两名真人完整热座、物理 Apple Silicon Mac，以及未安装 Visual Studio 的 Windows x86-64 机器整局。完成前仍不允许 `v0.4-hotseat-alpha.1` 标签。
+Gate 3C 当时遗留的逐页视觉遍历已由 Gate 4B-R1 的四分辨率、11 状态 display-backed 套件及人工批准 golden 取代并完成。当前仍未完成的发布硬门只保留两名真人完整热座、物理 Apple Silicon Mac，以及未安装 Visual Studio 的 Windows x86-64 机器整局；完成前仍不允许 `v0.4-hotseat-alpha.1` 标签。
 
 ## Gate 4A：默认 3D/2.5D 占位战场 — 自动化完成，人工硬门待验收
 
@@ -123,13 +123,13 @@ Gate 3C 的剩余发布硬门是：主要选择/响应/结算/换手状态的逐
 - [x] 卡牌 actor 池在回收时清除文字、材质、metadata、tooltip、碰撞、回调和拖拽 token
 - [x] `Covered` 与 `Resolving` 的 3D 空间状态不泄露 viewer 私密身份；显示环境经过两个 `FramePostDraw` 后才提交
 
-### 自动化、导出与人工硬门
+### 自动化、导出与历史人工硬门
 
 - [x] Gate 4A schema v3 严格继承 Gate 3C 全部整局/隐私证据，并验证 surface、raycast、HUD、镜头、透视、对象池和空间泄露字段
 - [x] Windows/macOS 各完成默认 3D 当前工程、默认 3D 导出、默认 3D ZIP 往返和一次 legacy 2D 源码整局 smoke
 - [x] 导出 `BUILD_INFO.txt` 标识 Gate 4A，制品命名为 `SomeCardGameShit-gate4a-windows-x86_64` 与 `SomeCardGameShit-gate4a-macos-arm64`
-- [x] 最终分支尖端四项 CI 全绿，并将真实命令、数量、run、artifact 字节与 digest 写入 `TEST_REPORT.md`
-- [ ] 1600×900 与 1280×720 逐页视觉验收 3D 区域、中文、HUD 遮挡、目标提示与公共投影
+- [x] 最终分支尖端四项 CI 全绿，并将真实命令、数量、run、artifact 字节与 digest 写入对应被测提交中的历史 `TEST_REPORT.md`
+- [x] 原 Gate 4A 的 1600×900 与 1280×720 逐页视觉缺口已由 Gate 4B-R1 更严格的四分辨率、11 状态视觉契约覆盖
 - [ ] 两名真人、物理 Apple Silicon Mac 与无 Visual Studio Windows 机器完成目标构建整局/重开
 
 Gate 4A 不改变 C++ 规则、`scgs_v04` ABI/schema、14 个导出、固定牌组或 legacy v1 wire。正式卡图、音效、复杂动画、触摸、手柄和网络仍不在本 Gate；上述项目未有真实证据前不得勾选，也不得据此创建发布标签。
@@ -143,12 +143,41 @@ Gate 4A 不改变 C++ 规则、`scgs_v04` ABI/schema、14 个导出、固定牌�
 
 Gate 4A.1 改变 C++ 法术使用语义，但继续冻结 `scgs_v04` ABI/schema、14 个导出、ActionKind 数值和 legacy v1 wire。
 
+## Gate 4B-R1：现代玻璃 HUD 产品视觉基线 — 自动化完成，三项发布硬门待办
+
+### 产品菜单、HUD 与弹层
+
+- [x] 主菜单升级为产品导航壳；本地热座可用，单人/在线/牌组编辑/图鉴/录像仅显示“开发中”且不创建 session
+- [x] 对局设置支持两席独立选择现有牌组；设置实际保存窗口模式、窗口尺寸、UI 缩放、VSync 与减少动画，非法配置回退默认值
+- [x] 普通对局改为现代玻璃 HUD：左侧自适应卡牌详情抽屉、右上双方悬浮状态舱、战场上沿阶段胶囊和靠近己方区域的结束回合按钮
+- [x] 调度、响应、战备、暂停、日志、结果与错误界面统一为圆角玻璃弹层；普通状态不再出现全高不透明黑栏
+- [x] `Covered` 保持完全不透明；`Resolving` 只消费安全公共投影，锁死输入并在完整绘制两帧后提交
+- [x] 两张临时头像只按公开牌组设置映射；相同牌组可使用相同头像，未知牌组走中立 fallback
+- [x] 默认 3D 是唯一产品入口；`--legacy-2d-board` 仅保留为隐藏自动回归路径，不承诺视觉等价
+
+### 素材与自动视觉契约
+
+- [x] 视觉清单覆盖 34 项素材：29 张独立临时卡图、通用正面、统一卡背、菜单背景和两张临时头像；每项路径、用途与 SHA-256 唯一
+- [x] display-backed visual suite 固定捕获菜单、设置、`Covered`、调度、普通行动、来源选择、格位/目标选择、响应、`Resolving`、结果和错误共 11 类状态
+- [x] 1280×720、1600×900、2560×1440 与 2560×1600 均检查战场占比、HUD 安全区、调度/手牌不重叠、中文可读、区域归属和隐私；1600×900 golden 只能显式更新并经人工批准
+- [x] 隐私契约继续检查隐藏卡共用卡背、私密 DTO/材质/metadata/tooltip/callback/tween 清理与 `Resolving` GPU 洋红哨兵零像素；11 个 `ActionKind` 和既有隐私状态机不变
+- [x] 最大场面性能 smoke 预热 300 帧、测量 300 帧；测量期 actor/material/texture 数零增长，硬件渲染预算为 p95 ≤ 33.3 ms、单帧 < 100 ms；已识别纯软件 renderer 只豁免 GPU 时间阈值，11 状态功能、截图、布局、隐私、600 帧和资源零增长仍全部强制
+- [x] Gate 4B-R1 实现提交四项 CI 全绿；准确 run、断言数量和制品摘要只记录在 `TEST_REPORT.md`，本轮文档尖端仍须重新复验后才能记录为通过
+
+### 发布标签前仍未完成的三项硬门
+
+- [ ] 物理 Apple Silicon Mac 完成整局、退出和重开
+- [ ] 未安装 Visual Studio 的 Windows x86-64 机器启动导出包并完成整局
+- [ ] 两名真人完成完整热座对局，并逐次验证交接遮挡、交互可理解性和公共结算隐私
+
+三项全部完成并把发现的问题纳入自动回归后，才允许创建 `v0.4-hotseat-alpha.1` 标签。当前 29 张卡图、通用正面、卡背、菜单背景、两张头像和卡框都是可替换的原创临时素材，不等同于最终发布美术；本 Gate 也没有加入音效或音乐。
+
 ## Alpha 后续
 
 - [ ] 主战技与普通主动能力 UI
 - [ ] 同时触发人工排序
 - [ ] 固定牌组未使用关键词验收
-- [ ] 正式卡图、音效、动画与独立表现数据
+- [ ] 最终发布卡图/卡框/Logo、音效/音乐、复杂动画与独立表现数据
 - [ ] 异地联机、录像与版本化网络协议
 - [ ] 卡组编辑、内容扩展、平衡与真人数据
 

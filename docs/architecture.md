@@ -20,11 +20,13 @@ MatchView / LegalAction / Preview       expected_revision
                     │
        Scgs.Client 纯托管边界（Gate 3A）
                      │
-      Scgs.Hotseat 热座与 surface intent 编排（Gate 4A）
+      Scgs.Hotseat 热座与 surface intent 编排（Gate 4B-R1）
                      │
-     Godot 4.7.2 .NET presenter 边界（Gate 4A）
+     Godot 4.7.2 .NET 产品表现边界（Gate 4B-R1）
           ┌──────────┴──────────┐
-       默认 3D/2.5D        隐藏 legacy 2D
+ authored 默认 3D/2.5D   隐藏 legacy 2D
+ CardVisual/Portrait 目录   同源功能回归
+ Glass HUD / 安全 FX
 ```
 
 客户端不能直接读取 `PlayerState`、自行扣费或复算目标。它只能读取安全快照和查询结果，提交带 revision 的命令，再按观看者读取脱敏事件。legacy YGOPro2/Unity 代码不在现行调用链中。
@@ -45,15 +47,23 @@ Native 适配层只序列化 Gate 1 的安全 DTO，并且只经 `make_view`、�
 
 Gate 3C 把“结算”和“交接”拆为两种状态。准备命令后先进入不可交互的 `Resolving`，只保留不含 viewer 私有对象的中立公开战场，至少完整绘制两帧后才提交；初始揭示或操作者变化才进入完全不透明的 `Covered`。事件批次只有在相同 viewer/sequence 的日志完成绘制后才 ACK；换人时不得预取下一 viewer 的快照、查询或事件。
 
-## Gate 4A / 4A.1 表现与法术占位边界
+## Gate 4B-R1 表现与 Gate 4A.1 法术占位边界
 
-Gate 4A 引入 3D presenter；Gate 4A.1 把法术发动改为真实占用己方策略位。`IScgsGameSession`、C ABI、schema 1 与 legacy wire 均不改变，已有 `GameCommand.slot` 成为 CastSpell 的必填语义。`HotseatSurfaceInteractionCoordinator` 是 3D 与 2D 唯一共同操作入口：手牌、单位、策略、格位、战备和主战者都先转换为 `HotseatSurfaceRef`，点击与拖拽再转换为同一 `HotseatSurfaceIntent`。中央 CastZone 的冻结枚举值仅作兼容保留，任何对应 intent 都必须被拒绝；presenter 不能直接拼命令、扣费或推导目标。
+Gate 4B-R1 在 Gate 4A 的 3D presenter 与 Gate 4A.1 的策略位法术规则上只升级产品表现。`IScgsGameSession`、C ABI 1.0、schema 1、14 个导出与 legacy wire 均不改变，已有 `GameCommand.slot` 继续是 CastSpell 必填语义。`HotseatSurfaceInteractionCoordinator` 是 3D 与 2D 唯一共同操作入口：手牌、单位、策略、格位、战备和主战者都先转换为 `HotseatSurfaceRef`，点击与拖拽再转换为同一 `HotseatSurfaceIntent`。中央 CastZone 的冻结枚举值仅作兼容保留，任何对应 intent 都必须被拒绝；presenter 不能直接拼命令、扣费或推导目标。
 
 产品默认使用 3D/2.5D 战场；仅测试/排障可通过精确参数 `--legacy-2d-board` 启用旧 2D presenter，该路径不是面向玩家的模式选择。两种 presenter 必须消费同一 `HotseatUiState`，并保持相同选择、响应、`Resolving`、换手与终局状态机。
 
-3D 场景把空间战场与 `CanvasLayer` HUD 分开：固定透视相机采用 70° FOV、约 58° 俯角，靠近当前 viewer 的一侧只在完全遮挡期间重建；HUD 命中会阻止空间拾取，空间射线只在允许输入的 Action/Reaction 状态工作。拖拽超过 8 px 才成立，未达到阈值仍按点击处理；无效落点只恢复表现，不调用 native。
+authored 3D 场景把空间战场与 `CanvasLayer` HUD 分开：透视相机采用 58° FOV、约 58° 俯角，按左右 HUD 后的安全矩形和 16:9～16:10 画面动态调整距离/水平偏移；靠近当前 viewer 的一侧只在完全遮挡期间重建。HUD 命中会阻止空间拾取，空间射线只在允许输入的 Action/Reaction 状态工作。拖拽超过 8 px 才成立，未达到阈值仍按点击处理；无效落点只恢复表现，不调用 native。
 
-卡牌 actor 使用有限池复用。归还池前必须清除文字、材质参数、Godot metadata、tooltip、碰撞掩码、signal/callback、拖拽 token 与 viewer DTO 引用；从池中取出时再从当前公开/观看者安全状态完整赋值。进入 `Covered` 或 `Resolving` 时先执行同一清理，再由公共投影重建允许显示的 actor。Gate 4A 的显示提交屏障以至少两次 `FramePostDraw` 为准；无渲染循环的 headless smoke 使用两次 process-frame 栅栏作为专用回退。屏障期间禁止 raycast、事件 ACK、重复提交和旧 revision 回调。
+`CardVisualCatalog` 以 definition ID 映射 29 张唯一原创临时卡图，并提供无身份 fallback 正面与全局共享卡背。`MatchVisualIdentity` 只从公开的对局设置中得到两席牌组身份，`LeaderPortraitCatalog` 再映射两张临时头像；它们不读取 viewer 私密 DTO。连同卡背、菜单背景和 fallback 在内，`ASSET_MANIFEST.json` 对 34 项视觉资产做路径与 SHA-256 审计。视觉目录是可替换的表现数据，不是卡牌规则或第二套合法性数据。
+
+`GlassHudTheme` 集中响应式安全矩形，`MatchHudPresenter` 只把安全 `MatchView` / `HotseatPublicBoardView` 和公开视觉身份绑定到左侧可收窄详情抽屉、两个独立玩家状态舱、阶段胶囊与悬浮控制。同一 viewport 只使用一个 `BackBufferCopy`，共享 screen-reading CanvasItem shader 为顶层面板提供模糊、半透明渐变、圆角与细描边。普通产品状态不使用全高不透明黑栏；只有物理交接的 `Covered` 必须完全不透明。安全 FX 队列只消费观看者安全 DTO、公开事件和公共投影，不推导规则。
+
+主菜单在原生库不可用时仍可显示，只禁用本地热座。单人、在线、牌组编辑、图鉴和录像入口只能显示“开发中”，不得创建 session 或访问 native。视觉设置经 `IVisualSettingsStore` 持久化到 `user://settings.cfg`，且仅影响窗口、UI 缩放、VSync 和动效时长，不进入对局命令。
+
+卡牌 actor 使用有限池复用。归还池前必须清除文字、definition-specific 卡图/材质与 shader 参数、Godot metadata、tooltip、碰撞掩码、signal/callback、tween、拖拽 token 与 viewer DTO 引用；从池中取出时再从当前公开/观看者安全状态完整赋值。隐藏 actor 只绑定共享卡背。进入 `Covered` 或 `Resolving` 时先执行同一敏感数据清理；`Covered` 清空全部可见战场并保持完全不透明，只有 `Resolving` 从 `HotseatPublicBoardView` 重建允许显示的公共 actor。显示提交屏障以至少两次 `FramePostDraw` 为准；无渲染循环的 headless smoke 使用两次 process-frame 栅栏作为专用回退。屏障期间禁止 raycast、事件 ACK、重复提交和旧 revision 回调。
+
+Gate 4A full-match 与 Gate 4B-R1 visual suite 都使用 schema version 3，但前者验证两局功能/surface/隐私，后者验证四尺寸 11 种视觉状态、1600×900 golden、34 项资产和 600 帧资源/性能证据；它们是两套独立白名单与 validator。软件渲染只能豁免 GPU 时间阈值，不豁免功能、隐私或资源零增长。
 
 ## 规则域
 

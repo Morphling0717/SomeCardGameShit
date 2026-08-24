@@ -43,15 +43,25 @@ Godot headless 验证项目 import、无警告 C# build、场景/节点路径、
 
 schema version 2 的字段只能是：`schema_version`、`gate`、`scenario`、`seed`、`player0_deck`、`player1_deck`、`first_player`、`steps`、`turns`、`action_kinds`、`covers`、`reveals`、`premature_view_calls`、`signal_e2e`、`click_drag_canonical_parity`、`selection_commit_without_confirmation`、`resolving_public_frames`、`resolving_private_leaks`、`restarts`、`surrender_terminals`、`result`、`disposed_sessions`。`resolving_public_frames` 是所有命令中观察到的完整公共投影帧数最小值，不是累计帧数；因此 `>=2` 证明没有单条命令绕过绘制屏障。
 
-Gate 4A 使用严格 schema version 3，并把 Gate 3C 的全部字段和不变量原样继承：报告仍须覆盖 `action_kinds` 0～10、真实 signal 两局闭环、点击/拖拽一致、无通用确认、至少两次公共投影完整绘制、零提前 viewer 调用、零 `resolving_private_leaks`、重开、投降终局和两次 session 释放。新增字段只能是：`presentation_mode`、`surface_intent_e2e`、`raycast_e2e`、`hud_raycast_blocks`、`drag_threshold_pixels`、`camera_fov_degrees`、`camera_pitch_degrees`、`perspective_rebuilds`、`actor_pool_reuses`、`blocked_spatial_inputs`、`spatial_private_leaks`。
+**Gate 4A full-match schema version 3** 把 Gate 3C 的全部字段和不变量原样继承：报告仍须覆盖 `action_kinds` 0～10、真实 signal 两局闭环、点击/拖拽一致、无通用确认、至少两次公共投影完整绘制、零提前 viewer 调用、零 `resolving_private_leaks`、重开、投降终局和两次 session 释放。新增字段只能是：`presentation_mode`、`surface_intent_e2e`、`raycast_e2e`、`hud_raycast_blocks`、`drag_threshold_pixels`、`camera_fov_degrees`、`camera_pitch_degrees`、`perspective_rebuilds`、`actor_pool_reuses`、`blocked_spatial_inputs`、`spatial_private_leaks`。Gate 4B-R1 仍以这套报告作为完整对局功能回归。
 
-默认 3D full-match 必须报告 `presentation_mode="3d"`、`surface_intent_e2e=true`、`raycast_e2e=true`、`hud_raycast_blocks>=1`、`drag_threshold_pixels=8`、`camera_fov_degrees=70`、`camera_pitch_degrees=58`、`perspective_rebuilds>=1`、`actor_pool_reuses>=1`、`blocked_spatial_inputs>=1` 与 `spatial_private_leaks=0`。用精确参数 `--legacy-2d-board` 启动的源码回归必须报告 `presentation_mode="legacy-2d"`、`surface_intent_e2e=true`、`raycast_e2e=false`、`spatial_private_leaks=0`，其余 3D 专属计数/常量字段为 0。Gate 3B、Gate 3C 与 Gate 4A validator/CTest 必须并存，后续 Gate 不能降低历史报告契约。
+当前默认 3D full-match 必须报告 `presentation_mode="3d"`、`surface_intent_e2e=true`、`raycast_e2e=true`、`hud_raycast_blocks>=1`、`drag_threshold_pixels=8`、`camera_fov_degrees=58`、`camera_pitch_degrees=58`、`perspective_rebuilds>=1`、`actor_pool_reuses>=1`、`blocked_spatial_inputs>=1` 与 `spatial_private_leaks=0`。validator 仅为已归档 Gate 4A 报告保留旧镜头字段兼容，新的 Gate 4B-R1 产品证据必须使用 58°/58°。用精确参数 `--legacy-2d-board` 启动的源码回归必须报告 `presentation_mode="legacy-2d"`、`surface_intent_e2e=true`、`raycast_e2e=false`、`spatial_private_leaks=0`，其余 3D 专属计数/常量字段为 0。Gate 3B、Gate 3C 与 Gate 4A validator/CTest 必须并存，后续 Gate 不能降低历史报告契约。
 
-Windows/macOS job 还必须实际导出并启动产物；只在编辑器运行不算通过。Gate 4A 在每个平台运行四次 full-match：默认 3D 当前工程、隐藏 legacy 2D 当前工程、默认 3D 导出、默认 3D ZIP 往返。Windows 审计 DLL 与 EXE 同目录、x86-64 和静态 CRT；macOS 审计 arm64、`Contents/Frameworks`、ad-hoc codesign 与执行权限。两者的 `BUILD_INFO.txt` 都必须精确标识 Gate 4A、锁定工具链和当前 CI checkout commit。压缩后必须解包、重新审计并再次启动。每次 full-match smoke 的外部上限为 180 秒，日志不得含 C# exception 或 Godot error；唯一成功标记 `SCGS_GODOT_CI_SMOKE_OK` 必须恰好出现一次。
+Windows/macOS job 还必须实际导出并启动产物；只在编辑器运行不算通过。当前产品在每个平台保留四次 Gate 4A full-match：默认 3D 当前工程、隐藏 legacy 2D 当前工程、默认 3D 导出、默认 3D ZIP 往返。Windows 审计 DLL 与 EXE 同目录、x86-64 和静态 CRT；macOS 审计 arm64、`Contents/Frameworks`、ad-hoc codesign 与执行权限。两者的 `BUILD_INFO.txt` 都必须精确标识 Gate 4B、锁定工具链和当前 CI checkout commit。压缩后必须解包、重新审计并再次启动。每次 full-match smoke 的外部上限为 180 秒，日志不得含 C# exception 或 Godot error；唯一成功标记 `SCGS_GODOT_CI_SMOKE_OK` 必须恰好出现一次。
+
+### Gate 4B-R1 视觉、素材与性能契约
+
+**Gate 4B-R1 visual-suite schema version 3** 是 display-backed 截图/性能报告，不是上述 Gate 4A full-match schema version 3。它们恰好共用版本号，但字段白名单、场景证据和 validator 完全独立。视觉报告必须捕获且仅捕获这 11 种产品状态：`menu`、`match-setup`、`covered`、`mulligan`、`action`、`source-selection`、`slot-or-target-selection`、`reaction`、`resolving`、`result`、`error`。每张截图等待 `ProcessFrame + FramePostDraw`，记录 state/viewer/revision/viewport/资产清单哈希，并扫描 GPU 最终画面中的恶意洋红私密纹理哨兵。
+
+Windows 在 1280×720、1600×900、2560×1440 和 2560×1600 四种真实窗口尺寸运行套件。四种尺寸都严格检查控件不越界/重叠、战场占比、调度手牌/托盘分离、无全高不透明黑栏、隐藏调试文本和隐私。1600×900 还与只能显式更新的 committed golden 比较：先缩小至 320×180，归一化 MAE 不高于 0.025，边缘差不高于 0.08。macOS 保留资源、结构、ARM64、签名与真实启动检查，不与 Windows 做跨平台像素 golden。
+
+资产契约要求 `CardVisualCatalog` 对 29 个冻结 definition 全覆盖、路径和卡图唯一，卡背、菜单背景、fallback 正面与两张头像可加载，`ASSET_MANIFEST.json` 恰好包含 34 条并匹配实际 SHA-256。同牌组双席、未知牌组 fallback 和所有隐藏牌共享同一卡背也必须验证。
+
+性能 smoke 固定为 300 帧预热 + 300 帧测量；预热后 actor/material/texture 计数不得增长，无论渲染器类型都不能豁免。报告记录 `adapter_name`、`adapter_type`、`timing_budget_applicable`、p95 与 max。硬件适配器要求 p95 不高于 33.3 ms、max 低于 100 ms；只有 CPU 或名称明确为 Microsoft Basic Render Driver、llvmpipe、SwiftShader/software renderer 的设备可以 `timing_budget_applicable=false`。这仅不应用 GPU 时间阈值，仍要求 11 状态、功能/隐私、600 帧和资源零增长全部通过。
 
 ### legacy 兼容性
 
-`scgs_wire_frozen_golden` 固定验证 v1 消息长度、字节序、消息 ID 和金标字节。历史命名的 `SCGS_ENABLE_LEGACY_YGO2_TESTS` 当前控制整组 Python CTest：legacy overlay/协议、原生/Godot 制品审计、子进程超时以及 Gate 3B/3C/4A 报告契约。它默认开启；开启时 CMake 必须找到 Python 3.10+，不能静默只注册部分测试。关闭会跳过整组 Python 契约，因此不能用于客户端 Gate 验收。
+`scgs_wire_frozen_golden` 固定验证 v1 消息长度、字节序、消息 ID 和金标字节。历史命名的 `SCGS_ENABLE_LEGACY_YGO2_TESTS` 当前控制整组 Python CTest：legacy overlay/协议、原生/Godot 制品与 34 项视觉素材审计、子进程超时、Gate 3B/3C/4A full-match 报告契约以及 Gate 4B-R1 visual-suite/golden 契约。它默认开启；开启时 CMake 必须找到 Python 3.10+，不能静默只注册部分测试。关闭会跳过整组 Python 契约，因此不能用于客户端 Gate 验收。
 
 legacy 测试通过只证明历史兼容层仍可解析，不代表 YGOPro2/Unity 是现行客户端或已经实机可用。
 
@@ -85,7 +95,9 @@ git diff --check
 
 Windows MSVC 使用 `scripts/test.ps1` 或等价的 Release 配置。CI 在 GCC Release、Clang ASan/UBSan、MSVC Release 和 macOS ARM64 Release 四个 job 中固定 Python 版本，并显式设置 `SCGS_ENABLE_LEGACY_YGO2_TESTS=ON`。每个平台还安装并审计原生库，上传仅供 CI 验收的暂存 artifact。
 
-Linux 两个 job 保持纯原生。Windows 与 macOS job 在原生安装审计之后追加 locked managed restore/build/test、等待冷资源扫描完成的 Godot `--import`、默认 3D 与 legacy 2D 源码 smoke、目标平台默认 3D 导出、导出包启动与 ZIP 往返审计；macOS 从已校验的官方 universal template 临时派生 arm64 release template，并要求最终 bundle 只有一套 arm64 托管数据且所有 Mach-O 均为 arm64-only。这不构成 Web 或 Linux 客户端支持声明。
+Linux 两个 job 保持纯原生。Windows 与 macOS job 在原生安装审计之后追加 locked managed restore/build/test、等待冷资源扫描完成的 Godot `--import`、默认 3D 与 legacy 2D 源码 smoke、目标平台默认 3D 导出、导出包启动与 ZIP 往返审计。Windows 另跑四尺寸 display-backed Gate 4B-R1 visual suite、1600×900 golden 和 600 帧性能/资源验证；macOS 从已校验的官方 universal template 临时派生 arm64 release template，并要求最终 bundle 只有一套 arm64 托管数据且所有 Mach-O 均为 arm64-only。这不构成 Web 或 Linux 客户端支持声明。
+
+Gate 4B-R1 实现基线已由 GitHub Actions run `32719076472` 验证；后续文档尖端仍必须在自身 commit 上重跑完整矩阵，不得用该实现 run 冒充未执行的最终文档 CI。精确 job、测试数量、截图摘要和制品摘要仅写入 [`TEST_REPORT.md`](../TEST_REPORT.md)。
 
 ## 报告规则
 

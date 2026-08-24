@@ -1,6 +1,6 @@
-# Godot 热座客户端（Gate 4A / 4A.1）
+# Godot 热座客户端（Gate 4B-R1）
 
-此目录是 Godot 4.7.2 .NET、`net8.0` 的桌面热座客户端。产品默认使用 3D/2.5D 占位战场；legacy 2D 仅保留为隐藏回归路径。法术没有中央施放区，必须点击或拖到当前玩家自己的具体空策略位；三个位置全满时不可施法。Godot 层引用：
+此目录是 Godot 4.7.2 .NET、`net8.0` 的桌面热座客户端。产品默认使用 authored 3D/2.5D 战场、现代玻璃 HUD、临时卡图/头像目录和完整主菜单外壳；legacy 2D 仅保留为隐藏回归路径。法术没有中央施放区，必须点击或拖到当前玩家自己的具体空策略位；三个位置全满时不可施法。Godot 层引用：
 
 - `../Scgs.Client/Scgs.Client.csproj`：安全 ABI、DTO 与 `IScgsGameSession`；
 - `../Scgs.Hotseat/Scgs.Hotseat.csproj`：无 Godot 依赖的热座状态机与命令编排。
@@ -24,6 +24,12 @@
 godot --path client/godot -- --legacy-2d-board --native-library=<绝对路径>
 ```
 
+## 产品菜单与设置
+
+原生库可用时，“本地热座”进入独立对局设置页，两席可各自选择 `midrange` 或 `advance`，也允许同牌组对局。单人挑战、在线对战、牌组编辑、卡牌图鉴和录像回放是产品化占位入口：它们只显示“开发中”说明，不创建 session，也不访问 native。原生库不可用时菜单仍可打开，仅禁用本地热座并显示受控错误。
+
+设置保存到 `user://settings.cfg`，实际支持窗口/无边框全屏、1280×720 / 1600×900 / 1920×1080 / 2560×1440 窗口尺寸、90% / 100% / 110% / 125% UI 缩放、VSync 和减少动画。未知或非法配置会归一到默认值。
+
 ## 对局流程
 
 1. 两席分别选择 `midrange` 或 `advance`（允许相同牌组）；
@@ -41,7 +47,9 @@ godot --path client/godot -- --legacy-2d-board --native-library=<绝对路径>
 
 鼠标操作同时支持“点击来源 → 点击目的地”和拖拽。拖拽只是同一 intent 的快捷方式，不能产生不同命令；无效拖放原位回弹且不调用 native。Esc 或右键空白回退一个显式选择步骤，再次取消才清空来源；悬停显示详情，右键可固定详情。
 
-3D presenter 使用 70° FOV、约 58° 俯角和 8 px 拖拽阈值。HUD 位于独立 CanvasLayer，命中 HUD 时不得继续发射空间射线；viewer 透视只在完全遮挡内切换。卡牌 actor 归还池时清除文字、材质、tooltip、metadata、碰撞、callback 和拖拽 token，防止跨 viewer 复用泄露。
+3D presenter 使用 58° FOV、约 58° 俯角和 8 px 拖拽阈值，按当前 viewport 的安全矩形动态调整距离与水平偏移，同时覆盖 16:9 与 16:10。HUD 位于独立 `CanvasLayer`：左侧是可收窄的卡牌详情抽屉，右上是两个独立玩家状态舱，阶段胶囊、结束回合、暂停和日志都是紧凑悬浮控件，不保留全高黑色侧栏。单一 `BackBufferCopy` 与共享 screen-reading CanvasItem shader 为顶层玻璃面板提供模糊/半透明/圆角/描边皮肤；`Covered` 仍保持完全不透明。
+
+命中 HUD 时不得继续发射空间射线；viewer 透视只在完全遮挡内切换。卡牌 actor 归还池时清除文字、卡图/材质参数、tooltip、metadata、碰撞、signal/callback、tween 和拖拽 token，防止跨 viewer 复用泄露；隐藏 actor 只能绑定共享卡背。
 
 ## 事件与隐私
 
@@ -60,7 +68,7 @@ godot --path client/godot -- --legacy-2d-board --native-library=<绝对路径>
 godot --headless --path client/godot -- --ci-smoke --native-library=<绝对路径>
 ```
 
-成功时只允许输出一次 `SCGS_GODOT_CI_SMOKE_OK` 并以 0 退出；缺库、错架构、ABI/schema 不符、C# exception 或 Godot error 必须失败。严格 Gate 4A schema v3 报告继承 Gate 3C 的全部真实 signal 两局闭环、11 种 `ActionKind`、选择、隐私、重开、投降和释放约束；默认 3D 还验证真实 surface/raycast、HUD 拦截、固定镜头/阈值、透视重建、actor 池复用、锁定输入和零空间私密泄露。
+成功时只允许输出一次 `SCGS_GODOT_CI_SMOKE_OK` 并以 0 退出；缺库、错架构、ABI/schema 不符、C# exception 或 Godot error 必须失败。严格 **Gate 4A full-match schema v3** 报告继承 Gate 3C 的全部真实 signal 两局闭环、11 种 `ActionKind`、选择、隐私、重开、投降和释放约束；默认 3D 还验证真实 surface/raycast、HUD 拦截、58°/58° 镜头、8 px 阈值、透视重建、actor 池复用、锁定输入和零空间私密泄露。
 
 两平台 CI 都运行默认 3D 当前工程、默认 3D 导出与默认 3D ZIP 往返；另各运行一次隐藏 legacy 2D 源码回归：
 
@@ -71,10 +79,25 @@ godot --headless --path client/godot -- --ci-smoke --legacy-2d-board \
 
 legacy 报告必须证明仍经过共享 surface intent，同时不伪报 raycast、镜头、透视或 actor 池证据。真实结果以根目录 `TEST_REPORT.md` 为准。
 
-本地视觉验收可额外传入 `--ci-screenshot=<绝对 PNG 路径>`；该参数只允许与 `--ci-smoke` 一起使用，并在恶意私密哨兵被清除后截取首个 `Resolving` 完整绘制帧。默认 headless smoke 等待两个 process-frame 栅栏，不生成截图。
+本地视觉验收使用带显示后端的默认 3D 产品路径：
+
+```text
+godot --path client/godot --windowed --audio-driver Dummy -- \
+  --ci-smoke --native-library=<绝对路径> \
+  --ci-visual-suite=<绝对输出目录> \
+  --ci-visual-viewport=1600x900
+```
+
+**Gate 4B-R1 visual-suite schema v3** 与 Gate 4A full-match schema v3 同为版本 3，但是完全独立的报告和 validator。视觉套件捕获 `menu`、`match-setup`、`covered`、`mulligan`、`action`、`source-selection`、`slot-or-target-selection`、`reaction`、`resolving`、`result` 和 `error` 11 种状态，并对 1280×720、1600×900、2560×1440、2560×1600 做结构验证。1600×900 额外与提交的 golden 比较：归一化 MAE 不高于 0.025，边缘差不高于 0.08；golden 只能通过显式更新脚本替换。
+
+同一套件运行 300 帧预热 + 300 帧测量；预热后 actor/material/texture 数必须零增长。报告必须写入 `adapter_name`、`adapter_type` 和 `timing_budget_applicable`。普通硬件适配器要求 p95 不高于 33.3 ms 且单帧低于 100 ms；CPU、Microsoft Basic Render Driver、llvmpipe、SwiftShader 或明确 software renderer 只豁免 GPU 时间阈值，仍必须完成全部功能、隐私、600 帧和资源零增长检查。
+
+`--ci-screenshot=<绝对 PNG 路径>` 仍可与 `--ci-smoke` 一起截取恶意私密哨兵被清除后的首个 `Resolving` 完整绘制帧。默认 headless smoke 等待两个 process-frame 栅栏，不生成截图。
 
 ## 素材与许可证
 
-卡框、图标和颜色均为原创占位几何。唯一新增二进制素材是 Noto Sans CJK SC 2.004 Regular，许可证、NOTICE 和 SHA-256 在 `assets/fonts/` 中。桌面导出还附带项目 GPL、Godot、.NET runtime、nlohmann/json、Noto 与第三方声明；finalize 与制品审计会强制检查。
+视觉目录为 29 个冻结 definition 各提供一张唯一原创临时卡图，并加入统一卡背、16:9 菜单背景、未知卡通用正面和 `midrange` / `advance` 两张头像，共 34 项。`assets/visual/ASSET_MANIFEST.json` 为每项记录路径、SHA-256、用途和生成摘要；导出审计要求每个新增 PNG/WebP/SVG 有且仅有一条清单记录。未知 definition 使用无身份通用正面，所有隐藏牌共享同一卡背，不绑定 definition-specific 纹理。
 
-Gate 4A / 4A.1 不包含正式卡图/音效/复杂动画、独立正式表现 JSON、主战技、普通主动能力、同时触发人工排序、触摸/手柄、Developer ID 签名/公证、Web 或 Linux 正式客户端。
+Noto Sans CJK SC 2.004 Regular 的许可证、NOTICE 和 SHA-256 在 `assets/fonts/` 中。桌面导出附带项目 GPL、Godot、.NET runtime、nlohmann/json、Noto、`ASSET_NOTICES.md` 与第三方声明；finalize 与制品审计会强制检查。
+
+Gate 4B-R1 有基础悬停、重排、出牌、送墓、伤害/治疗和阶段反馈，但不包含最终商业卡图、音效/音乐、大型演出、独立正式表现 JSON、触摸/手柄、联机、Developer ID 签名/公证、Web 或 Linux 正式客户端。主战技、普通主动能力和同时触发人工排序也仍延后。

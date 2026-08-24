@@ -2,7 +2,9 @@
 
 原创 1v1 数字卡牌游戏实验项目。C++20 规则引擎是唯一规则真值；正式客户端路线锁定为 **Godot 4.7.2 .NET** 的桌面单机热座版本。
 
-当前分支已完成 **Gate 4A 默认 3D/2.5D 战场**，并在 Gate 4A.1 将法术改为从己方三个策略位发动：玩家必须选择具体空位，法术正面占位到自身链环结算，后排全满时不能施法。纯托管 C# 边界继续消费 `scgs_v04`，`Scgs.Hotseat` 从同 revision 的规范合法行动派生统一 surface intent；Godot 的默认 3D 与隐藏 legacy 2D 路径只能把点击/拖拽转换为同一 intent，不能复制规则。界面仍使用授权字体和原创几何占位，不包含正式美术；逐状态人工视觉、双人热座与物理目标机仍是发布标签前硬门。
+当前分支已完成 **Gate 4B-R1 产品视觉基线**：默认客户端使用 authored 3D/2.5D 战场、58° FOV / 58° 俯角的动态 framing、现代玻璃 HUD、产品化主菜单与可持久化设置。视觉目录严格覆盖 29 个现有卡牌定义，并收录卡背、菜单背景、未知卡通用正面和 2 张领袖头像，共 34 项带哈希的原创临时素材。这些素材是可替换的测试美术，不是最终商业美术；本轮仍无音频或大型演出。
+
+纯托管 C# 边界继续消费 `scgs_v04`，`Scgs.Hotseat` 从同 revision 的规范合法行动派生统一 surface intent；Godot 的默认 3D 与 `--legacy-2d-board` 隐藏回归路径只能把点击/拖拽转换为同一 intent，不能复制规则。Gate 4A.1 的策略位法术语义保持不变：玩家必须选择具体空位，法术正面占位到自身链环结算，后排全满时不能施法。双人真人热座与物理目标机仍是发布标签前硬门。
 
 - 规则真值：[`docs/rules-v0.4.md`](docs/rules-v0.4.md)
 - Godot 热座开发计划：[`docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md`](docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md)
@@ -39,7 +41,9 @@ C ABI 不暴露 C++ 类、STL、异常或跨 CRT 内存。动态载荷使用调�
 
 Alpha 只承诺现有两副固定牌组的闭环。主战技 UI、普通主动能力、人工同时触发排序和固定牌组未使用关键词延后；同一玩家的同时触发暂按确定性场地顺序处理。
 
-Gate 4A 保留 Gate 3C 的确定性 signal 整局、重开、投降和隐私契约，并要求默认 3D 路径真实经过空间拾取；Gate 4A.1 删除中央施放区，让两种 presenter 都只接受己方空策略位作为法术落点。隐藏参数 `--legacy-2d-board` 只用于同源 2D 回归。Windows/macOS 的当前工程、导出和 ZIP 往返运行默认 3D 整局，两平台另各跑一次源码级 legacy 2D 整局。实际测试数量、导出与 CI 状态只以 [`TEST_REPORT.md`](TEST_REPORT.md) 为准；物理 Apple Silicon 和两名真人热座整局仍是发布标签前硬门。
+Gate 4B-R1 保留 Gate 3C/4A 的确定性 signal 整局、重开、投降、空间拾取与隐私契约，并保留 Gate 4A.1 “法术落到己方空策略位”的规则。默认 3D 使用 authored 战场和一套共享 screen-reading 玻璃 shader；单一 `BackBufferCopy` 为同一 viewport 的玻璃面板提供屏幕纹理，`Covered` 仍是唯一必须完全不透明的交接状态。
+
+Windows 的 display-backed 视觉套件在 1280×720、1600×900、2560×1440 和 2560×1600 捕获菜单、对局设置、遮挡、调度、行动/选择、响应、结算、结果和错误等 11 种状态；1600×900 还必须通过显式更新的感知 golden。600 帧稳态测试在预热后要求 actor/material/texture 零增长，并按实际渲染适配器决定是否应用 GPU 帧时预算。完整整局和视觉套件都使用 schema version 3，但是两套独立报告契约，不得混用 validator。实际测试数量、导出与 CI 状态只以 [`TEST_REPORT.md`](TEST_REPORT.md) 为准。
 
 ## 工具链
 
@@ -76,7 +80,7 @@ cmake --build --preset asan
 ctest --preset asan
 ```
 
-`SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认 `ON`。为保持既有 CMake/CI 基线，这个历史命名的开关当前注册整组 Python 契约测试，包括 legacy overlay/protocol、原生/导出审计、超时及 Gate 3B/3C/4A 报告；开启时配置阶段必须找到 Python 3.10+，不能静默少注册。设为 `OFF` 会跳过整组 Python 契约，不能用这种构建宣称完成客户端验收。CMake 会按版本与 SHA-256 固定获取 JSON 依赖，不要求系统全局安装。
+`SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认 `ON`。为保持既有 CMake/CI 基线，这个历史命名的开关当前注册整组 Python 契约测试，包括 legacy overlay/protocol、原生/Godot 导出与 34 项视觉素材审计、子进程超时、Gate 3B/3C/4A 整局报告及 Gate 4B-R1 视觉报告/golden 契约；开启时配置阶段必须找到 Python 3.10+，不能静默少注册。设为 `OFF` 会跳过整组 Python 契约，不能用这种构建宣称完成客户端验收。CMake 会按版本与 SHA-256 固定获取 JSON 依赖，不要求系统全局安装。
 
 Gate 2 还可安装到暂存目录以检查真正的消费产物：
 

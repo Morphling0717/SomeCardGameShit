@@ -84,9 +84,9 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         _outlineMesh.Visible = highlight != BattlefieldHighlightKind.None;
         _label.Text = highlight switch
         {
-            BattlefieldHighlightKind.Legal => $"{_baseLabel}\n● 可选",
-            BattlefieldHighlightKind.Destination => $"{_baseLabel}\n◎ 目标",
-            BattlefieldHighlightKind.Selected => $"{_baseLabel}\n◆ 已选",
+            BattlefieldHighlightKind.Legal => $"{_baseLabel}\n●",
+            BattlefieldHighlightKind.Destination => $"{_baseLabel}\n◎",
+            BattlefieldHighlightKind.Selected => $"{_baseLabel}\n◆",
             _ => _baseLabel,
         };
 
@@ -165,7 +165,13 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         _mesh = new MeshInstance3D
         {
             Name = "SlotMesh",
-            Mesh = new BoxMesh { Size = new Vector3(1.88f, 0.035f, 2.48f) },
+            Mesh = new BoxMesh
+            {
+                Size = new Vector3(
+                    BattlefieldPerspective.SlotWidth,
+                    0.035f,
+                    BattlefieldPerspective.SlotDepth),
+            },
             MaterialOverride = _idleMaterial,
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         };
@@ -183,9 +189,10 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         {
             Name = "SlotLabel",
             Font = GD.Load<Font>("res://assets/fonts/NotoSansCJKsc-Regular.otf"),
-            FontSize = 40,
-            PixelSize = 0.012f,
-            OutlineSize = 9,
+            FontSize = 32,
+            PixelSize = 0.0095f,
+            OutlineSize = 5,
+            Width = 150.0f,
             Position = new Vector3(0.0f, 0.035f, 0.0f),
             RotationDegrees = new Vector3(-90.0f, 0.0f, 0.0f),
             HorizontalAlignment = HorizontalAlignment.Center,

@@ -144,9 +144,10 @@ public sealed partial class SnapshotSlot : Button
         _knownInstanceId = _identityHidden ? null : card.InstanceId;
 
         string title = _identityHidden ? "伏策（背面）" : card.Name;
+        (int attack, int health) = CardPresentation.GetDisplayedUnitStats(card);
         string detail = card.Kind switch
         {
-            CardKind.Unit => $"{card.CurrentAttack} / {card.CurrentHealth}",
+            CardKind.Unit => $"{attack} / {health}",
             CardKind.Relic => $"倒计时 {card.Countdown}",
             CardKind.Trap => _identityHidden ? "身份已隐藏" : "伏策",
             CardKind.Spell => $"费用 {card.Cost}",

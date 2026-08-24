@@ -52,6 +52,7 @@ internal sealed class Gate3CFullMatchSmoke
     private readonly MatchScreen match;
     private readonly Func<Task> nextFrame;
     private readonly string? resolvingScreenshotPath;
+    private readonly string? actionScreenshotPath;
     private readonly HashSet<ActionKind> submittedKinds = [];
     private readonly HashSet<(PlayerId Player, int OwnTurn)> reactionProbeTurns = [];
     private int endTurnCount;
@@ -60,15 +61,18 @@ internal sealed class Gate3CFullMatchSmoke
     private bool privacySentinelProbed;
     private bool keyboardProbed;
     private bool reactionSpatialLockProbed;
+    private bool actionScreenshotCaptured;
 
     internal Gate3CFullMatchSmoke(
         MatchScreen match,
         Func<Task> nextFrame,
-        string? resolvingScreenshotPath = null)
+        string? resolvingScreenshotPath = null,
+        string? actionScreenshotPath = null)
     {
         this.match = match ?? throw new ArgumentNullException(nameof(match));
         this.nextFrame = nextFrame ?? throw new ArgumentNullException(nameof(nextFrame));
         this.resolvingScreenshotPath = resolvingScreenshotPath;
+        this.actionScreenshotPath = actionScreenshotPath;
     }
 
     internal async Task<Gate3CSmokeOutcome> RunAsync()
@@ -206,6 +210,11 @@ internal sealed class Gate3CFullMatchSmoke
             }
             layoutProbed = true;
         }
+        if (!actionScreenshotCaptured && actionScreenshotPath is { } screenshotPath)
+        {
+            await match.CaptureActionLayoutScreenshotForCiAsync(screenshotPath);
+            actionScreenshotCaptured = true;
+        }
         MatchView view = state.Snapshot ??
             throw new InvalidOperationException("A command state is missing its safe snapshot.");
         if (!keyboardProbed)
@@ -340,6 +349,7 @@ internal sealed class Gate3CFullMatchSmoke
             !layoutProbed ||
             !privacySentinelProbed ||
             !match.CiPrivacySentinelVerified ||
+            (actionScreenshotPath is not null && !actionScreenshotCaptured) ||
             (resolvingScreenshotPath is not null && !match.CiResolvingScreenshotCaptured) ||
             !match.CiCancelledDragNoSideEffects ||
             match.CiHasTransientDragData ||

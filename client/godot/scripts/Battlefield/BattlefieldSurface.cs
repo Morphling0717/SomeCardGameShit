@@ -36,6 +36,14 @@ public enum BattlefieldHighlightKind : uint
     Destination = 3,
 }
 
+public enum BattlefieldCardLayout
+{
+    Field,
+    NearHand,
+    FarHand,
+    Pile,
+}
+
 public readonly record struct BattlefieldSurfaceRef(
     BattlefieldSurfaceKind Kind,
     PlayerId? Player = null,

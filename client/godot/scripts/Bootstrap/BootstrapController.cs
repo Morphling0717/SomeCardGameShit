@@ -27,6 +27,7 @@ public sealed partial class BootstrapController : Control
     private ScgsGameSession? _session;
     private string? _nativeLibraryPath;
     private string? _ciScreenshotPath;
+    private string? _ciActionScreenshotPath;
     private string? _ciReportPath;
     private bool _ciSmoke;
     private bool _ciRunStarted;
@@ -46,6 +47,7 @@ public sealed partial class BootstrapController : Control
         try
         {
             _ciScreenshotPath = ResolveCiScreenshotPath(OS.GetCmdlineUserArgs());
+            _ciActionScreenshotPath = ResolveCiActionScreenshotPath(OS.GetCmdlineUserArgs());
             _ciReportPath = ResolveCiReportPath(OS.GetCmdlineUserArgs());
         }
         catch (Exception exception)
@@ -299,7 +301,8 @@ public sealed partial class BootstrapController : Control
             var runner = new Gate3CFullMatchSmoke(
                 match,
                 NextProcessFrameAsync,
-                _ciScreenshotPath);
+                _ciScreenshotPath,
+                _ciActionScreenshotPath);
             Gate3CSmokeOutcome outcome = await runner.RunAsync();
             if (outcome.FinalView.RandomSeed != firstView.RandomSeed ||
                 outcome.FinalView.FirstPlayer != firstView.FirstPlayer ||
@@ -501,6 +504,34 @@ public sealed partial class BootstrapController : Control
             !Path.IsPathFullyQualified(values[0]))
         {
             throw new InvalidOperationException("--ci-screenshot requires one absolute output path.");
+        }
+
+        return Path.GetFullPath(values[0]);
+    }
+
+    private string? ResolveCiActionScreenshotPath(IReadOnlyList<string> arguments)
+    {
+        const string prefix = "--ci-action-screenshot=";
+        string[] values = arguments
+            .Where(argument => argument.StartsWith(prefix, StringComparison.Ordinal))
+            .Select(argument => argument[prefix.Length..])
+            .ToArray();
+
+        if (values.Length == 0)
+        {
+            return null;
+        }
+
+        if (!_ciSmoke)
+        {
+            throw new InvalidOperationException("--ci-action-screenshot requires --ci-smoke.");
+        }
+
+        if (values.Length != 1 || string.IsNullOrWhiteSpace(values[0]) ||
+            !Path.IsPathFullyQualified(values[0]))
+        {
+            throw new InvalidOperationException(
+                "--ci-action-screenshot requires one absolute output path.");
         }
 
         return Path.GetFullPath(values[0]);

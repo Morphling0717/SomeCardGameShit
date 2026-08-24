@@ -2,6 +2,7 @@
 using Godot;
 using Scgs.Client;
 using Scgs.Hotseat;
+using CardText = Scgs.GodotClient.Presentation.CardPresentation;
 using System.Globalization;
 
 namespace Scgs.GodotClient.Battlefield;
@@ -34,6 +35,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
     private Transform3D _restTransform = Transform3D.Identity;
     private BattlefieldSurfaceRef? _boundSurface;
     private BattlefieldHighlightKind _highlight;
+    private BattlefieldCardLayout _layout = BattlefieldCardLayout.Field;
     private bool _faceDown;
     private bool _pointerHovered;
 
@@ -53,6 +55,15 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
 
     public bool OutlineVisible => _outlineMesh?.Visible == true;
 
+    internal BattlefieldCardLayout CiLayout => _layout;
+
+    internal float CiFaceLabelWorldWidth =>
+        _faceLabel.Width * _faceLabel.PixelSize * GlobalTransform.Basis.X.Length();
+
+    internal int CiFaceLineCount => string.IsNullOrEmpty(DisplayText)
+        ? 0
+        : DisplayText.Count(character => character == '\n') + 1;
+
     public bool HasTripleAffordance =>
         Visible && CanActivate && _highlight != BattlefieldHighlightKind.None &&
         OutlineVisible && !string.IsNullOrWhiteSpace(StateText);
@@ -66,10 +77,15 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
     public void BindPrivate(
         CardView card,
         BattlefieldSurfaceRef? surface,
-        Transform3D transform)
+        Transform3D transform,
+        BattlefieldCardLayout layout = BattlefieldCardLayout.Field)
     {
         ArgumentNullException.ThrowIfNull(card);
-        bool known = card.InstanceId.HasValue && card.DefinitionId.HasValue;
+        bool known = card.InstanceId.HasValue && card.DefinitionId.HasValue && card.Definition is not null;
+        (int attack, int health) = known
+            ? CardText.GetDisplayedUnitStats(card)
+            : (0, 0);
+        int maximumHealth = known && card.Zone == Zone.Unit ? card.MaximumHealth : health;
         var presentation = new BattlefieldCardPresentation(
             card.InstanceId,
             card.DefinitionId,
@@ -78,18 +94,19 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             card.Controller,
             card.Zone,
             known ? card.Cost : 0,
-            known ? card.CurrentAttack : 0,
-            known ? card.CurrentHealth : 0,
-            known ? card.MaximumHealth : 0,
+            attack,
+            health,
+            maximumHealth,
             known ? card.Countdown : 0,
             card.FaceDown,
             known);
-        Bind(presentation, surface, transform, showIdentityOnBoard: known && !card.FaceDown);
+        Bind(presentation, surface, transform, showIdentityOnBoard: known && !card.FaceDown, layout);
     }
 
     public void BindPublic(
         HotseatPublicCardView card,
-        Transform3D transform)
+        Transform3D transform,
+        BattlefieldCardLayout layout = BattlefieldCardLayout.Field)
     {
         ArgumentNullException.ThrowIfNull(card);
         bool known = card.HasKnownIdentity && !card.FaceDown;
@@ -107,7 +124,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             known ? card.Countdown : 0,
             card.FaceDown,
             known);
-        Bind(presentation, surface: null, transform, showIdentityOnBoard: known);
+        Bind(presentation, surface: null, transform, showIdentityOnBoard: known, layout);
         CollisionLayer = 0;
     }
 
@@ -115,6 +132,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         PlayerId controller,
         Zone zone,
         Transform3D transform,
+        BattlefieldCardLayout layout,
         BattlefieldSurfaceRef? surface = null)
     {
         var presentation = new BattlefieldCardPresentation(
@@ -131,7 +149,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             0,
             true,
             false);
-        Bind(presentation, surface, transform, showIdentityOnBoard: false);
+        Bind(presentation, surface, transform, showIdentityOnBoard: false, layout);
     }
 
     public void BindPile(
@@ -157,7 +175,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             0,
             hidden,
             false);
-        Bind(presentation, surface, transform, showIdentityOnBoard: false);
+        Bind(presentation, surface, transform, showIdentityOnBoard: false, BattlefieldCardLayout.Pile);
         _faceLabel.Text = $"{title}\n{count}";
     }
 
@@ -168,9 +186,9 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         CanActivate = Surface.HasValue && highlight != BattlefieldHighlightKind.None;
         _stateLabel.Text = highlight switch
         {
-            BattlefieldHighlightKind.Legal => "● 可选",
-            BattlefieldHighlightKind.Selected => "◆ 已选",
-            BattlefieldHighlightKind.Destination => "◎ 目标",
+            BattlefieldHighlightKind.Legal => "●",
+            BattlefieldHighlightKind.Selected => "◆",
+            BattlefieldHighlightKind.Destination => "◎",
             _ => string.Empty,
         };
         UpdateMaterial();
@@ -242,6 +260,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         CardPresentation = null;
         CanActivate = false;
         _highlight = BattlefieldHighlightKind.None;
+        _layout = BattlefieldCardLayout.Field;
         _faceDown = false;
         _pointerHovered = false;
         _restTransform = Transform3D.Identity;
@@ -302,9 +321,12 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         BattlefieldCardPresentation presentation,
         BattlefieldSurfaceRef? surface,
         Transform3D transform,
-        bool showIdentityOnBoard)
+        bool showIdentityOnBoard,
+        BattlefieldCardLayout layout)
     {
         EnsureBuilt();
+        _layout = layout;
+        ApplyLabelLayout(layout);
         Surface = surface;
         _boundSurface = surface;
         CardPresentation = presentation;
@@ -315,8 +337,10 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         _highlight = BattlefieldHighlightKind.None;
         CanActivate = false;
         _faceLabel.Text = showIdentityOnBoard
-            ? FormatKnownCard(presentation)
-            : "牌背";
+            ? FormatKnownCard(presentation, layout)
+            : layout is BattlefieldCardLayout.NearHand or BattlefieldCardLayout.FarHand
+                ? string.Empty
+                : "牌背";
         _stateLabel.Text = string.Empty;
         _outlineMesh.Visible = false;
         _collision.Disabled = !surface.HasValue;
@@ -325,9 +349,23 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         UpdateMaterial();
     }
 
-    private static string FormatKnownCard(BattlefieldCardPresentation card)
+    private static string FormatKnownCard(
+        BattlefieldCardPresentation card,
+        BattlefieldCardLayout layout)
     {
-        string name = CompactCardName(card.Name);
+        if (layout is BattlefieldCardLayout.NearHand or BattlefieldCardLayout.FarHand)
+        {
+            string handName = EllipsizeCardName(card.Name, 4);
+            return card.Kind switch
+            {
+                CardKind.Unit => $"{card.Cost}费 {card.Attack}/{card.Health}\n{handName}",
+                CardKind.Relic when card.Countdown > 0 =>
+                    $"{card.Cost}费 倒{card.Countdown}\n{handName}",
+                _ => $"{card.Cost}费\n{handName}",
+            };
+        }
+
+        string name = CompactFieldCardName(card.Name);
         return card.Kind switch
         {
             CardKind.Unit => $"{card.Cost}费  {card.Attack}/{card.Health}\n{name}",
@@ -338,7 +376,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         };
     }
 
-    private static string CompactCardName(string name)
+    private static string CompactFieldCardName(string name)
     {
         if (string.IsNullOrWhiteSpace(name))
         {
@@ -356,6 +394,42 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         int keptLength = keptElements < elements.Length ? elements[keptElements] : name.Length;
         string suffix = keptElements < elements.Length ? "…" : string.Empty;
         return $"{name[..split]}\n{name[split..keptLength]}{suffix}";
+    }
+
+    private static string EllipsizeCardName(string name, int maximumElements)
+    {
+        if (string.IsNullOrWhiteSpace(name))
+        {
+            return "—";
+        }
+
+        int[] elements = StringInfo.ParseCombiningCharacters(name);
+        if (elements.Length <= maximumElements)
+        {
+            return name;
+        }
+
+        int end = elements[maximumElements];
+        return $"{name[..end]}…";
+    }
+
+    private void ApplyLabelLayout(BattlefieldCardLayout layout)
+    {
+        (_faceLabel.FontSize, _faceLabel.PixelSize, _faceLabel.OutlineSize, _faceLabel.Width) =
+            layout switch
+            {
+                BattlefieldCardLayout.NearHand => (30, 0.0092f, 5, 132.0f),
+                BattlefieldCardLayout.FarHand => (28, 0.0090f, 4, 126.0f),
+                BattlefieldCardLayout.Pile => (32, 0.0098f, 5, 128.0f),
+                _ => (34, 0.0098f, 5, 136.0f),
+            };
+        _faceLabel.Position = new Vector3(0.0f, 0.065f, 0.0f);
+
+        _stateLabel.FontSize = layout == BattlefieldCardLayout.NearHand ? 24 : 26;
+        _stateLabel.PixelSize = layout == BattlefieldCardLayout.NearHand ? 0.0085f : 0.0090f;
+        _stateLabel.OutlineSize = 4;
+        _stateLabel.Width = 46.0f;
+        _stateLabel.Position = new Vector3(0.58f, 0.078f, -0.78f);
     }
 
     private void UpdateMaterial()
@@ -421,7 +495,13 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         _mesh = new MeshInstance3D
         {
             Name = "CardMesh",
-            Mesh = new BoxMesh { Size = new Vector3(1.58f, 0.09f, 2.18f) },
+            Mesh = new BoxMesh
+            {
+                Size = new Vector3(
+                    BattlefieldPerspective.CardWidth,
+                    0.09f,
+                    BattlefieldPerspective.CardDepth),
+            },
             CastShadow = GeometryInstance3D.ShadowCastingSetting.On,
         };
         AddChild(_mesh);
@@ -434,11 +514,11 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         };
         AddChild(_collision);
 
-        _faceLabel = CreateTopLabel("FaceLabel", 44, new Vector3(0.0f, 0.065f, 0.0f));
+        _faceLabel = CreateTopLabel("FaceLabel", 34, new Vector3(0.0f, 0.065f, 0.0f));
         _faceLabel.Width = 134.0f;
         AddChild(_faceLabel);
 
-        _stateLabel = CreateTopLabel("StateLabel", 36, new Vector3(0.0f, 0.075f, -0.78f));
+        _stateLabel = CreateTopLabel("StateLabel", 26, new Vector3(0.58f, 0.078f, -0.78f));
         _stateLabel.Modulate = new Color(1.0f, 0.94f, 0.63f, 1.0f);
         AddChild(_stateLabel);
 

@@ -1360,9 +1360,10 @@ public sealed partial class MatchScreen : Control
         bool tripleAffordance = _battlefield3d.CiSawTripleAffordance &&
                                 _battlefield3d.CiTripleAffordanceSurfaceCount > 0 &&
                                 _battlefield3d.CiOutlineVisibleCount > 0;
+        bool readableLayout = _battlefield3d.CiValidateReadableLayout(view);
         return _battlefield3d.Visible && _battlefield3d.InputEnabled && hudBlocked &&
                minimumApplied && maximumApplied && perspective && actorPool &&
-               tripleAffordance &&
+               tripleAffordance && readableLayout &&
                Mathf.IsEqualApprox(
                    _battlefield3d.CiCameraPitch,
                    BattlefieldPerspective.CameraPitchDegrees);
@@ -2794,6 +2795,37 @@ public sealed partial class MatchScreen : Control
                 "--ci-screenshot requires a display-backed renderer; the headless texture is unavailable.");
         }
 
+        SaveCiScreenshot(screenshotPath, "Resolving");
+        _ciResolvingScreenshotCaptured = true;
+        _ciResolvingScreenshotPath = null;
+    }
+
+    internal async Task CaptureActionLayoutScreenshotForCiAsync(string screenshotPath)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(screenshotPath);
+        if (!Path.IsPathFullyQualified(screenshotPath) ||
+            _legacy2dBoard || !HasPresentedSnapshot || IsPrivacyCoverVisible ||
+            _controller?.State is not { Mode: HotseatUiMode.Action or HotseatUiMode.Reaction })
+        {
+            throw new InvalidOperationException(
+                "An action layout screenshot requires a revealed default-3D command state and absolute path.");
+        }
+
+        if (string.Equals(DisplayServer.GetName(), "headless", StringComparison.OrdinalIgnoreCase))
+        {
+            throw new InvalidOperationException(
+                "--ci-action-screenshot requires a display-backed renderer.");
+        }
+
+        await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+        await ToSignal(
+            RenderingServer.Singleton,
+            RenderingServer.SignalName.FramePostDraw);
+        SaveCiScreenshot(screenshotPath, "Action");
+    }
+
+    private void SaveCiScreenshot(string screenshotPath, string stateName)
+    {
         string? directory = Path.GetDirectoryName(screenshotPath);
         if (!string.IsNullOrEmpty(directory))
         {
@@ -2804,14 +2836,12 @@ public sealed partial class MatchScreen : Control
         Error result = image.SavePng(screenshotPath);
         if (result != Error.Ok)
         {
-            throw new IOException($"Godot could not save the resolving privacy screenshot ({result}).");
+            throw new IOException($"Godot could not save the {stateName} screenshot ({result}).");
         }
 
         GD.Print(
             $"SCGS_GODOT_CI_SCREENSHOT_OK path={screenshotPath} " +
-            $"size={image.GetWidth()}x{image.GetHeight()} state=Resolving");
-        _ciResolvingScreenshotCaptured = true;
-        _ciResolvingScreenshotPath = null;
+            $"size={image.GetWidth()}x{image.GetHeight()} state={stateName}");
     }
 
     private void ScheduleEventAcknowledge(HotseatUiState state)

@@ -1,13 +1,14 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using Godot;
 using Scgs.Client;
+using Scgs.GodotClient.Presentation;
 using Scgs.Hotseat;
 
 namespace Scgs.GodotClient.Battlefield;
 
 public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresenter
 {
-    private const int MaximumRenderedHandCards = 10;
+    private const int MaximumRenderedHandCards = BattlefieldPerspective.MaximumHandCards;
     private readonly List<CardActor3D> _cardPool = [];
     private readonly List<SlotActor3D> _slotPool = [];
     private readonly Dictionary<BattlefieldSurfaceRef, IBattlefieldPickTarget> _surfaceActors = [];
@@ -414,6 +415,82 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         return false;
     }
 
+    public bool CiValidateReadableLayout(MatchView view)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        if (!_privateRender || view.Revision != Revision || view.Viewer != PerspectiveViewer ||
+            !BattlefieldPerspective.ValidateStaticSpacing(view.Viewer))
+        {
+            return false;
+        }
+
+        PlayerView own = FindPlayer(view, view.Viewer);
+        PlayerId opponentId = view.Viewer == PlayerId.Player0
+            ? PlayerId.Player1
+            : PlayerId.Player0;
+        PlayerView opponent = FindPlayer(view, opponentId);
+        CardActor3D[] ownHand = _cardPool
+            .Where(actor => actor.Visible &&
+                            actor.CardPresentation is
+                            {
+                                Zone: Zone.Hand,
+                                KnownIdentity: true,
+                            } presentation &&
+                            presentation.Controller == view.Viewer)
+            .OrderBy(actor => actor.GlobalPosition.X)
+            .ToArray();
+        CardActor3D[] opposingHand = _cardPool
+            .Where(actor => actor.Visible &&
+                            actor.CardPresentation is
+                            {
+                                Zone: Zone.Hand,
+                                KnownIdentity: false,
+                            } presentation &&
+                            presentation.Controller == opponentId)
+            .ToArray();
+
+        if (ownHand.Length != Math.Min(own.Hand.Length, MaximumRenderedHandCards) ||
+            opposingHand.Length != Math.Min(CheckedDisplayCount(opponent.HandCount), MaximumRenderedHandCards) ||
+            ownHand.Any(actor => actor.CiLayout != BattlefieldCardLayout.NearHand ||
+                                 actor.CiFaceLineCount is < 1 or > 2 ||
+                                 actor.StateText.Contains("可选", StringComparison.Ordinal) ||
+                                 actor.StateText.Contains("目标", StringComparison.Ordinal) ||
+                                 actor.StateText.Contains("已选", StringComparison.Ordinal)) ||
+            opposingHand.Any(actor => actor.CiLayout != BattlefieldCardLayout.FarHand ||
+                                      actor.DisplayText.Length != 0))
+        {
+            return false;
+        }
+
+        for (int index = 1; index < ownHand.Length; ++index)
+        {
+            CardActor3D left = ownHand[index - 1];
+            CardActor3D right = ownHand[index];
+            float requiredSeparation =
+                ((left.CiFaceLabelWorldWidth + right.CiFaceLabelWorldWidth) / 2.0f) + 0.04f;
+            if (right.GlobalPosition.X - left.GlobalPosition.X < requiredSeparation)
+            {
+                return false;
+            }
+        }
+
+        foreach (CardView card in own.Hand.Where(card => card.Kind == CardKind.Unit &&
+                                                         card.Definition is not null))
+        {
+            CardActor3D? actor = ownHand.FirstOrDefault(candidate =>
+                candidate.CardPresentation?.InstanceId == card.InstanceId);
+            (int attack, int health) = CardPresentation.GetDisplayedUnitStats(card);
+            if (actor?.CardPresentation is not { } presentation ||
+                presentation.Attack != attack || presentation.Health != health ||
+                !actor.DisplayText.Contains($"{attack}/{health}", StringComparison.Ordinal))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private void RenderPrivatePlayer(PlayerView player, PlayerId viewer)
     {
         RenderPrivateField(player, viewer, Zone.Unit, player.Units);
@@ -437,12 +514,20 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
                 BattlefieldSurfaceRef? surface = card.InstanceId is { } id
                     ? new BattlefieldSurfaceRef(BattlefieldSurfaceKind.HandCard, player.Player, index, id)
                     : null;
-                actor.BindPrivate(card, surface, transform);
+                actor.BindPrivate(
+                    card,
+                    surface,
+                    transform,
+                    BattlefieldCardLayout.NearHand);
                 Register(surface, actor);
             }
             else
             {
-                actor.BindHidden(player.Player, Zone.Hand, transform);
+                actor.BindHidden(
+                    player.Player,
+                    Zone.Hand,
+                    transform,
+                    BattlefieldCardLayout.FarHand);
             }
         }
 
@@ -541,7 +626,10 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
             RentCard().BindHidden(
                 player.Player,
                 Zone.Hand,
-                BattlefieldPerspective.HandTransform(player.Player, viewer, index, handCount));
+                BattlefieldPerspective.HandTransform(player.Player, viewer, index, handCount),
+                BattlefieldPerspective.IsNear(player.Player, viewer)
+                    ? BattlefieldCardLayout.NearHand
+                    : BattlefieldCardLayout.FarHand);
         }
 
         RentCard().BindPile(

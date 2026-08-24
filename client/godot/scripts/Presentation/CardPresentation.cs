@@ -20,9 +20,10 @@ public static class CardPresentation
             return "隐藏牌：当前观看者没有收到卡牌身份。";
         }
 
+        (int attack, int health) = GetDisplayedUnitStats(card);
         string stats = card.Kind switch
         {
-            CardKind.Unit => $" · {card.CurrentAttack}/{card.CurrentHealth}",
+            CardKind.Unit => $" · {attack}/{health}",
             CardKind.Relic => $" · 倒计时 {card.Countdown}",
             _ => string.Empty,
         };
@@ -43,7 +44,9 @@ public static class CardPresentation
         result.Append(FormatKind(card.Kind)).Append(" · 费用 ").Append(card.Cost);
         if (card.Kind == CardKind.Unit)
         {
-            result.Append(" · 当前 ").Append(card.CurrentAttack).Append('/').Append(card.CurrentHealth);
+            (int attack, int health) = GetDisplayedUnitStats(card);
+            result.Append(card.Zone == Zone.Unit ? " · 当前 " : " · 基础 ")
+                .Append(attack).Append('/').Append(health);
             if (card.Evolved)
             {
                 result.Append("（已进化）");
@@ -68,11 +71,14 @@ public static class CardPresentation
 
         if (definition.Kind == CardKind.Unit)
         {
-            result.Append('\n').Append("基础身材：")
-                .Append(definition.Attack).Append('/').Append(definition.Health);
+            if (card.Zone == Zone.Unit)
+            {
+                result.Append('\n').Append("基础身材：")
+                    .Append(definition.Attack).Append('/').Append(definition.Health);
+            }
             if (definition.EvolvedAttack != 0 || definition.EvolvedHealth != 0)
             {
-                result.Append(" · 进化后 ")
+                result.Append('\n').Append("进化后身材：")
                     .Append(definition.EvolvedAttack).Append('/').Append(definition.EvolvedHealth);
             }
         }
@@ -129,6 +135,22 @@ public static class CardPresentation
         null => "隐藏种类",
         _ => $"未知种类（{(uint)kind.Value}）",
     };
+
+    public static (int Attack, int Health) GetDisplayedUnitStats(CardView card)
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        if (card.Kind != CardKind.Unit)
+        {
+            return (0, 0);
+        }
+
+        if (card.Zone == Zone.Unit || card.Definition is not { Kind: CardKind.Unit } definition)
+        {
+            return (card.CurrentAttack, card.CurrentHealth);
+        }
+
+        return (definition.Attack, definition.Health);
+    }
 
     public static string FormatKeywords(Keyword keywords)
     {

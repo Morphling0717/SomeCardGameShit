@@ -57,7 +57,7 @@ Windows 在 1280×720、1600×900、2560×1440 和 2560×1600 四种真实窗口
 
 资产契约要求 `CardVisualCatalog` 对 29 个冻结 definition 全覆盖、路径和卡图唯一，卡背、菜单背景、fallback 正面与两张头像可加载，`ASSET_MANIFEST.json` 恰好包含 34 条并匹配实际 SHA-256。同牌组双席、未知牌组 fallback 和所有隐藏牌共享同一卡背也必须验证。
 
-性能 smoke 固定为 300 帧预热 + 300 帧测量；预热后 actor/material/texture 计数不得增长，无论渲染器类型都不能豁免。报告记录 `adapter_name`、`adapter_type`、`timing_budget_applicable`、p95 与 max。硬件适配器要求 p95 不高于 33.3 ms、max 低于 100 ms；只有 CPU 或名称明确为 Microsoft Basic Render Driver、llvmpipe、SwiftShader/software renderer 的设备可以 `timing_budget_applicable=false`。这仅不应用 GPU 时间阈值，仍要求 11 状态、功能/隐私、600 帧和资源零增长全部通过。
+性能 smoke 固定为 300 帧预热 + 300 帧测量；预热后 actor/material/texture 计数不得增长，无论渲染器类型都不能豁免。报告记录 `adapter_name`、`adapter_type`、`timing_budget_applicable`、p95 与 max。硬件适配器要求 p95 不高于 33.3 ms、max 低于 100 ms；只有 CPU 或名称明确为 Microsoft Basic Render Driver、llvmpipe、SwiftShader/software renderer 的设备可以 `timing_budget_applicable=false`。这仅不应用 GPU 时间阈值，仍要求 16 状态、功能/隐私、600 帧和资源零增长全部通过。
 
 ### legacy 兼容性
 
@@ -97,7 +97,7 @@ Windows MSVC 使用 `scripts/test.ps1` 或等价的 Release 配置。CI 在 GCC 
 
 Linux 两个 job 保持纯原生。Windows 与 macOS job 在原生安装审计之后追加 locked managed restore/build/test、等待冷资源扫描完成的 Godot `--import`、默认 3D 与 legacy 2D 源码 smoke、目标平台默认 3D 导出、导出包启动与 ZIP 往返审计。Windows 另跑四尺寸 display-backed Gate 4B-R2 visual suite、1600×900 golden 和 600 帧性能/资源验证；macOS 从已校验的官方 universal template 临时派生 arm64 release template，并要求最终 bundle 只有一套 arm64 托管数据且所有 Mach-O 均为 arm64-only。这不构成 Web 或 Linux 客户端支持声明。
 
-Gate 4B-R1 实现基线已由 GitHub Actions run `32719076472` 验证；该历史 run 不能证明 Gate 4B-R2。R2 实现及后续文档尖端都必须在自身 commit 上重跑完整矩阵，精确 job、测试数量、截图摘要和制品摘要仅在真实执行后写入 [`TEST_REPORT.md`](../TEST_REPORT.md)。
+Gate 4B-R1 实现由 GitHub Actions run `32719076472` 验证，最终 R1 基线 `1370491` 又由 run `32732554577` 复验；这些历史 run 都不能证明 Gate 4B-R2。R2 实现尖端 `cca04b5` 已由 run `32766050188` 的四项完整矩阵验证，精确 job、测试数量、截图摘要和制品 digest 记录在 [`TEST_REPORT.md`](../TEST_REPORT.md)。包含报告的后续文档尖端仍必须在自身 commit 上复跑，不能沿用实现尖端 run 冒充通过。
 
 ## 报告规则
 

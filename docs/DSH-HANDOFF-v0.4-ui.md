@@ -1,4 +1,4 @@
-# 工程交接：Gate 4B-R1 默认 3D 与现代玻璃 HUD
+# 工程交接：Gate 4B-R2 战斗表现与第一次实机验收
 
 > 现行交接文档。旧 [`DSH-HANDOFF.md`](DSH-HANDOFF.md) 与 [`ygopro-integration.md`](ygopro-integration.md) 是历史归档，不是执行指令。
 
@@ -20,16 +20,20 @@
 - Gate 4A.1 被测实现：`codex/godot-hotseat-gate4a-spell-slots@4be6e09ef9edc363b064b4a7aaba4551359ecb05`
 - Gate 4A.1 实现 CI：[run `32696171327`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32696171327)，四项 job 全绿；该轮准确命令、数量和制品摘要见对应被测提交中的历史 `TEST_REPORT.md`
 - Gate 4B-R1 被测实现：`codex/godot-hotseat-gate4b-visual-baseline@01a9bb33c7cff148e49067b8bd43ab1e973ea600`
-- Gate 4B-R1 实现 CI：[run `32719076472`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32719076472)，四项 job 全绿；包含本轮文档更新的最终分支尖端仍须重新执行既有矩阵，准确数量和制品摘要只写入 [`../TEST_REPORT.md`](../TEST_REPORT.md)
+- Gate 4B-R1 实现 CI：[run `32719076472`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32719076472)，四项 job 全绿；R1 最终基线 `1370491` 随后由 [run `32732554577`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32732554577) 再次 4/4 jobs 全绿复验。两者都是 R1 历史证据，不能替代本轮 R2 run
+- Gate 4B-R2 起始基线：`codex/godot-hotseat-gate4b-visual-baseline@1370491ade6e779d83fa44334dd4b7e6920f6a9c`
+- Gate 4B-R2 主要实现：`codex/godot-hotseat-gate4b-r2-battle-presentation@19159ee0613159e4761bbf2f9acea77efdd82874`
+- Gate 4B-R2 被测实现尖端：`cca04b5c9a0e4793c98d8f765527a7a1c51de804`
+- Gate 4B-R2 实现 CI：[run `32766050188`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32766050188)，四项 job 全绿；准确测试、视觉和制品摘要见 [`../TEST_REPORT.md`](../TEST_REPORT.md)
 - 规则真值：[`rules-v0.4.md`](rules-v0.4.md)，用户最新明确决定优先于旧文档歧义
 - 客户端架构：[`godot-client-architecture.md`](godot-client-architecture.md)
 - UI 状态：[`ui-state-map.md`](ui-state-map.md)
 - 验收清单：[`hotseat-acceptance.md`](hotseat-acceptance.md)
 - 真实构建/测试/CI：[`../TEST_REPORT.md`](../TEST_REPORT.md)
 
-Gate 4A 保留 Gate 3C 的完整对局、直接交互、公共投影、原生与导出基线，只把战场表现升级为默认 3D/2.5D，并保留隐藏 legacy 2D 回归。Gate 4A.1 进一步把法术发动改为占用玩家明确选择的己方空策略位，并从两种 presenter 中移除中央施放区。Gate 4B-R1 在这些基线上交付产品菜单、设置、现代玻璃 HUD、34 项临时视觉目录和严格视觉/隐私/性能自动化；11 个 `ActionKind` 与热座隐私状态机保持不变。本文描述源码职责和必须保持的约束；详细命令、数量、制品摘要和未完成边界只以 `TEST_REPORT.md` 为准。
+Gate 4A 保留 Gate 3C 的完整对局、直接交互、公共投影、原生与导出基线，只把战场表现升级为默认 3D/2.5D，并保留隐藏 legacy 2D 回归。Gate 4A.1 进一步把法术发动改为占用玩家明确选择的己方空策略位，并从两种 presenter 中移除中央施放区。Gate 4B-R1 在这些基线上交付产品菜单、设置、现代玻璃 HUD、34 项临时视觉目录和严格视觉/隐私/性能自动化；Gate 4B-R2 把己方手牌迁移到相机相对前景架，修复真实费用/身材/倒计时徽章，稳定镜头、安全区、战场托座和 HUD 信息架构。11 个 `ActionKind` 与热座隐私状态机保持不变。本文描述源码职责和必须保持的约束；详细命令、数量、制品摘要和未完成边界只以 `TEST_REPORT.md` 为准。
 
-Gate 4A.1 修改 C++ `CastSpell` 规则与强类型 `Game::cast_spell` 签名；Gate 4B-R1 只修改客户端表现与自动验收。两者都不修改 legacy v1 wire 字节，不改变 `scgs_v04` ABI 1.0/schema 1/精确 14 导出，不提交原生 DLL/dylib，不创建 PR、不合并、不打标签。
+Gate 4A.1 修改 C++ `CastSpell` 规则与强类型 `Game::cast_spell` 签名；Gate 4B-R1/R2 只修改客户端表现与自动验收。后两轮不修改 legacy v1 wire 字节，不改变 `scgs_v04` ABI 1.0/schema 1/精确 14 导出，不提交原生 DLL/dylib，不创建 PR、不合并、不打标签。
 
 ## 1. 不可推翻的架构决定
 
@@ -155,13 +159,13 @@ Gate 3B 的 `ActionPromptPanel` / `ConfirmationPanel` 场景可以暂留作源�
 
 `Match` 结构化渲染双方生命、PP、容量、裂痕、进化能量、牌组/手牌数量、战备、墓地/封存、5 个单位位、3 个策略位、己方真实手牌和对方无身份牌背。3D 与 legacy 2D 都把命中映射为 `HotseatSurfaceRef`，再由共同协调器产生选择 intent 并过滤引擎候选，不直接修改战场。法术必须先选择己方空策略位；中央施放区已退役。单一动作自动进入下一必要步骤，多动作才在来源旁弹出按钮；无效拖放原位回弹且不调用 native。
 
-Gate 4B-R1 的 3D 相机使用 58° 基准 FOV、约 58° 俯角，并按左右 HUD 后的安全矩形动态 framing；当前 viewer 在近端且透视只在完全遮挡内重建。HUD hit-test 优先于空间 raycast；移动达到 8 px 才成为拖拽。`Covered`、`Resolving`、调度、终局、错误和销毁状态均锁死空间输入。actor 归还池时必须清空文字、材质、tooltip、metadata、碰撞、signal/callback、tween、拖拽 token 和 DTO 引用。
+Gate 4B-R2 的 3D 相机继续使用 58° 基准 FOV、约 58° 俯角，但 `BattlefieldViewportLayout` 按 1280/1600/2560 宽固定 240+196、288+240、320+264 px 左右安全区，详情、日志或 HUD 显隐不得再引起镜头缩放“呼吸”。`BattlefieldHandRig` 把己方 1～10 张手牌置于屏幕下方相机相对弧线，对方手牌使用上方匿名共享卡背架；滚轮只调整桌面，不改变前景手牌屏幕尺寸。当前 viewer 在近端且透视只在完全遮挡内重建。HUD hit-test 优先于空间 raycast；移动达到 8 px 才成为拖拽。`Covered`、`Resolving`、调度、终局、错误和销毁状态均锁死空间输入。actor 归还池时必须清空文字、材质、tooltip、metadata、碰撞、signal/callback、tween、拖拽 token 和 DTO 引用。
 
 现代玻璃 HUD 不再使用左右全高黑栏：左侧为 248～320 px 自适应卡牌详情抽屉；右上是双方悬浮状态舱；阶段位于战场上沿玻璃胶囊；结束回合按钮靠近己方区域；暂停和日志使用紧凑图标入口。两张临时头像只按对局设置中的公开牌组映射，相同牌组允许相同头像，未知牌组使用中立 fallback，不读取 viewer 私密 DTO。
 
 调度使用底部居中的玻璃卡牌托盘；响应使用紧凑玻璃浮窗，需要目标时关闭浮窗并返回 3D 战场；战备、暂停、日志、结果和错误页使用同一圆角玻璃系统。`Covered` 仍完全不透明；`Resolving` 只消费安全公共投影，清除 viewer 私密 HUD/actor 数据并在完整绘制两帧后提交。
 
-界面继续使用 Compatibility renderer、1600×900 参考画布、最低 1280×720、16:9～16:10 适配与 zh-CN；正式输入范围为鼠标及 Tab/方向键、Enter/Space、Esc。视觉清单严格包含 34 项：29 张独立临时卡图、通用正面、统一卡背、菜单背景和两张临时头像；Noto Sans CJK SC 2.004 Regular 仍按其 OFL 单独分发。当前插画、卡背、头像与卡框都是可替换临时素材，不是最终发布美术，本轮也没有音效或音乐。
+界面继续使用 Compatibility renderer、1600×900 参考画布、最低 1280×720、16:9～16:10 适配与 zh-CN；正式输入范围为鼠标及 Tab/方向键、Enter/Space、Esc。费用、攻击、生命与倒计时必须来自独立真实 `Label3D`/徽章，文字平面高于底板至少 0.012 世界单位并接受正常深度测试；场上卡不显示长名称。视觉清单严格包含 34 项：29 张独立临时卡图、通用正面、统一卡背、菜单背景和两张临时头像；Noto Sans CJK SC 2.004 Regular 仍按其 OFL 单独分发。当前插画、卡背、头像与卡框都是可替换临时素材，不是最终发布美术，本轮也没有音效或音乐。
 
 ## 7. 暂存、导出与自动验收
 
@@ -183,19 +187,20 @@ Gate 4B-R1 的 3D 相机使用 58° 基准 FOV、约 58° 俯角，并按左右 
 
 Gate 3C run `32592594368` 与 Gate 4A run `32617860778` 只是历史回归基线。Gate 4A.1 实现已由 [run `32696171327`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32696171327) 在四项 job 中验证严格 v3 报告：Windows/macOS 各运行默认 3D 当前工程、默认 3D 导出、默认 3D ZIP 往返和一次 legacy 2D 源码整局，并上传沿用名称的 `SomeCardGameShit-gate4a-*` 制品。其 checkout SHA 必须是 `4be6e09ef9edc363b064b4a7aaba4551359ecb05`；后续任何代码尖端都必须重新满足同一矩阵，不能沿用本次 run 冒充新提交证据。
 
-Gate 4B-R1 增加独立 schema 3 visual suite：以固定对局捕获菜单、设置、`Covered`、调度、普通行动、来源选择、格位/目标选择、响应、`Resolving`、结果和错误共 11 类状态，并在 1280×720、1600×900、2560×1440 与 2560×1600 检查战场占比、HUD 安全区、文字、区域归属、隐私和调度托盘/手牌不重叠。1600×900 感知式 golden 只能显式更新并经人工批准；CI 不自动覆盖。素材审计要求 34 项唯一记录；最大场面性能 smoke 预热 300 帧、测量 300 帧，测量期 actor/material/texture 数零增长，硬件渲染预算为 p95 ≤ 33.3 ms、单帧 < 100 ms；已识别纯软件 renderer 只豁免 GPU 时间阈值，11 状态功能、截图、布局、隐私、600 帧和资源零增长仍全部强制。
+Gate 4B-R2 使用独立 schema 4 visual suite：保留历史 11 状态并增加 `hand-one`、`hand-five`、`hand-ten`、`hand-hover` 与 `field-readability`，共 16 类状态；每张截图必须等待连续两个内容一致的 `FramePostDraw`，并验证全帧、桌面、主战者、手牌、HUD 与费用/攻击/生命/倒计时的最终 GPU ROI。四种尺寸仍为 1280×720、1600×900、2560×1440 与 2560×1600。1600×900 感知式 golden 只能显式更新并经人工批准；CI 不自动覆盖。素材审计要求 34 项唯一记录，身份清单用 `.gitattributes` 锁定 LF，避免 Windows checkout 改变冻结 SHA-256。最大场面性能 smoke 预热 300 帧、测量 300 帧，测量期 actor/material/texture 数零增长，硬件渲染预算为 p95 ≤ 33.3 ms、单帧 < 100 ms；已识别纯软件 renderer 只豁免 GPU 时间阈值，16 状态功能、截图、布局、隐私、600 帧和资源零增长仍全部强制。
 
-Gate 4B-R1 导出制品使用 `SomeCardGameShit-gate4b-windows-x86_64` 与 `SomeCardGameShit-gate4b-macos-arm64`。实现自动化与四项 CI 已完成；包含本轮文档修改的最终分支尖端仍须重新满足完整矩阵后，才能在 `TEST_REPORT.md` 写入新的准确 run、数量与制品摘要。
+Gate 4B-R2 导出制品使用 `SomeCardGameShit-gate4b-r2-windows-x86_64` 与 `SomeCardGameShit-gate4b-r2-macos-arm64`，Windows 另上传四尺寸 visual-suite。实现尖端 `cca04b5` 的 run `32766050188` 已 4/4 jobs 全绿并上传 7 个制品；包含本轮文档修改的最终分支尖端仍须重新满足完整矩阵，不能沿用该 run 冒充文档尖端通过。
 
 ## 8. 接手者必须完成的发布前硬门
 
-Gate 4B-R1 的视觉、隐私、资源和性能自动化已经完成，但以下三项发布硬门仍必须由真实证据关闭：
+Gate 4B-R2 的视觉、隐私、资源、性能与第一次实机包自动交付已经完成，但以下四项硬门仍必须由真实证据关闭：
 
-1. 在物理 Apple Silicon Mac 上启动 arm64 `.app`，完成整局、退出和重开；
-2. 在未安装 Visual Studio 的 Windows x86-64 机器验证导出包可启动并完成整局；
-3. 让两名真人在目标桌面构建完成一局，逐次观察完全遮挡、设备交接、主动揭示、交互可理解性和公共结算隐私。
+1. 用户在当前 Windows 实机上完成第一次主观试玩并反馈画面与操作；
+2. 在物理 Apple Silicon Mac 上启动 arm64 `.app`，完成整局、退出和重开；
+3. 在未安装 Visual Studio 的 Windows x86-64 机器验证导出包可启动并完成整局；
+4. 让两名真人在目标桌面构建完成一局，逐次观察完全遮挡、设备交接、主动揭示、交互可理解性和公共结算隐私。
 
-人工发现的问题必须转为回归并重跑完整矩阵；三项全部完成后才允许标记 `v0.4-hotseat-alpha.1`。不要从 CI runner 的 headless 或 display-backed 成功推断物理 Mac、干净 Windows 或双人热座已验收。
+人工发现的问题必须转为回归并重跑完整矩阵；四项全部完成后才允许标记 `v0.4-hotseat-alpha.1`。不要从 CI runner 的 headless 或 display-backed 成功推断主观体验、物理 Mac、干净 Windows 或双人热座已验收。
 
 ## 9. 延后项
 

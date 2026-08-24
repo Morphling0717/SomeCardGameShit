@@ -16,13 +16,13 @@
 **目标平台：** macOS Apple Silicon、Windows x86-64  
 **M1-G 总目标：** 从完整无界面引擎推进到人类可以完整打一局的单机热座版本
 
-> Gate 3C 已建立点击/拖拽战场直操、复杂动作上下文选择与中立公开 `Resolving` 投影，Gate 4A 建立默认 3D/2.5D 表现，Gate 4B-R1 交付产品菜单、设置、视觉目录和自动化基线。Gate 4B-R2 在不改变 11 个 `ActionKind` 或热座隐私状态机的前提下，重写前景手牌、卡牌数值可读性、稳定镜头与战场/HUD 构图，并在四项 CI 全绿后提供 Windows 实机包进行第一轮验收；隐藏 `--legacy-2d-board` 继续只作同源功能回归。最终自动化、导出和 CI 结果只以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 的同提交实测为准。项目不支持 Web，不修改 legacy v1 wire 字节，也不在本 Gate 创建 PR、合并或标签。
+> Gate 3C 已建立点击/拖拽战场直操、复杂动作上下文选择与中立公开 `Resolving` 投影，Gate 4A 建立默认 3D/2.5D 表现，Gate 4B-R1 交付产品菜单、设置、视觉目录和自动化基线。Gate 4B-R2 在不改变 11 个 `ActionKind` 或热座隐私状态机的前提下，已重写前景手牌、卡牌数值可读性、稳定镜头与战场/HUD 构图；实现尖端 `cca04b5` 的 run `32766050188` 四项 CI 全绿，Windows 实机包已交付等待第一次主观验收。隐藏 `--legacy-2d-board` 继续只作同源功能回归。最终自动化、导出和 CI 结果只以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 的同提交实测为准。项目不支持 Web，不修改 legacy v1 wire 字节，也不在本 Gate 创建 PR、合并或标签。
 
 ---
 
 ## 一、开工基线与当前交付
 
-> 本节的“已经完成/尚未完成”首先记录 `main@cfdf695` 的开工审计，便于解释 Gate 1 的来源。Gate 1 已关闭规则边界与客户端安全 API 缺口，Gate 2 完成稳定原生消费边界，Gate 3A 完成 Godot 桌面骨架与首张安全快照，Gate 3B 接入完整操作流程，Gate 3C 完成直接交互加固，Gate 4A 完成默认 3D 表现；Gate 4B-R1 的产品视觉与自动化已经完成，三项真人/物理设备硬门仍未完成。
+> 本节的“已经完成/尚未完成”首先记录 `main@cfdf695` 的开工审计，便于解释 Gate 1 的来源。Gate 1 已关闭规则边界与客户端安全 API 缺口，Gate 2 完成稳定原生消费边界，Gate 3A 完成 Godot 桌面骨架与首张安全快照，Gate 3B 接入完整操作流程，Gate 3C 完成直接交互加固，Gate 4A 完成默认 3D 表现，Gate 4B-R1 完成产品视觉基线；Gate 4B-R2 已完成战斗表现重写、16 状态视觉自动化和第一次 Windows 实机包交付，当前仍待用户主观试玩、物理 Apple Silicon、无 Visual Studio Windows 与两名真人热座整局四项硬门。
 
 ### 1. 已经完成的部分
 
@@ -97,7 +97,7 @@ Godot 客户端：不存在
 人类可玩版本：不存在
 ```
 
-Gate 0+1 交付后，客户端安全 C++ 接口已完成，并由只使用“快照 → 查询 → 命令 → 事件”的无界面代理整局测试约束；Gate 2 在其上提供 `scgs_v04` C ABI；Gate 3A 建立 Godot 工程、只读战场和桌面导出；Gate 3B 再加入可提交命令的完整热座 UI；Gate 4A/4B-R1 完成默认 3D 与产品视觉自动化。仍未完成的是物理 Apple Silicon、无 Visual Studio Windows 和两名真人完整一局的发布前验收。
+Gate 0+1 交付后，客户端安全 C++ 接口已完成，并由只使用“快照 → 查询 → 命令 → 事件”的无界面代理整局测试约束；Gate 2 在其上提供 `scgs_v04` C ABI；Gate 3A 建立 Godot 工程、只读战场和桌面导出；Gate 3B 再加入可提交命令的完整热座 UI；Gate 4A/4B-R1 完成默认 3D 与产品视觉基线；Gate 4B-R2 完成前景手牌、数值可读性、稳定镜头、战场/HUD 重写和 16 状态自动验收。仍未完成的是本次 Windows 包的用户主观试玩、物理 Apple Silicon、无 Visual Studio Windows 和两名真人完整一局四项发布前验收。
 
 ---
 
@@ -387,7 +387,7 @@ docs/ui-state-map.md
 docs/hotseat-acceptance.md
 ```
 
-Gate 0+1+2+3A+3B+3C+4A 的已实现架构、自动化证据和仍待人工完成的验收边界，统一记录在 `docs/architecture.md`、`docs/testing.md`、`docs/native-api-v04.md`、上述 UI 专项文档、路线图与现行交接中。
+Gate 0+1+2+3A+3B+3C+4A+4A.1+4B-R1+4B-R2 的已实现架构、自动化证据和仍待人工完成的验收边界，统一记录在 `docs/architecture.md`、`docs/testing.md`、`docs/native-api-v04.md`、上述 UI 专项文档、路线图与现行交接中。
 
 清理明确的一次性遗留：
 
@@ -698,7 +698,7 @@ Godot 通过统一候选支持调度、单位/法术/策略、攻击、进化、
 
 ### 本 Gate 不可伪装完成的验收
 
-Gate 3A 首帧 smoke、Gate 3B headless 自动整局和 CI 导出都不能代替物理 Apple Silicon、无 Visual Studio Windows 与两名真人热座整局。这三项仍是创建 `v0.4-hotseat-alpha.1` 前的硬门；历史 Gate 3B 自动化/CI 已由 run `32583321294` 验证，当前完整状态和限制见 `TEST_REPORT.md`。
+Gate 3A 首帧 smoke、Gate 3B headless 自动整局和 CI 导出都不能代替物理 Apple Silicon、无 Visual Studio Windows 与两名真人热座整局；Gate 4B-R2 又把当前 Windows 包的用户第一次主观试玩明确列为独立硬门。四项均须关闭后才能创建 `v0.4-hotseat-alpha.1`；历史 Gate 3B 自动化/CI 已由 run `32583321294` 验证，当前完整状态和限制见 `TEST_REPORT.md`。
 
 ---
 
@@ -801,7 +801,7 @@ PP 容量：2
 
 ## 七、可玩闭环开发顺序
 
-以下保留原始 Vertical Slice 顺序以便追溯。Gate 3B 源码已通过统一 `LegalAction`/DTO 流程接入四个 slice，Gate 4B-R1 自动化也已完成；是否达到可发布验收仍只取决于物理 Apple Silicon、无 Visual Studio Windows 和两名真人热座整局三项硬门。
+以下保留原始 Vertical Slice 顺序以便追溯。Gate 3B 源码已通过统一 `LegalAction`/DTO 流程接入四个 slice，Gate 4B-R2 战斗表现与自动化也已完成；是否达到可发布验收仍取决于本次 Windows 包的用户主观试玩、物理 Apple Silicon、无 Visual Studio Windows 和两名真人热座整局四项硬门。
 
 ### Vertical Slice 1：最基础完整比赛
 
@@ -947,9 +947,16 @@ validate_invariants()
 - 最大场面性能 smoke 预热 300 帧、测量 300 帧；测量期 actor/material/texture 数不得增长；硬件渲染要求 p95 ≤ 33.3 ms、单帧 < 100 ms，已识别纯软件 renderer 只豁免 GPU 时间阈值，11 状态功能、截图、布局、隐私、600 帧和资源零增长仍全部强制；
 - 默认 3D 运行完整产品路径，legacy 2D 仅通过隐藏参数执行功能回归；11 个 `ActionKind` 和既有隐私状态机保持不变。
 
-### 6. 发布标签前真人/实机测试 — 三项待办
+### 6. 发布标签前真人/实机测试 — 四项待办
 
-Gate 4B-R1 自动化与实现提交四项 CI 已完成，但不能替代下列三项物理设备、干净运行时和真人交互整局。未实际执行前不得勾选，包含本轮文档更新的最终分支尖端也必须重新跑既有矩阵后才能在 `TEST_REPORT.md` 记录通过。
+Gate 4B-R2 的自动化、四项 CI 与第一次 Windows 实机包已经完成，但不能替代下列四项主观体验、物理设备、干净运行时和真人交互整局。未实际执行前不得勾选，包含本轮文档更新的最终分支尖端也必须重新跑既有矩阵后才能在 `TEST_REPORT.md` 记录通过。
+
+#### 当前 Windows 第一次主观试玩
+
+- 使用本轮 CI 产出的 Windows x86-64 实机包；
+- 检查前景手牌姿态、费用/身材、镜头稳定性、战场与 HUD 可读性；
+- 从调度进入至少一个普通行动回合，记录阻塞操作或视觉问题；
+- 自动 smoke 和截图不能替代用户的接受或问题反馈。
 
 #### macOS Apple Silicon
 
@@ -1088,16 +1095,19 @@ Gate 3B 被测实现 `9845a3f` 的 run [`32583321294`](https://github.com/Morphl
 | UI-011 | 完成 | P1 | 34 项临时视觉目录、产品菜单、对局设置与持久化视觉设置 | UI-010 |
 | UI-012 | 完成 | P0 | 现代玻璃 HUD、双状态舱、自适应详情抽屉与统一玻璃弹层 | UI-011、HOTSEAT-001 |
 | CI-006 | 完成 | P0 | 四分辨率 11 状态视觉套件、golden、隐私哨兵与性能/资源契约 | UI-012、CI-005 |
+| UI-013 | 完成 | P0 | 相机相对 2.5D 手牌、真实数值徽章、稳定镜头与战场/HUD 重写 | UI-012、HOTSEAT-001 |
+| CI-007 | 完成 | P0 | 四分辨率 schema 4、16 状态、GPU 数值 ROI 与稳定帧证据 | UI-013、CI-006 |
 | QA-001 | 待办 | P0 | Mac 实机完整一局 | CI-003 |
 | QA-002 | 待办 | P0 | 无 Visual Studio Windows x86-64 完整一局 | CI-003 |
-| QA-003 | 待办 | P0 | 两名真人完成热座整局和逐次隐私/交互观察 | UI-012、CI-006 |
-| REL-001 | 待办 | P0 | 标记 `v0.4-hotseat-alpha.1` | QA-001、QA-002、QA-003 |
+| QA-003 | 待办 | P0 | 两名真人完成热座整局和逐次隐私/交互观察 | UI-013、CI-007 |
+| QA-004 | 待办 | P0 | 用户在当前 Windows 实机包完成第一次主观试玩 | UI-013、CI-007 |
+| REL-001 | 待办 | P0 | 标记 `v0.4-hotseat-alpha.1` | QA-001、QA-002、QA-003、QA-004 |
 
 ---
 
 ## 十一、提交策略
 
-长期每个 Gate 应独立提交。Gate 0+1 曾按要求只创建本地提交；Gate 2、Gate 3A、Gate 3B、Gate 3C、Gate 4A 与 Gate 4B-R1 均已获得明确推送授权，分别在对应 `codex/godot-hotseat-*` 分支检查 CI，但仍不创建 PR、不合并或打标签。Gate 4A 历史实现提交 `7a6808d` 的四项 job 已在 run `32617860778` 全绿；Gate 4B-R1 实现提交的四项 CI 也已绿，但包含本轮文档更新的最终分支尖端仍须复验。准确 run、数量和制品摘要只记录在 `TEST_REPORT.md`。
+长期每个 Gate 应独立提交。Gate 0+1 曾按要求只创建本地提交；Gate 2、Gate 3A、Gate 3B、Gate 3C、Gate 4A、Gate 4B-R1 与 Gate 4B-R2 均已获得明确推送授权，分别在对应 `codex/godot-hotseat-*` 分支检查 CI，但仍不创建 PR、不合并或打标签。Gate 4A 历史实现提交 `7a6808d` 的四项 job 已在 run `32617860778` 全绿；Gate 4B-R2 实现尖端 `cca04b5` 的四项 CI 已由 run `32766050188` 验证，但包含本轮文档更新的最终分支尖端仍须复验。准确 run、数量和制品摘要只记录在 `TEST_REPORT.md`。
 
 已产生的 Gate 0～3C 主题提交包括：
 
@@ -1226,7 +1236,7 @@ docs: record Gate 3C validation
 
 ## 十四、执行顺序与当前状态
 
-Gate 0+1 已完成 1～10，Gate 2 已完成 11～12，Gate 3A 已完成 13～15 和首帧版本的 22；Gate 3B 已接入 16～21 的源码闭环并完成同提交自动化/导出复验；Gate 4A/4A.1 完成默认 3D 与策略位法术；Gate 4B-R1 的产品菜单、现代玻璃 HUD、34 项素材及四分辨率视觉/性能自动化已经完成。第 23 项拆分为物理 Apple Silicon、无 Visual Studio Windows 和两名真人热座整局三项硬门，仍未完成。
+Gate 0+1 已完成 1～10，Gate 2 已完成 11～12，Gate 3A 已完成 13～15 和首帧版本的 22；Gate 3B 已接入 16～21 的源码闭环并完成同提交自动化/导出复验；Gate 4A/4A.1 完成默认 3D 与策略位法术；Gate 4B-R1 完成产品菜单、现代玻璃 HUD 与 34 项素材，Gate 4B-R2 完成前景手牌、数值可读性、稳定构图及四分辨率 16 状态视觉/性能自动化。发布前仍有用户第一次主观试玩、物理 Apple Silicon、无 Visual Studio Windows 和两名真人热座整局四项硬门。
 以下保留 M1-G 的完整依赖顺序；状态以每行标记为准：
 
 1. [完成] 基于 `main@cfdf695` 创建 `codex/godot-hotseat-gate1`；
@@ -1251,11 +1261,13 @@ Gate 0+1 已完成 1～10，Gate 2 已完成 11～12，Gate 3A 已完成 13～15
 20. [完成源码] 接入进化、部署、位置和组件选择；
 21. [完成源码] 接入策略区、响应 origin、伏策发动/不过和换手；
 22. [Gate 3A 与 Gate 3B 自动复验完成] macOS ARM64 和 Windows x86-64 CI 导出/启动 smoke；
-23. [完成自动化] Gate 4B-R1 产品菜单、设置、现代玻璃 HUD、临时视觉目录和视觉/隐私/性能契约；
-24. [待办] 物理 Apple Silicon 完成整局、退出和重开；
-25. [待办] 无 Visual Studio Windows x86-64 完成导出包整局；
-26. [待办] 两名真人完成热座整局和逐次隐私/交互观察；
-27. [待办] 三项硬门全部完成后标记 `v0.4-hotseat-alpha.1`。
+23. [完成自动化] Gate 4B-R1 产品菜单、设置、现代玻璃 HUD 与 34 项临时视觉目录；
+24. [完成自动化与交付] Gate 4B-R2 前景手牌、真实数值徽章、稳定镜头、战场/HUD 重写和 16 状态视觉契约；
+25. [待办] 用户在当前 Windows 实机包完成第一次主观试玩并反馈；
+26. [待办] 物理 Apple Silicon 完成整局、退出和重开；
+27. [待办] 无 Visual Studio Windows x86-64 完成导出包整局；
+28. [待办] 两名真人完成热座整局和逐次隐私/交互观察；
+29. [待办] 四项硬门全部完成后标记 `v0.4-hotseat-alpha.1`。
 
 ## 十五、Gate 3C：直接交互加固
 
@@ -1302,7 +1314,7 @@ Gate 4A 基于 `codex/godot-hotseat-gate3c@a29dd14`。本轮不修改 C++ 规则
 - Gate 4A schema v3 完整继承 Gate 3C 的 22 个字段/整局约束，并新增 presentation、surface、raycast、HUD、镜头、透视、actor 池、锁定输入和空间泄露证据。
 - Windows/macOS 各跑默认 3D 当前工程、默认 3D 导出、默认 3D ZIP 往返与一次 legacy 2D 源码整局；唯一 marker 保持 `SCGS_GODOT_CI_SMOKE_OK`。
 - 导出 `BUILD_INFO.txt` 标识 Gate 4A，artifact 使用 `SomeCardGameShit-gate4a-*`。实现提交的真实 run、数量、摘要和全绿结论记录在对应被测提交中的历史 `TEST_REPORT.md`；后续改动必须生成新证据，不能沿用旧 run。
-- Gate 4A 当时遗留的 1600×900、1280×720 视觉遍历已由 Gate 4B-R1 的四分辨率、11 状态套件和人工批准 golden 覆盖；仍未完成的发布硬门只保留两名真人热座、物理 Apple Silicon 与无 Visual Studio Windows。
+- Gate 4A 当时遗留的 1600×900、1280×720 视觉遍历已由 Gate 4B-R2 的四分辨率、16 状态套件、GPU 数值 ROI 和人工批准 golden 覆盖；仍未完成的发布硬门为本次 Windows 包的用户主观试玩、两名真人热座、物理 Apple Silicon 与无 Visual Studio Windows。
 
 ## 十七、Gate 4B-R1：现代玻璃 HUD 产品视觉基线
 
@@ -1326,9 +1338,9 @@ Gate 4B-R1 继续使用 `codex/godot-hotseat-gate4b-visual-baseline`。它不修
 - 性能 smoke 预热 300 帧后测量 300 帧；actor/material/texture 数不得增长。硬件渲染使用 p95 ≤ 33.3 ms、单帧 < 100 ms，已识别的纯软件 renderer 只豁免 GPU 时间阈值，11 状态功能、截图、布局、隐私、600 帧与资源零增长仍全部强制。
 - 默认 3D 是产品路径；`--legacy-2d-board` 仅作为隐藏功能回归，不承担视觉等价承诺。
 
-Gate 4B-R1 的实现自动化与四项 CI 已完成；包含本轮文档更新的最终分支尖端仍须重新执行相同矩阵，准确 run、数量和 artifact 摘要只在 `TEST_REPORT.md` 中落账。当前临时卡图、卡背、菜单背景、头像与卡框不等同于最终发布美术，本 Gate 也未加入音效或音乐。
+Gate 4B-R1 的实现自动化与四项 CI 已完成；实现 run `32719076472` 和最终基线 `1370491` 的复验 run `32732554577` 均 4/4 jobs 全绿。两者只是 R1 历史证据，不能替代 R2 的同提交验证；当前临时卡图、卡背、菜单背景、头像与卡框不等同于最终发布美术，本 Gate 也未加入音效或音乐。
 
-发布标签前仍只有三项未完成硬门：物理 Apple Silicon 完成整局/退出/重开、无 Visual Studio Windows x86-64 完成导出整局、两名真人完成完整热座对局并逐次观察交接隐私与交互。三项全部完成前不得创建 `v0.4-hotseat-alpha.1`。
+Gate 4B-R1 结束时仍有三项未完成硬门：物理 Apple Silicon 完成整局/退出/重开、无 Visual Studio Windows x86-64 完成导出整局、两名真人完成完整热座对局并逐次观察交接隐私与交互。Gate 4B-R2 随后又把用户第一次主观试玩列为第四项；当前状态以下一节和 `TEST_REPORT.md` 为准。
 
 ## 十八、Gate 4B-R2：战斗表现重写与第一轮实机验收
 
@@ -1339,7 +1351,7 @@ Gate 4B-R2 使用 `codex/godot-hotseat-gate4b-r2-battle-presentation`，基线�
 - `BattlefieldViewportLayout` 固定四种验收宽度的左右安全区；详情、日志或 HUD 显隐不再重新缩放桌面，滚轮也不改变前景手牌屏幕卡高。
 - 战场至少占物理安全矩形 92% 宽、78% 高，区域托座、阵营边界和状态 HUD 都必须在 1280×720 到 2560×1600 保持清楚归属。
 - Gate 4B-R2 visual-suite 使用独立 schema 4：在历史 11 状态上增加单张/五张/十张手牌、悬停与场上可读性，共 16 状态；截图要求连续两个内容一致的 `FramePostDraw` 和最终 GPU 数值 ROI。
-- 实现、四尺寸实拍、golden、Windows/macOS 导出、四项 CI 和第一次实机反馈均未执行完成前，不得在本文或 `TEST_REPORT.md` 宣称通过。
+- 实现、四尺寸实拍、golden、Windows/macOS 导出与四项 CI 已由实现尖端 `cca04b5` 的 run `32766050188` 验证，准确数量和制品 digest 记录在 `TEST_REPORT.md`；第一次实机主观反馈仍未完成，不能用自动 smoke 替代。
 
 第一次实机验收通过后，R3 再处理精细卡体、机械场地模型、材质灯光、完整响应链/动作演出、弹层和菜单统一。
 

@@ -234,7 +234,8 @@ jobs:
               --forbid-output "SCRIPT ERROR:" `
               --forbid-output "ERROR:" `
               --forbid-output "Unhandled exception" `
-              -- "$env:GODOT4" --path client/godot --windowed --resolution "$width`x$height" -- `
+              -- "$env:GODOT4" --path client/godot --windowed --audio-driver Dummy `
+              --resolution "$width`x$height" -- `
               --ci-smoke "--native-library=$native" "--ci-visual-suite=$suite" `
               "--ci-visual-viewport=$width`x$height"
             if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

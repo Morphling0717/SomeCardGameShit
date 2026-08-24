@@ -3,14 +3,15 @@ using Godot;
 namespace Scgs.GodotClient.UI;
 
 /// <summary>
-/// Shared responsive measurements for the product HUD.  These values describe
-/// safe, floating surfaces; they deliberately never reserve a full-height rail.
+/// Shared responsive measurements for the compact battle presentation. The
+/// center battlefield receives a stable safe rectangle; opening a detail or
+/// log surface must not make the camera zoom in and out.
 /// </summary>
 public static class GlassHudTheme
 {
     public const float MinimumWidth = 1280.0f;
     public const float MinimumHeight = 720.0f;
-    public const float PanelCornerRadius = 18.0f;
+    public const float PanelCornerRadius = 10.0f;
     public const float CompactGap = 12.0f;
 
     public static MatchHudMetrics MetricsFor(Vector2 viewportSize)
@@ -19,21 +20,26 @@ public static class GlassHudTheme
         float height = Mathf.Max(viewportSize.Y, MinimumHeight);
         float detailWidth = width switch
         {
-            < 1440.0f => 248.0f,
+            < 1440.0f => 240.0f,
             < 2200.0f => 288.0f,
             _ => 320.0f,
         };
-        float detailHeight = Mathf.Clamp(height - 152.0f, 520.0f, 720.0f);
-        float statusWidth = width < 1440.0f ? 292.0f : 316.0f;
-        float dockWidth = width < 1440.0f ? 248.0f : 270.0f;
+        float detailHeight = Mathf.Clamp(height - 96.0f, 560.0f, 820.0f);
+        float statusWidth = width switch
+        {
+            < 1440.0f => 196.0f,
+            < 2200.0f => 240.0f,
+            _ => 264.0f,
+        };
+        float dockWidth = statusWidth;
 
         return new MatchHudMetrics(
             detailWidth,
             detailHeight,
             statusWidth,
             dockWidth,
-            width < 1440.0f ? 14.0f : 18.0f,
-            width >= 2200.0f ? 24.0f : 18.0f);
+            width < 1440.0f ? 12.0f : width >= 2200.0f ? 20.0f : 16.0f,
+            width >= 2200.0f ? 20.0f : 14.0f);
     }
 }
 

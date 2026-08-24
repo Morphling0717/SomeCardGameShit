@@ -4,7 +4,7 @@
 [ext_resource type="PackedScene" path="res://scenes/components/GlassSurface.tscn" id="2_glass"]
 
 [node name="CardDetailPanel" type="PanelContainer"]
-custom_minimum_size = Vector2(248, 360)
+custom_minimum_size = Vector2(240, 360)
 theme_type_variation = &"GlassDrawer"
 script = ExtResource("1_script")
 
@@ -30,7 +30,7 @@ theme_override_constants/separation = 8
 unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
-theme_override_colors/font_color = Color(0.56, 0.95, 0.9, 1)
+theme_override_colors/font_color = Color(0.7, 0.94, 1, 1)
 theme_override_font_sizes/font_size = 20
 text = "卡牌详情"
 text_overrun_behavior = 3
@@ -50,7 +50,7 @@ size_flags_vertical = 3
 theme_override_constants/separation = 10
 
 [node name="ArtworkFrame" type="PanelContainer" parent="Margin/Layout/CardDetailBody"]
-custom_minimum_size = Vector2(220, 330)
+custom_minimum_size = Vector2(208, 312)
 layout_mode = 2
 theme_type_variation = &"GlassChip"
 

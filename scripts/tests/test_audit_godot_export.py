@@ -64,7 +64,7 @@ class GodotExportAuditTests(unittest.TestCase):
         )
         for source in (finalize, audit_source):
             with self.subTest(source=source.splitlines()[1]):
-                self.assertIn("SomeCardGameShit Gate 4B", source)
+                self.assertIn("SomeCardGameShit Gate 4B-R2", source)
                 self.assertNotIn("SomeCardGameShit Gate 3C", source)
 
     def test_ci_waits_for_cold_import_and_uses_official_macos_template_shape(
@@ -127,8 +127,8 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertNotIn("validate_gate3c_report.py", workflow)
         self.assertNotIn("SomeCardGameShit-gate3b-", workflow)
         self.assertNotIn("SomeCardGameShit-gate3c-", workflow)
-        self.assertIn("SomeCardGameShit-gate4b-windows-x86_64", workflow)
-        self.assertIn("SomeCardGameShit-gate4b-macos-arm64", workflow)
+        self.assertIn("SomeCardGameShit-gate4b-r2-windows-x86_64", workflow)
+        self.assertIn("SomeCardGameShit-gate4b-r2-macos-arm64", workflow)
 
     def test_prepare_template_adds_executable_arm64_release(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -287,7 +287,7 @@ class GodotExportAuditTests(unittest.TestCase):
                 content = marker
                 if filename == "BUILD_INFO.txt":
                     content = (
-                        "SomeCardGameShit Gate 4B\n"
+                        "SomeCardGameShit Gate 4B-R2\n"
                         "commit=0123456789abcdef0123456789abcdef01234567\n"
                         f"{marker}\n"
                         "dotnet_sdk=10.0.400\n"
@@ -307,7 +307,7 @@ class GodotExportAuditTests(unittest.TestCase):
                 content = marker
                 if filename == "BUILD_INFO.txt":
                     content = (
-                        "SomeCardGameShit Gate 4B\n"
+                        "SomeCardGameShit Gate 4B-R2\n"
                         "commit=local\n"
                         "godot=4.7.2.stable.mono\n"
                         "dotnet_sdk=10.0.400\n"
@@ -324,7 +324,7 @@ class GodotExportAuditTests(unittest.TestCase):
             ):
                 with self.subTest(field=old):
                     valid = (
-                        "SomeCardGameShit Gate 4B\n"
+                        "SomeCardGameShit Gate 4B-R2\n"
                         "commit=local\n"
                         "godot=4.7.2.stable.mono\n"
                         "dotnet_sdk=10.0.400\n"
@@ -335,7 +335,7 @@ class GodotExportAuditTests(unittest.TestCase):
                         _audit_licenses(directory)
 
             valid = (
-                "SomeCardGameShit Gate 4B\n"
+                "SomeCardGameShit Gate 4B-R2\n"
                 "commit=0123456789abcdef0123456789abcdef01234567\n"
                 "godot=4.7.2.stable.mono\n"
                 "dotnet_sdk=10.0.400\n"

@@ -28,6 +28,7 @@ from compare_visual_golden import (  # noqa: E402
 )
 from validate_gate4b_visual_suite import (  # noqa: E402
     EXPECTED_STATES,
+    LEGACY_EXPECTED_STATES,
     VisualSuiteError,
     main as validate_main,
     validate,
@@ -51,8 +52,19 @@ def _write_png(
     rgb: tuple[int, int, int],
     *,
     ancillary_bytes: int = 0,
+    checker: bool = False,
 ) -> None:
-    rows = b"".join(b"\0" + bytes(rgb) * width for _ in range(height))
+    if checker:
+        base = bytes(rgb)
+        bright = bytes(tuple(min(255, channel + 72) for channel in rgb))
+        even_row = (base + bright) * (width // 2) + (base if width % 2 else b"")
+        odd_row = (bright + base) * (width // 2) + (bright if width % 2 else b"")
+        rows = b"".join(
+            b"\0" + (even_row if y % 2 == 0 else odd_row)
+            for y in range(height)
+        )
+    else:
+        rows = b"".join(b"\0" + bytes(rgb) * width for _ in range(height))
     header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
     fixture_padding = (
         _chunk(b"tEXt", b"fixture-padding\0" + b"x" * ancillary_bytes)
@@ -66,6 +78,86 @@ def _write_png(
         + fixture_padding
         + _chunk(b"IEND", b"")
     )
+
+
+def _fixture_pixel(
+    base: tuple[int, int, int],
+    x: int,
+    y: int,
+    checker: bool,
+) -> tuple[int, int, int]:
+    if not checker or (x + y) % 2 == 0:
+        return base
+    return tuple(min(255, channel + 72) for channel in base)
+
+
+def _fixture_region(
+    name: str,
+    base: tuple[int, int, int],
+    x: int,
+    y: int,
+    width: int,
+    height: int,
+    *,
+    checker: bool,
+) -> tuple[dict[str, object], dict[str, object]]:
+    center_x = x + width // 2
+    center_y = y + height // 2
+    anchor_rgb = _fixture_pixel(base, center_x, center_y, checker=checker)
+    anchor: dict[str, object] = {
+        "name": name,
+        "x": center_x,
+        "y": center_y,
+        "r": anchor_rgb[0],
+        "g": anchor_rgb[1],
+        "b": anchor_rgb[2],
+    }
+    region_rgb = b"".join(
+        bytes(_fixture_pixel(base, pixel_x, pixel_y, checker=checker))
+        for pixel_y in range(y, y + height)
+        for pixel_x in range(x, x + width)
+    )
+    lumas = [
+        (
+            54 * region_rgb[offset]
+            + 183 * region_rgb[offset + 1]
+            + 19 * region_rgb[offset + 2]
+            + 128
+        ) >> 8
+        for offset in range(0, len(region_rgb), 3)
+    ]
+    edge_pixels = sum(
+        1
+        for pixel_y in range(height)
+        for pixel_x in range(width)
+        if (
+            pixel_x > 0
+            and abs(
+                lumas[pixel_y * width + pixel_x]
+                - lumas[pixel_y * width + pixel_x - 1]
+            ) >= 24
+        )
+        or (
+            pixel_y > 0
+            and abs(
+                lumas[pixel_y * width + pixel_x]
+                - lumas[(pixel_y - 1) * width + pixel_x]
+            ) >= 24
+        )
+    )
+    region: dict[str, object] = {
+        "name": name,
+        "x": x,
+        "y": y,
+        "width": width,
+        "height": height,
+        "sha256": hashlib.sha256(region_rgb).hexdigest(),
+        "mean_luma": (sum(lumas) + len(lumas) // 2) // len(lumas),
+        "edge_ratio": edge_pixels / len(lumas),
+        "frame_pair_mae": 0.0,
+        "max_channel_delta": 0,
+    }
+    return anchor, region
 
 
 class VisualAssetAuditTests(unittest.TestCase):
@@ -162,46 +254,125 @@ class VisualGoldenTests(unittest.TestCase):
 
 
 class VisualSuiteReportTests(unittest.TestCase):
-    def _write_report(self, directory: Path, *, structural_pngs: bool = False) -> Path:
+    def _write_report(
+        self,
+        directory: Path,
+        *,
+        structural_pngs: bool = False,
+        schema_version: int = 3,
+        readable_pixels: bool = True,
+        viewport_width: int = 1600,
+        viewport_height: int = 900,
+    ) -> Path:
         asset_hash = "a" * 64
         captures = []
-        for index, state in enumerate(sorted(EXPECTED_STATES)):
+        states = EXPECTED_STATES if schema_version == 4 else LEGACY_EXPECTED_STATES
+        for index, state in enumerate(sorted(states)):
             filename = f"{index:02d}-{state}.png"
             screenshot = directory / filename
+            color = (index, index + 1, index + 2)
             _write_png(
                 screenshot,
-                1600,
-                900,
-                (index, index + 1, index + 2),
+                viewport_width,
+                viewport_height,
+                color,
                 ancillary_bytes=20 * 1024 if structural_pngs else 0,
+                checker=schema_version == 4 and readable_pixels,
             )
-            captures.append(
-                {
-                    "state": state,
-                    "viewer": None if state in {"menu", "match-setup", "covered", "error"} else 0,
-                    "revision": None if state in {"menu", "match-setup", "covered", "error"} else index,
-                    "width": 1600,
-                    "height": 900,
-                    "file": filename,
-                    "sha256": hashlib.sha256(screenshot.read_bytes()).hexdigest(),
-                    "asset_manifest_sha256": asset_hash,
-                    "layout": {
-                        "controls_inside_viewport": True,
-                        "hud_regions_overlap_free": True,
-                        "opaque_full_height_panel_count": 0,
-                        "glass_surface_count": 3,
-                        "visible_debug_label_count": 0,
-                        "battlefield_width_ratio": 1.0 if state not in {"menu", "match-setup", "error"} else 0.0,
-                        "battlefield_height_ratio": 1.0 if state not in {"menu", "match-setup", "error"} else 0.0,
-                    },
+            capture = {
+                "state": state,
+                "viewer": None if state in {"menu", "match-setup", "covered", "error"} else 0,
+                "revision": None if state in {"menu", "match-setup", "covered", "error"} else index,
+                "width": viewport_width,
+                "height": viewport_height,
+                "file": filename,
+                "sha256": hashlib.sha256(screenshot.read_bytes()).hexdigest(),
+                "asset_manifest_sha256": asset_hash,
+                "layout": {
+                    "controls_inside_viewport": True,
+                    "hud_regions_overlap_free": True,
+                    "opaque_full_height_panel_count": 0,
+                    "glass_surface_count": 3,
+                    "visible_debug_label_count": 0,
+                    "battlefield_width_ratio": 1.0 if state not in {"menu", "match-setup", "error"} else 0.0,
+                    "battlefield_height_ratio": 1.0 if state not in {"menu", "match-setup", "error"} else 0.0,
+                },
+            }
+            if schema_version == 4:
+                names = {"viewport_center"}
+                if state not in {"menu", "match-setup", "covered", "error"}:
+                    names.update({"battlefield", "hud"})
+                if state in {"hand-one", "hand-five", "hand-ten", "hand-hover"}:
+                    names.add("near_hand")
+                if state == "field-readability":
+                    names.update(
+                        {
+                            "near_hand",
+                            "cost",
+                            "attack",
+                            "health",
+                            "countdown",
+                            "battlefield",
+                            "own_leader",
+                            "opponent_leader",
+                            "hud",
+                        }
+                    )
+                anchors = []
+                regions = []
+                badge_geometry = {
+                    "cost": (600, 350, 40, 40),
+                    "attack": (621, 510, 40, 40),
+                    "health": (720, 510, 42, 40),
+                    "countdown": (680, 350, 56, 40),
                 }
-            )
+                for evidence_index, name in enumerate(sorted(names)):
+                    x, y, region_width, region_height = badge_geometry.get(
+                        name,
+                        (100 + evidence_index * 8, 100, 4, 4),
+                    )
+                    anchor, region = _fixture_region(
+                        name,
+                        color,
+                        x,
+                        y,
+                        region_width,
+                        region_height,
+                        checker=readable_pixels,
+                    )
+                    anchors.append(anchor)
+                    regions.append(region)
+                capture.update(
+                    {
+                        "stable_frame_post_draws": 2,
+                        "frame_pair_mae": 0.0,
+                        "pixel_evidence": {"anchors": anchors, "regions": regions},
+                    }
+                )
+                hand_counts = {
+                    "hand-one": (1, 0, 0),
+                    "hand-five": (5, 0, 0),
+                    "hand-ten": (10, 0, 0),
+                    "hand-hover": (5, 1, 0),
+                }
+                if state in hand_counts:
+                    card_count, hovered_count, selected_count = hand_counts[state]
+                    capture["hand_evidence"] = {
+                        "card_count": card_count,
+                        "hovered_count": hovered_count,
+                        "selected_count": selected_count,
+                        "minimum_pixel_height": (
+                            170.0 if viewport_height >= 900 else 142.0
+                        ),
+                        "maximum_abs_roll_degrees": 7.5,
+                    }
+            captures.append(capture)
         report = {
-            "schema_version": 3,
-            "gate": "4B-R1",
+            "schema_version": schema_version,
+            "gate": "4B-R2" if schema_version == 4 else "4B-R1",
             "scenario": "visual-suite",
             "asset_manifest_sha256": asset_hash,
-            "viewport": {"width": 1600, "height": 900},
+            "viewport": {"width": viewport_width, "height": viewport_height},
             "captures": captures,
             "performance": {
                 "adapter_name": "Test Hardware Adapter",
@@ -219,6 +390,14 @@ class VisualSuiteReportTests(unittest.TestCase):
                 "texture_count_after": 31,
             },
         }
+        if schema_version == 4:
+            report["capture_contract"] = {
+                "frame_post_draws": 2,
+                "pixel_space": "srgb8",
+                "maximum_frame_pair_mae": 0.01,
+                "maximum_region_frame_pair_mae": 0.01,
+                "maximum_region_channel_delta": 64,
+            }
         path = directory / "visual-suite.json"
         path.write_text(json.dumps(report), encoding="utf-8")
         return path
@@ -236,10 +415,31 @@ class VisualSuiteReportTests(unittest.TestCase):
                 )["gate"],
             )
 
-    def test_explicit_golden_update_preserves_schema_three_metadata(self) -> None:
+    def test_schema_four_checks_sixteen_states_and_real_pixel_evidence(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            report_path = self._write_report(Path(temporary), schema_version=4)
+            report = validate(report_path, enforce_structure=False)
+            self.assertEqual("4B-R2", report["gate"])
+            self.assertEqual(16, len(report["captures"]))
+
+            mutated = json.loads(report_path.read_text(encoding="utf-8"))
+            field = next(
+                capture for capture in mutated["captures"]
+                if capture["state"] == "field-readability"
+            )
+            field["pixel_evidence"]["regions"][0]["sha256"] = "0" * 64
+            report_path.write_text(json.dumps(mutated), encoding="utf-8")
+            with self.assertRaisesRegex(VisualSuiteError, "disagrees with the PNG"):
+                validate(report_path, enforce_structure=False)
+
+    def test_explicit_golden_update_requires_schema_four_metadata(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            report_path = self._write_report(directory, structural_pngs=True)
+            report_path = self._write_report(
+                directory,
+                structural_pngs=True,
+                schema_version=4,
+            )
             destination = directory / "goldens"
             arguments = [
                 "update_gate4b_goldens.py",
@@ -254,10 +454,31 @@ class VisualSuiteReportTests(unittest.TestCase):
             metadata = json.loads(
                 (destination / "GOLDEN_METADATA.json").read_text(encoding="utf-8")
             )
-            self.assertEqual(3, metadata["schema_version"])
+            self.assertEqual(4, metadata["schema_version"])
+            self.assertEqual("4B-R2", metadata["gate"])
+            self.assertEqual(2, metadata["capture_contract"]["frame_post_draws"])
             self.assertEqual(sorted(EXPECTED_STATES), metadata["states"])
             for state in EXPECTED_STATES:
                 self.assertTrue((destination / f"{state}.png").is_file())
+
+    def test_explicit_golden_update_refuses_historical_schema_three(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            report_path = self._write_report(directory, structural_pngs=True)
+            destination = directory / "goldens"
+            arguments = [
+                "update_gate4b_goldens.py",
+                "--report",
+                str(report_path),
+                "--destination",
+                str(destination),
+                "--accept",
+            ]
+            with (
+                patch.object(sys, "argv", arguments),
+                redirect_stderr(StringIO()),
+            ):
+                self.assertEqual(1, update_goldens_main())
 
     def test_report_rejects_black_bars_overlap_debug_ui_and_small_board(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -304,6 +525,300 @@ class VisualSuiteReportTests(unittest.TestCase):
             report_path.write_text(json.dumps(report), encoding="utf-8")
             with self.assertRaisesRegex(VisualSuiteError, "actor count grew"):
                 validate(report_path, enforce_structure=False)
+
+    def test_schema_four_is_strict_and_requires_two_stable_frames_and_all_rois(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            report_path = self._write_report(directory, schema_version=4)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["captures"][0]["unexpected"] = True
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(VisualSuiteError, "fields must be exactly"):
+                validate(report_path, enforce_structure=False)
+
+            report_path = self._write_report(directory, schema_version=4)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["captures"][0]["stable_frame_post_draws"] = 1
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(VisualSuiteError, "two consecutive"):
+                validate(report_path, enforce_structure=False)
+
+            report_path = self._write_report(directory, schema_version=4)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            field = next(
+                capture for capture in report["captures"]
+                if capture["state"] == "field-readability"
+            )
+            field["pixel_evidence"]["anchors"] = [
+                anchor for anchor in field["pixel_evidence"]["anchors"]
+                if anchor["name"] != "countdown"
+            ]
+            field["pixel_evidence"]["regions"] = [
+                region for region in field["pixel_evidence"]["regions"]
+                if region["name"] != "countdown"
+            ]
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(VisualSuiteError, "field-readability lacks"):
+                validate(report_path, enforce_structure=False)
+
+            report_path = self._write_report(
+                directory,
+                schema_version=4,
+                readable_pixels=False,
+            )
+            with self.assertRaisesRegex(VisualSuiteError, "badge GPU ROIs are blank"):
+                validate(report_path, enforce_structure=False)
+
+    def test_schema_four_rejects_local_region_frame_instability(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            report_path = self._write_report(directory, schema_version=4)
+            baseline = json.loads(report_path.read_text(encoding="utf-8"))
+            mutations = (
+                ("frame_pair_mae", 0.010001, "region .*frame_pair_mae exceeds"),
+                ("max_channel_delta", 65, "region .*max_channel_delta exceeds"),
+                ("max_channel_delta", 64.0, "max_channel_delta must be an integer"),
+            )
+            for field, value, message in mutations:
+                with self.subTest(field=field, value=value):
+                    report = json.loads(json.dumps(baseline))
+                    report["captures"][0]["pixel_evidence"]["regions"][0][field] = value
+                    report_path.write_text(json.dumps(report), encoding="utf-8")
+                    with self.assertRaisesRegex(VisualSuiteError, message):
+                        validate(report_path, enforce_structure=False)
+
+    def test_schema_four_capture_contract_requires_exact_region_limits(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            report_path = self._write_report(directory, schema_version=4)
+            baseline = json.loads(report_path.read_text(encoding="utf-8"))
+            mutations = (
+                ("maximum_region_frame_pair_mae", 0.02),
+                ("maximum_region_channel_delta", 65),
+                ("maximum_region_channel_delta", 64.0),
+            )
+            for field, value in mutations:
+                with self.subTest(field=field, value=value):
+                    report = json.loads(json.dumps(baseline))
+                    report["capture_contract"][field] = value
+                    report_path.write_text(json.dumps(report), encoding="utf-8")
+                    with self.assertRaisesRegex(
+                        VisualSuiteError,
+                        "capture_contract must strictly require",
+                    ):
+                        validate(report_path, enforce_structure=False)
+
+            report = json.loads(json.dumps(baseline))
+            del report["capture_contract"]["maximum_region_frame_pair_mae"]
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(
+                VisualSuiteError,
+                "capture_contract must strictly require",
+            ):
+                validate(report_path, enforce_structure=False)
+
+    def test_hand_evidence_is_state_specific_and_meets_geometry_bounds(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            report_path = self._write_report(directory, schema_version=4)
+            baseline = json.loads(report_path.read_text(encoding="utf-8"))
+            mutations = (
+                ("hand-one", "card_count", 5, "card_count must be 1"),
+                ("hand-hover", "hovered_count", 0, "hovered_count must be 1"),
+                ("hand-five", "selected_count", 1, "selected_count must be 0"),
+                (
+                    "hand-ten",
+                    "minimum_pixel_height",
+                    169.99,
+                    "hand cards are too short",
+                ),
+                (
+                    "hand-five",
+                    "maximum_abs_roll_degrees",
+                    8.01,
+                    "roll exceeds 8 degrees",
+                ),
+            )
+            for state, field, value, message in mutations:
+                with self.subTest(state=state, field=field):
+                    report = json.loads(json.dumps(baseline))
+                    capture = next(
+                        item for item in report["captures"] if item["state"] == state
+                    )
+                    capture["hand_evidence"][field] = value
+                    report_path.write_text(json.dumps(report), encoding="utf-8")
+                    with self.assertRaisesRegex(VisualSuiteError, message):
+                        validate(report_path, enforce_structure=False)
+
+            report = json.loads(json.dumps(baseline))
+            hand_one = next(
+                item for item in report["captures"] if item["state"] == "hand-one"
+            )
+            del hand_one["hand_evidence"]
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(VisualSuiteError, "fields must be exactly"):
+                validate(report_path, enforce_structure=False)
+
+            report = json.loads(json.dumps(baseline))
+            action = next(
+                item for item in report["captures"] if item["state"] == "action"
+            )
+            action["hand_evidence"] = json.loads(
+                json.dumps(next(
+                    item["hand_evidence"]
+                    for item in report["captures"]
+                    if item["state"] == "hand-one"
+                ))
+            )
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(VisualSuiteError, "fields must be exactly"):
+                validate(report_path, enforce_structure=False)
+
+            report_path = self._write_report(
+                directory,
+                schema_version=4,
+                viewport_width=1280,
+                viewport_height=720,
+            )
+            report = validate(report_path, enforce_structure=False)
+            hand_one = next(
+                item for item in report["captures"] if item["state"] == "hand-one"
+            )
+            self.assertEqual(142.0, hand_one["hand_evidence"]["minimum_pixel_height"])
+            hand_one["hand_evidence"]["minimum_pixel_height"] = 141.99
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(VisualSuiteError, "hand cards are too short"):
+                validate(report_path, enforce_structure=False)
+
+    def test_hand_captures_require_distinct_png_and_near_hand_hashes(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            report_path = self._write_report(directory, schema_version=4)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            hand_one = next(
+                item for item in report["captures"] if item["state"] == "hand-one"
+            )
+            hand_five = next(
+                item for item in report["captures"] if item["state"] == "hand-five"
+            )
+            hand_one["file"] = hand_five["file"]
+            hand_one["sha256"] = hand_five["sha256"]
+            hand_one["pixel_evidence"] = json.loads(
+                json.dumps(hand_five["pixel_evidence"])
+            )
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(VisualSuiteError, "distinct PNG SHA-256"):
+                validate(report_path, enforce_structure=False)
+
+            report_path = self._write_report(directory, schema_version=4)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            hand_one = next(
+                item for item in report["captures"] if item["state"] == "hand-one"
+            )
+            hand_five = next(
+                item for item in report["captures"] if item["state"] == "hand-five"
+            )
+            five_index = int(hand_five["file"].split("-", 1)[0])
+            hand_one_path = directory / hand_one["file"]
+            _write_png(
+                hand_one_path,
+                1600,
+                900,
+                (five_index, five_index + 1, five_index + 2),
+                ancillary_bytes=1,
+                checker=True,
+            )
+            hand_one["sha256"] = hashlib.sha256(hand_one_path.read_bytes()).hexdigest()
+            hand_one["pixel_evidence"] = json.loads(
+                json.dumps(hand_five["pixel_evidence"])
+            )
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(VisualSuiteError, "distinct near_hand ROI"):
+                validate(report_path, enforce_structure=False)
+
+    def test_field_badge_rois_reject_reused_rectangles_and_checker_pixels(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            report_path = self._write_report(
+                directory,
+                structural_pngs=True,
+                schema_version=4,
+            )
+            baseline = json.loads(report_path.read_text(encoding="utf-8"))
+            field = next(
+                item
+                for item in baseline["captures"]
+                if item["state"] == "field-readability"
+            )
+            badge_names = {"cost", "attack", "health", "countdown"}
+            countdown_region = json.loads(json.dumps(next(
+                item
+                for item in field["pixel_evidence"]["regions"]
+                if item["name"] == "countdown"
+            )))
+            countdown_anchor = json.loads(json.dumps(next(
+                item
+                for item in field["pixel_evidence"]["anchors"]
+                if item["name"] == "countdown"
+            )))
+            for item in field["pixel_evidence"]["regions"]:
+                if item["name"] in badge_names:
+                    name = item["name"]
+                    item.clear()
+                    item.update(json.loads(json.dumps(countdown_region)))
+                    item["name"] = name
+            for item in field["pixel_evidence"]["anchors"]:
+                if item["name"] in badge_names:
+                    name = item["name"]
+                    item.clear()
+                    item.update(json.loads(json.dumps(countdown_anchor)))
+                    item["name"] = name
+            report_path.write_text(json.dumps(baseline), encoding="utf-8")
+            with self.assertRaisesRegex(VisualSuiteError, "distinct rectangles"):
+                validate(report_path)
+
+            report_path = self._write_report(
+                directory,
+                structural_pngs=True,
+                schema_version=4,
+            )
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            field = next(
+                item
+                for item in report["captures"]
+                if item["state"] == "field-readability"
+            )
+            state_index = int(field["file"].split("-", 1)[0])
+            color = (state_index, state_index + 1, state_index + 2)
+            geometry = {
+                "cost": (600, 350, 56, 40),
+                "countdown": (720, 350, 56, 40),
+                "attack": (620, 510, 56, 40),
+                "health": (740, 510, 56, 40),
+            }
+            anchors_by_name = {
+                item["name"]: item for item in field["pixel_evidence"]["anchors"]
+            }
+            regions_by_name = {
+                item["name"]: item for item in field["pixel_evidence"]["regions"]
+            }
+            for name, (x, y, region_width, region_height) in geometry.items():
+                anchor, region = _fixture_region(
+                    name,
+                    color,
+                    x,
+                    y,
+                    region_width,
+                    region_height,
+                    checker=True,
+                )
+                anchors_by_name[name].clear()
+                anchors_by_name[name].update(anchor)
+                regions_by_name[name].clear()
+                regions_by_name[name].update(region)
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(VisualSuiteError, "identical checker pixels"):
+                validate(report_path)
 
     def test_software_renderers_may_skip_only_the_timing_budget(self) -> None:
         software_adapters = (
@@ -449,6 +964,9 @@ class VisualSuiteReportTests(unittest.TestCase):
         match_scene = (
             root / "client/godot/scenes/match/Match.tscn"
         ).read_text(encoding="utf-8")
+        hud_presenter = (
+            root / "client/godot/scripts/UI/MatchHudPresenter.cs"
+        ).read_text(encoding="utf-8")
         overlays = "\n".join(
             (root / path).read_text(encoding="utf-8")
             for path in (
@@ -472,16 +990,24 @@ class VisualSuiteReportTests(unittest.TestCase):
         self.assertIn("if ($width -eq 2560) { 2400 } else { 1200 }", workflow)
         self.assertIn("--timeout $suiteTimeout", workflow)
         self.assertIn("compare_visual_golden.py", workflow)
+        self.assertIn("$goldenMetadata.states", workflow)
+        self.assertIn("exactly one capture for approved state", workflow)
+        self.assertIn("metadata references missing capture", workflow)
         self.assertNotIn("update_gate4b_goldens.py", workflow)
-        self.assertIn("SomeCardGameShit-gate4b-windows-x86_64", workflow)
-        self.assertIn("SomeCardGameShit-gate4b-macos-arm64", workflow)
+        self.assertIn("SomeCardGameShit-gate4b-r2-windows-x86_64", workflow)
+        self.assertIn("SomeCardGameShit-gate4b-r2-macos-arm64", workflow)
+        self.assertIn("SomeCardGameShit-gate4b-r2-windows-visual-suite", workflow)
         self.assertIn('"--ci-visual-suite="', bootstrap)
         self.assertIn('"--ci-visual-viewport="', producer)
         self.assertIn("DisplayServer.VSyncMode.Disabled", producer)
         self.assertIn("warmupFrames = 300", producer)
         self.assertIn("measuredFrames = 300", producer)
-        self.assertIn('public int SchemaVersion { get; init; } = 3;', producer)
-        self.assertIn('public string Gate { get; init; } = "4B-R1";', producer)
+        self.assertIn('public int SchemaVersion { get; init; } = 4;', producer)
+        self.assertIn('public string Gate { get; init; } = "4B-R2";', producer)
+        self.assertIn("StableFramePostDraws = 2", producer)
+        self.assertIn("ReadCompletedFrameAsync", producer)
+        self.assertIn("MeasurePixelEvidence", producer)
+        self.assertIn('"field-readability"', producer)
         self.assertIn("AdapterName", producer)
         self.assertIn("AdapterType", producer)
         self.assertIn("TimingBudgetApplicable", producer)
@@ -489,7 +1015,7 @@ class VisualSuiteReportTests(unittest.TestCase):
         self.assertIn("HudRegionsOverlapFree", producer)
         self.assertIn("BattlefieldWidthRatio", producer)
         self.assertIn("CiOwnHandScreenRect", producer)
-        self.assertIn("projectedBoard.Intersection(viewportRect)", producer)
+        self.assertIn("projectedBoard.Intersection(safeBattlefieldRect)", producer)
         self.assertIn("ContainsGpuPrivacySentinel", producer)
         self.assertIn("private GPU sentinel (#ff00ff)", producer)
         self.assertIn("VerifyGpuPrivacySentinelDetector", producer)
@@ -523,6 +1049,12 @@ class VisualSuiteReportTests(unittest.TestCase):
         self.assertIn('theme_type_variation = &"GlassStatusPod"', match_scene)
         self.assertIn('unique_name_in_owner = true', match_scene)
         self.assertNotIn('text = "GATE 4B"', match_scene + overlays)
+        self.assertIn("VerifyMaximumHudStateForCiAsync", match)
+        self.assertIn("MeasureMaximumStateForCi", hud_presenter)
+        self.assertIn("PP {currentPp}/{ppCapacity}  裂{cracks}  进{evolutionEnergy}", hud_presenter)
+        self.assertNotIn("FormatPpPips", match)
+        self.assertEqual(2, match_scene.count('text = "PP 10/10  裂99  进99"'))
+        self.assertIn("25/25, PP 10/10, double-digit crack/evolution", runner)
         self.assertIn("SetLegacyBoardPanelsVisible(_legacy2dBoard);", match)
         self.assertIn(
             'GetNode<Control>("SafeMargin/Layout/HandPanel").Visible = showLegacyBoard;',
@@ -541,7 +1073,7 @@ class VisualSuiteReportTests(unittest.TestCase):
         self.assertIn("34", producer)
         for state in EXPECTED_STATES:
             with self.subTest(state=state):
-                self.assertIn(f'"{state}"', bootstrap + runner + match)
+                self.assertIn(f'"{state}"', bootstrap + runner + match + producer)
 
 
 if __name__ == "__main__":

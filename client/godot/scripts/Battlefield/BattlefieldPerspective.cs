@@ -363,7 +363,11 @@ public static class BattlefieldPerspective
 
         float clamped = Mathf.Clamp(zoom, MinimumZoom, MaximumZoom);
         float radians = Mathf.DegToRad(CameraPitchDegrees);
-        const float baseDistance = 17.0f;
+        // R2 reserves stable HUD lanes and moves the hand into a camera-relative
+        // layer, so the authored table can fill the remaining stage without
+        // colliding with either surface. 16.2 keeps every pile on-screen while
+        // meeting the 78% vertical battlefield contract at product sizes.
+        const float baseDistance = 16.2f;
         float distance = baseDistance * clamped * Mathf.Clamp(framingScale, 1.0f, 2.0f);
         return new Vector3(
             0.0f,

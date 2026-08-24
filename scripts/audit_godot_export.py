@@ -104,8 +104,8 @@ def _audit_licenses(directory: Path, expected_commit: str | None = None) -> None
             raise ExportAuditError(f"packaged notice has unexpected content: {path}")
     build_info = (directory / "BUILD_INFO.txt").read_text(encoding="utf-8")
     lines = build_info.splitlines()
-    if not lines or lines[0] != "SomeCardGameShit Gate 4B":
-        raise ExportAuditError("packaged build info does not identify Gate 4B")
+    if not lines or lines[0] != "SomeCardGameShit Gate 4B-R2":
+        raise ExportAuditError("packaged build info does not identify Gate 4B-R2")
     entries: dict[str, str] = {}
     for line in lines[1:]:
         if line.count("=") != 1:

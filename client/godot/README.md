@@ -1,6 +1,6 @@
-# Godot 热座客户端（Gate 4B-R1）
+# Godot 热座客户端（Gate 4B-R2）
 
-此目录是 Godot 4.7.2 .NET、`net8.0` 的桌面热座客户端。产品默认使用 authored 3D/2.5D 战场、现代玻璃 HUD、临时卡图/头像目录和完整主菜单外壳；legacy 2D 仅保留为隐藏回归路径。法术没有中央施放区，必须点击或拖到当前玩家自己的具体空策略位；三个位置全满时不可施法。Godot 层引用：
+此目录是 Godot 4.7.2 .NET、`net8.0` 的桌面热座客户端。产品默认使用 authored 3D/2.5D 战场、相机相对前景手牌架、稳定安全区 HUD、临时卡图/头像目录和完整主菜单外壳；legacy 2D 仅保留为隐藏回归路径。法术没有中央施放区，必须点击或拖到当前玩家自己的具体空策略位；三个位置全满时不可施法。Godot 层引用：
 
 - `../Scgs.Client/Scgs.Client.csproj`：安全 ABI、DTO 与 `IScgsGameSession`；
 - `../Scgs.Hotseat/Scgs.Hotseat.csproj`：无 Godot 依赖的热座状态机与命令编排。
@@ -47,7 +47,7 @@ godot --path client/godot -- --legacy-2d-board --native-library=<绝对路径>
 
 鼠标操作同时支持“点击来源 → 点击目的地”和拖拽。拖拽只是同一 intent 的快捷方式，不能产生不同命令；无效拖放原位回弹且不调用 native。Esc 或右键空白回退一个显式选择步骤，再次取消才清空来源；悬停显示详情，右键可固定详情。
 
-3D presenter 使用 58° FOV、约 58° 俯角和 8 px 拖拽阈值，按当前 viewport 的安全矩形动态调整距离与水平偏移，同时覆盖 16:9 与 16:10。HUD 位于独立 `CanvasLayer`：左侧是可收窄的卡牌详情抽屉，右上是两个独立玩家状态舱，阶段胶囊、结束回合、暂停和日志都是紧凑悬浮控件，不保留全高黑色侧栏。单一 `BackBufferCopy` 与共享 screen-reading CanvasItem shader 为顶层玻璃面板提供模糊/半透明/圆角/描边皮肤；`Covered` 仍保持完全不透明。
+3D presenter 使用 58° FOV、约 58° 俯角和 8 px 拖拽阈值。`BattlefieldViewportLayout` 固定左右 HUD 安全区，详情或日志显隐不再使镜头缩放“呼吸”；桌面滚轮缩放也不改变相机相对 `BattlefieldHandRig` 的屏幕卡高。HUD 位于独立 `CanvasLayer`：左侧是可收窄的卡牌详情抽屉，右上是两个独立玩家状态舱，阶段胶囊、结束回合、暂停和日志都是紧凑悬浮控件，不保留全高黑色侧栏。单一 `BackBufferCopy` 与共享 screen-reading CanvasItem shader 为顶层面板提供统一皮肤；`Covered` 仍保持完全不透明。
 
 命中 HUD 时不得继续发射空间射线；viewer 透视只在完全遮挡内切换。卡牌 actor 归还池时清除文字、卡图/材质参数、tooltip、metadata、碰撞、signal/callback、tween 和拖拽 token，防止跨 viewer 复用泄露；隐藏 actor 只能绑定共享卡背。
 
@@ -88,7 +88,7 @@ godot --path client/godot --windowed --audio-driver Dummy -- \
   --ci-visual-viewport=1600x900
 ```
 
-**Gate 4B-R1 visual-suite schema v3** 与 Gate 4A full-match schema v3 同为版本 3，但是完全独立的报告和 validator。视觉套件捕获 `menu`、`match-setup`、`covered`、`mulligan`、`action`、`source-selection`、`slot-or-target-selection`、`reaction`、`resolving`、`result` 和 `error` 11 种状态，并对 1280×720、1600×900、2560×1440、2560×1600 做结构验证。1600×900 额外与提交的 golden 比较：归一化 MAE 不高于 0.025，边缘差不高于 0.08；golden 只能通过显式更新脚本替换。
+**Gate 4B-R2 visual-suite schema v4** 与 Gate 4A full-match schema v3 是完全独立的报告和 validator。视觉套件保留原有 11 种产品状态，并新增 `hand-one`、`hand-five`、`hand-ten`、`hand-hover` 和 `field-readability`，共 16 种状态；每张截图等待连续两个内容一致的 `FramePostDraw`，并记录桌面、主战者、手牌、HUD 及费用/攻击/生命/倒计时的真实像素证据。四种验收尺寸为 1280×720、1600×900、2560×1440、2560×1600；1600×900 golden 只能通过显式更新脚本替换并经人工审阅。
 
 同一套件运行 300 帧预热 + 300 帧测量；预热后 actor/material/texture 数必须零增长。报告必须写入 `adapter_name`、`adapter_type` 和 `timing_budget_applicable`。普通硬件适配器要求 p95 不高于 33.3 ms 且单帧低于 100 ms；CPU、Microsoft Basic Render Driver、llvmpipe、SwiftShader 或明确 software renderer 只豁免 GPU 时间阈值，仍必须完成全部功能、隐私、600 帧和资源零增长检查。
 
@@ -100,4 +100,4 @@ godot --path client/godot --windowed --audio-driver Dummy -- \
 
 Noto Sans CJK SC 2.004 Regular 的许可证、NOTICE 和 SHA-256 在 `assets/fonts/` 中。桌面导出附带项目 GPL、Godot、.NET runtime、nlohmann/json、Noto、`ASSET_NOTICES.md` 与第三方声明；finalize 与制品审计会强制检查。
 
-Gate 4B-R1 有基础悬停、重排、出牌、送墓、伤害/治疗和阶段反馈，但不包含最终商业卡图、音效/音乐、大型演出、独立正式表现 JSON、触摸/手柄、联机、Developer ID 签名/公证、Web 或 Linux 正式客户端。主战技、普通主动能力和同时触发人工排序也仍延后。
+Gate 4B-R2 聚焦手牌、数值徽章、镜头与战场/HUD 构图的第一轮实机验收，不包含最终商业卡图、音效/音乐、大型演出、独立正式表现 JSON、触摸/手柄、联机、Developer ID 签名/公证、Web 或 Linux 正式客户端。精细模型、机械场地材质、完整响应链/动作演出与菜单统一延后到后续视觉轮次；主战技、普通主动能力和同时触发人工排序也仍延后。

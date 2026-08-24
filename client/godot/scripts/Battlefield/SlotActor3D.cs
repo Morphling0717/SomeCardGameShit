@@ -25,6 +25,13 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
             0.018f,
             BattlefieldPerspective.SlotDepth),
     };
+    private static readonly BoxMesh SlotTrayMesh = new()
+    {
+        Size = new Vector3(
+            BattlefieldPerspective.SlotWidth + 0.12f,
+            0.05f,
+            BattlefieldPerspective.SlotDepth + 0.12f),
+    };
 
     private static readonly MultiMesh CornerBracketMesh = CreateCornerBrackets();
     private static readonly CylinderMesh LeaderPlatformMesh = new()
@@ -55,6 +62,12 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         CreateSurfaceMaterial(new Color("8c72b5"), 0.22f, 0.15f);
     private static readonly StandardMaterial3D PileMaterial =
         CreateSurfaceMaterial(new Color("6f91a6"), 0.20f, 0.10f);
+    private static readonly StandardMaterial3D IdleUnitTrayMaterial =
+        CreateTrayMaterial(new Color("1d6075"));
+    private static readonly StandardMaterial3D IdleTacticTrayMaterial =
+        CreateTrayMaterial(new Color("5a4778"));
+    private static readonly StandardMaterial3D PileTrayMaterial =
+        CreateTrayMaterial(new Color("405b6b"));
     private static readonly StandardMaterial3D LegalMaterial =
         CreateSurfaceMaterial(new Color("4de0c4"), 0.48f, 0.82f);
     private static readonly StandardMaterial3D DestinationMaterial =
@@ -72,6 +85,7 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         Roughness = 0.26f,
     };
 
+    private MeshInstance3D _trayMesh = null!;
     private MeshInstance3D _fillMesh = null!;
     private MultiMeshInstance3D _brackets = null!;
     private MeshInstance3D _leaderPlatform = null!;
@@ -127,6 +141,8 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         bool tactic = label.Contains("策略", StringComparison.Ordinal);
         _slotGlyph = tactic ? "△" : "◇";
         _idleMaterial = tactic ? IdleTacticMaterial : IdleUnitMaterial;
+        _trayMesh.MaterialOverride = tactic ? IdleTacticTrayMaterial : IdleUnitTrayMaterial;
+        _trayMesh.Visible = true;
         _fillMesh.MaterialOverride = _idleMaterial;
         _brackets.MaterialOverride = _idleMaterial;
         _fillMesh.Visible = false;
@@ -142,6 +158,8 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         _baseLabel = title;
         _slotGlyph = "▱";
         _idleMaterial = PileMaterial;
+        _trayMesh.MaterialOverride = PileTrayMaterial;
+        _trayMesh.Visible = true;
         _fillMesh.MaterialOverride = PileMaterial;
         _brackets.MaterialOverride = PileMaterial;
         _fillMesh.Visible = false;
@@ -161,6 +179,7 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         PrepareBinding(transform, surface, VisualMode.Leader);
         _baseLabel = $"{health}/{maximumHealth}";
         _leaderCoreMaterial = near ? CyanCoreMaterial : VioletCoreMaterial;
+        _trayMesh.Visible = false;
         _leaderCore.MaterialOverride = _leaderCoreMaterial;
         _leaderPlatform.Visible = true;
         _leaderCore.Visible = true;
@@ -202,8 +221,9 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         else
         {
             _fillMesh.MaterialOverride = highlightMaterial;
-            _fillMesh.Visible = _visualMode == VisualMode.Slot &&
-                                highlight != BattlefieldHighlightKind.None;
+            // Keep the arena visible during decisions: affordances live on the
+            // edge rails and glyph, never as an opaque rectangle over the slot.
+            _fillMesh.Visible = false;
             _brackets.MaterialOverride = highlightMaterial;
             _label.Text = highlight switch
             {
@@ -244,6 +264,8 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         _label.Position = new Vector3(0.0f, 0.045f, 0.0f);
         _label.FontSize = 30;
         _label.Modulate = new Color(0.65f, 0.78f, 0.84f, 0.76f);
+        _trayMesh.Visible = false;
+        _trayMesh.MaterialOverride = IdleUnitTrayMaterial;
         _fillMesh.Visible = false;
         _fillMesh.MaterialOverride = IdleUnitMaterial;
         _brackets.Visible = false;
@@ -283,6 +305,7 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         _visualMode = visualMode;
         _highlight = BattlefieldHighlightKind.None;
         CanActivate = false;
+        _trayMesh.Visible = false;
         _fillMesh.Visible = false;
         _brackets.Visible = false;
         _leaderPlatform.Visible = false;
@@ -313,6 +336,17 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         {
             return;
         }
+
+        _trayMesh = new MeshInstance3D
+        {
+            Name = "SlotTray",
+            Mesh = SlotTrayMesh,
+            Position = new Vector3(0.0f, -0.018f, 0.0f),
+            MaterialOverride = IdleUnitTrayMaterial,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+            Visible = false,
+        };
+        AddChild(_trayMesh);
 
         _fillMesh = new MeshInstance3D
         {
@@ -465,6 +499,17 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
             Roughness = 0.18f,
             EmissionEnabled = true,
             Emission = color * 1.1f,
+        };
+
+    private static StandardMaterial3D CreateTrayMaterial(Color color) =>
+        new()
+        {
+            AlbedoColor = new Color(color, 0.34f),
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+            Metallic = 0.68f,
+            Roughness = 0.34f,
+            EmissionEnabled = true,
+            Emission = color * 0.08f,
         };
 
     private static void ScrubMetadata(Node node)

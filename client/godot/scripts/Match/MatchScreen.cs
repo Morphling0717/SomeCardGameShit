@@ -69,6 +69,8 @@ public sealed partial class MatchScreen : Control
     private bool _ciSawReactionSignal;
     private bool _ciCancelledDragNoSideEffects;
     private bool _ciSourceAdjacentPanelVerified;
+    private int _ciSourcePanelPositionCount;
+    private int _ciSourcePanelOverlapCount;
     private bool _ciPrivacySentinelArmed;
     private bool _ciPrivacySentinelVerified;
     private bool _ciPrivacySentinelFrameAuditPending;
@@ -152,6 +154,24 @@ public sealed partial class MatchScreen : Control
     internal bool CiCancelledDragNoSideEffects => _ciCancelledDragNoSideEffects;
 
     internal bool CiSourceAdjacentPanelVerified => _ciSourceAdjacentPanelVerified;
+
+    internal bool CiDirectPanelSourceNonOverlap =>
+        _ciSourcePanelPositionCount > 0 && _ciSourcePanelOverlapCount == 0;
+
+    internal bool CiDirectPanelAvoidsCurrentSource
+    {
+        get
+        {
+            if (!_directActions.Visible || _controller?.State is not { } state ||
+                state.Interaction.Source is null)
+            {
+                return true;
+            }
+
+            return TryGetDirectPanelSourceRect(state, out Rect2 sourceRect) &&
+                   !_directActions.GetGlobalRect().Intersects(sourceRect.Grow(10.0f));
+        }
+    }
 
     internal bool CiPrivacySentinelVerified => _ciPrivacySentinelVerified;
 
@@ -1644,6 +1664,7 @@ public sealed partial class MatchScreen : Control
                                 _battlefield3d.CiTripleAffordanceSurfaceCount > 0 &&
                                 _battlefield3d.CiOutlineVisibleCount > 0;
         bool readableLayout = _battlefield3d.CiValidateReadableLayout(view);
+        bool handRigContract = _battlefield3d.CiValidateHandRigContract();
         CardView? knownCard = view.Players[(int)view.Viewer].Hand.FirstOrDefault(card =>
             card.InstanceId.HasValue && card.DefinitionId.HasValue && card.Definition is not null);
         bool knownDetail = knownCard is not null;
@@ -1655,7 +1676,7 @@ public sealed partial class MatchScreen : Control
         }
         bool valid = _battlefield3d.Visible && _battlefield3d.InputEnabled && hudBlocked &&
                      minimumApplied && maximumApplied && perspective && actorPool &&
-                     tripleAffordance && readableLayout && knownDetail &&
+                     tripleAffordance && readableLayout && handRigContract && knownDetail &&
                      Mathf.IsEqualApprox(
                          _battlefield3d.CiCameraPitch,
                          BattlefieldPerspective.CameraPitchDegrees);
@@ -1666,7 +1687,7 @@ public sealed partial class MatchScreen : Control
                 $"input={_battlefield3d.InputEnabled}, hud={hudBlocked}, min={minimumApplied}, " +
                 $"max={maximumApplied}, perspective={perspective}, pool={actorPool}, " +
                 $"affordance={tripleAffordance}, readable={readableLayout}, " +
-                $"known_detail={knownDetail}.");
+                $"hand_rig={handRigContract}, known_detail={knownDetail}.");
         }
         return valid;
     }
@@ -1778,6 +1799,85 @@ public sealed partial class MatchScreen : Control
         float directPanelWidth = Math.Min(420.0f, availableBoardWidth - 24.0f);
         return availableBoardWidth >= 520.0f &&
                availableBoardHeight >= 600.0f && directPanelWidth >= 360.0f;
+    }
+
+    internal async Task<bool> VerifyMaximumHudStateForCiAsync()
+    {
+        if (_legacy2dBoard)
+        {
+            return true;
+        }
+
+        string[] prefixes = ["Opponent", "Own"];
+        var saved = prefixes.Select(prefix =>
+        {
+            Label seat = GetNode<Label>($"%{prefix}SeatLabel");
+            Label resources = GetNode<Label>($"%{prefix}ResourceLabel");
+            Label active = GetNode<Label>($"%{prefix}ActiveIndicator");
+            ProgressBar health = GetNode<ProgressBar>($"%{prefix}HealthBar");
+            return new
+            {
+                Seat = seat,
+                SeatText = seat.Text,
+                Resources = resources,
+                ResourceText = resources.Text,
+                Active = active,
+                ActiveVisible = active.Visible,
+                Health = health,
+                HealthMaximum = health.MaxValue,
+                HealthValue = health.Value,
+            };
+        }).ToArray();
+
+        try
+        {
+            saved[0].Seat.Text = MatchHudPresenter.FormatCompactSeat(
+                own: false,
+                PlayerId.Player1,
+                health: 25,
+                maximumHealth: 25);
+            saved[1].Seat.Text = MatchHudPresenter.FormatCompactSeat(
+                own: true,
+                PlayerId.Player0,
+                health: 25,
+                maximumHealth: 25);
+            foreach (var status in saved)
+            {
+                status.Resources.Text = MatchHudPresenter.FormatCompactResources(
+                    currentPp: 10,
+                    ppCapacity: 10,
+                    cracks: 99,
+                    evolutionEnergy: 99);
+                // Both active diamonds are intentionally visible: this is a
+                // width stress fixture, not a reachable match state.
+                status.Active.Visible = true;
+                status.Health.MaxValue = 25;
+                status.Health.Value = 25;
+            }
+
+            ApplyHudLayout();
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            await ToSignal(GetTree(), SceneTree.SignalName.ProcessFrame);
+            MatchHudMaximumStateEvidence evidence =
+                _hudPresenter.MeasureMaximumStateForCi();
+            if (!evidence.IsValid)
+            {
+                GD.PushWarning($"Maximum HUD fixture failed: {evidence}.");
+            }
+            return evidence.IsValid;
+        }
+        finally
+        {
+            foreach (var status in saved)
+            {
+                status.Seat.Text = status.SeatText;
+                status.Resources.Text = status.ResourceText;
+                status.Active.Visible = status.ActiveVisible;
+                status.Health.MaxValue = status.HealthMaximum;
+                status.Health.Value = status.HealthValue;
+            }
+            ApplyHudLayout();
+        }
     }
 
     internal bool ValidateRenderedLayoutForCi()
@@ -2474,34 +2574,125 @@ public sealed partial class MatchScreen : Control
         float reservedLeft = _legacy2dBoard
             ? 18.0f
             : Math.Max(18.0f, _battlefieldDetails.GetGlobalRect().End.X + 16.0f);
-        float availableWidth = Math.Max(360.0f, viewport.X - reservedRight - reservedLeft - 18.0f);
-        Vector2 panelSize = new(
-            Math.Min(360.0f, availableWidth),
-            Mathf.Clamp(_directActions.GetCombinedMinimumSize().Y, 76.0f, 156.0f));
-        float maxX = Math.Max(reservedLeft, viewport.X - reservedRight - panelSize.X);
-        float maxY = Math.Max(70.0f, viewport.Y - panelSize.Y - 112.0f);
+        float availableWidth = Math.Max(
+            196.0f,
+            viewport.X - reservedRight - reservedLeft - 18.0f);
+
+        Vector2 MeasurePanel(bool compact)
+        {
+            _directActions.SetCompactMode(compact);
+            Vector2 minimum = _directActions.GetCombinedMinimumSize();
+            float preferredWidth = compact ? 196.0f : 360.0f;
+            return new Vector2(
+                Math.Min(availableWidth, Math.Max(preferredWidth, minimum.X)),
+                Mathf.Clamp(minimum.Y, compact ? 64.0f : 76.0f, 156.0f));
+        }
+
+        Vector2 panelSize = MeasurePanel(compact: false);
         Vector2 position;
 
         SnapshotSlot? source = null;
         Vector2? sourceAnchor = null;
+        Rect2? sourceScreenRect = null;
         if (state.Interaction.Source is { } sourceId)
         {
             if (!_legacy2dBoard && state.Snapshot is { } view &&
-                TryFindSurfaceRef(view, sourceId, out HotseatSurfaceRef surface) &&
-                _battlefield3d.CiTryGetScreenAnchor(
-                    BattlefieldSurfaceRef.FromHotseat(surface),
-                    out Vector2 screenAnchor))
+                TryFindSurfaceRef(view, sourceId, out HotseatSurfaceRef surface))
             {
-                sourceAnchor = screenAnchor;
+                BattlefieldSurfaceRef battlefieldSurface =
+                    BattlefieldSurfaceRef.FromHotseat(surface);
+                if (_battlefield3d.TryGetScreenBounds(
+                        battlefieldSurface,
+                        out Rect2 screenBounds))
+                {
+                    sourceScreenRect = screenBounds;
+                    sourceAnchor = screenBounds.GetCenter();
+                }
+                else if (_battlefield3d.CiTryGetScreenAnchor(
+                             battlefieldSurface,
+                             out Vector2 screenAnchor))
+                {
+                    sourceAnchor = screenAnchor;
+                }
             }
             else
             {
                 source = FindVisibleSlotForCard(sourceId);
+                sourceScreenRect = source?.GetGlobalRect();
             }
         }
 
-        if (source is null && !sourceAnchor.HasValue)
+        Vector2[] destinationAnchors = CurrentBattlefieldDestinationAnchors(state).ToArray();
+
+        bool TryPlaceAdjacent(Rect2 sourceRect, Vector2 size, out Vector2 placed)
         {
+            const float safeTop = 70.0f;
+            const float safeBottom = 112.0f;
+            const float panelGap = 2.0f;
+            Rect2 exclusion = sourceRect.Grow(10.0f);
+            float maxX = Math.Max(reservedLeft, viewport.X - reservedRight - size.X);
+            float maxY = Math.Max(safeTop, viewport.Y - size.Y - safeBottom);
+            Vector2 center = exclusion.GetCenter();
+            Vector2[] candidates =
+            [
+                new(center.X - size.X / 2.0f, exclusion.Position.Y - size.Y - panelGap),
+                new(center.X - size.X / 2.0f, exclusion.End.Y + panelGap),
+                new(exclusion.Position.X - size.X - panelGap, center.Y - size.Y / 2.0f),
+                new(exclusion.End.X + panelGap, center.Y - size.Y / 2.0f),
+                new(exclusion.Position.X, exclusion.Position.Y - size.Y - panelGap),
+                new(exclusion.End.X - size.X, exclusion.Position.Y - size.Y - panelGap),
+                new(exclusion.Position.X, exclusion.End.Y + panelGap),
+                new(exclusion.End.X - size.X, exclusion.End.Y + panelGap),
+                new(reservedLeft, safeTop),
+                new(maxX, safeTop),
+                new(reservedLeft, maxY),
+                new(maxX, maxY),
+            ];
+
+            Vector2? best = null;
+            double bestScore = double.PositiveInfinity;
+            foreach (Vector2 candidate in candidates)
+            {
+                var clamped = new Vector2(
+                    Mathf.Clamp(candidate.X, reservedLeft, maxX),
+                    Mathf.Clamp(candidate.Y, safeTop, maxY));
+                var panelRect = new Rect2(clamped, size);
+                if (panelRect.Intersects(exclusion))
+                {
+                    continue;
+                }
+
+                int coveredDestinations = destinationAnchors.Count(
+                    panelRect.Grow(10.0f).HasPoint);
+                double distance = panelRect.GetCenter().DistanceSquaredTo(sourceRect.GetCenter());
+                double score = coveredDestinations * 1_000_000.0 + distance;
+                if (score < bestScore)
+                {
+                    best = clamped;
+                    bestScore = score;
+                }
+            }
+
+            placed = best ?? default;
+            return best.HasValue;
+        }
+
+        if (sourceScreenRect is { } realSource)
+        {
+            if (!TryPlaceAdjacent(realSource, panelSize, out position))
+            {
+                panelSize = MeasurePanel(compact: true);
+                if (!TryPlaceAdjacent(realSource, panelSize, out position))
+                {
+                    throw new InvalidOperationException(
+                        "The direct action panel cannot fit beside its source inside the safe viewport.");
+                }
+            }
+        }
+        else if (source is null && !sourceAnchor.HasValue)
+        {
+            float maxX = Math.Max(reservedLeft, viewport.X - reservedRight - panelSize.X);
+            float maxY = Math.Max(70.0f, viewport.Y - panelSize.Y - 112.0f);
             position = new Vector2(
                 Mathf.Clamp((viewport.X - reservedRight - panelSize.X) / 2.0f, reservedLeft, maxX),
                 maxY);
@@ -2515,7 +2706,8 @@ public sealed partial class MatchScreen : Control
                 new(anchor.X - panelSize.X - 24.0f, anchor.Y - panelSize.Y / 2.0f),
                 new(anchor.X + 24.0f, anchor.Y - panelSize.Y / 2.0f),
             ];
-            Vector2[] destinationAnchors = CurrentBattlefieldDestinationAnchors(state).ToArray();
+            float maxX = Math.Max(reservedLeft, viewport.X - reservedRight - panelSize.X);
+            float maxY = Math.Max(70.0f, viewport.Y - panelSize.Y - 112.0f);
             int BestScore(Vector2 candidate)
             {
                 Vector2 clamped = new(
@@ -2533,6 +2725,8 @@ public sealed partial class MatchScreen : Control
         else
         {
             Rect2 sourceRect = source!.GetGlobalRect();
+            float maxX = Math.Max(reservedLeft, viewport.X - reservedRight - panelSize.X);
+            float maxY = Math.Max(70.0f, viewport.Y - panelSize.Y - 112.0f);
             float y = sourceRect.Position.Y - panelSize.Y - 12.0f;
             if (y < 70.0f)
             {
@@ -2547,21 +2741,34 @@ public sealed partial class MatchScreen : Control
         _directActions.Position = position;
         _directActions.Size = panelSize;
 
-        if (source is not null)
+        if (TryGetDirectPanelSourceRect(state, out Rect2 measuredSourceRect))
         {
-            Rect2 sourceRect = source.GetGlobalRect();
             Rect2 panelRect = _directActions.GetGlobalRect();
-            bool horizontalOverlap = panelRect.End.X >= sourceRect.Position.X &&
-                                     sourceRect.End.X >= panelRect.Position.X;
-            float verticalGap = Math.Min(
-                Math.Abs(panelRect.End.Y - sourceRect.Position.Y),
-                Math.Abs(sourceRect.End.Y - panelRect.Position.Y));
+            Rect2 exclusion = measuredSourceRect.Grow(10.0f);
+            bool noOverlap = !panelRect.Intersects(exclusion);
+            _ciSourcePanelPositionCount++;
+            if (!noOverlap)
+            {
+                _ciSourcePanelOverlapCount++;
+            }
+
+            float horizontalGap = Math.Max(
+                0.0f,
+                Math.Max(
+                    measuredSourceRect.Position.X - panelRect.End.X,
+                    panelRect.Position.X - measuredSourceRect.End.X));
+            float verticalGap = Math.Max(
+                0.0f,
+                Math.Max(
+                    measuredSourceRect.Position.Y - panelRect.End.Y,
+                    panelRect.Position.Y - measuredSourceRect.End.Y));
+            float adjacencyGap = new Vector2(horizontalGap, verticalGap).Length();
             bool insideSafeArea = panelRect.Position.X >= 17.0f &&
                                   panelRect.Position.Y >= 69.0f &&
                                   panelRect.End.X <= viewport.X - reservedRight + 1.0f &&
                                   panelRect.End.Y <= viewport.Y - 111.0f;
             _ciSourceAdjacentPanelVerified |=
-                horizontalOverlap && verticalGap <= 14.0f && insideSafeArea;
+                noOverlap && adjacencyGap <= 14.0f && insideSafeArea;
         }
         else if (sourceAnchor is { } anchor)
         {
@@ -2573,6 +2780,34 @@ public sealed partial class MatchScreen : Control
                 Math.Abs(anchor.Y - panelRect.Position.Y));
             _ciSourceAdjacentPanelVerified |= horizontallyAdjacent && verticalGap <= 30.0f;
         }
+    }
+
+    private bool TryGetDirectPanelSourceRect(HotseatUiState state, out Rect2 sourceRect)
+    {
+        if (state.Interaction.Source is not { } sourceId)
+        {
+            sourceRect = default;
+            return false;
+        }
+
+        if (!_legacy2dBoard && state.Snapshot is { } view &&
+            TryFindSurfaceRef(view, sourceId, out HotseatSurfaceRef surface) &&
+            _battlefield3d.TryGetScreenBounds(
+                BattlefieldSurfaceRef.FromHotseat(surface),
+                out sourceRect))
+        {
+            return true;
+        }
+
+        SnapshotSlot? source = FindVisibleSlotForCard(sourceId);
+        if (source is not null)
+        {
+            sourceRect = source.GetGlobalRect();
+            return true;
+        }
+
+        sourceRect = default;
+        return false;
     }
 
     private IEnumerable<Vector2> CurrentBattlefieldDestinationAnchors(HotseatUiState state)
@@ -3245,8 +3480,8 @@ public sealed partial class MatchScreen : Control
         GetNode<Label>("%OpponentZones").Text = FormatZoneSummary(opponent);
         GetNode<Label>("%OwnSummary").Text = FormatPlayerSummary(own, "己方");
         GetNode<Label>("%OwnZones").Text = FormatZoneSummary(own);
-        GetNode<Label>("%OpponentResourceLabel").Text = FormatRailResources(opponent, "对手");
-        GetNode<Label>("%OwnResourceLabel").Text = FormatRailResources(own, "己方");
+        GetNode<Label>("%OpponentResourceLabel").Text = FormatRailResources(opponent);
+        GetNode<Label>("%OwnResourceLabel").Text = FormatRailResources(own);
 
         if (_legacy2dBoard)
         {
@@ -4323,8 +4558,8 @@ public sealed partial class MatchScreen : Control
         GetNode<Label>("%OpponentZones").Text = FormatPublicZoneSummary(opponent);
         GetNode<Label>("%OwnSummary").Text = FormatPublicPlayerSummary(own, "己方");
         GetNode<Label>("%OwnZones").Text = FormatPublicZoneSummary(own);
-        GetNode<Label>("%OpponentResourceLabel").Text = FormatPublicRailResources(opponent, "对手");
-        GetNode<Label>("%OwnResourceLabel").Text = FormatPublicRailResources(own, "己方");
+        GetNode<Label>("%OpponentResourceLabel").Text = FormatPublicRailResources(opponent);
+        GetNode<Label>("%OwnResourceLabel").Text = FormatPublicRailResources(own);
         GetNode<Label>("%PrivacyProof").Text =
             $"结算隐私：玩家 0 手牌 {board.Players[0].HandCount}，玩家 1 手牌 {board.Players[1].HandCount}；身份均未保留。";
 
@@ -4396,10 +4631,12 @@ public sealed partial class MatchScreen : Control
         $"当前 PP {player.CurrentPp} / 容量 {player.PpCapacity}    " +
         $"裂痕 {player.Cracks}    进化能量 {player.EvolutionEnergy}";
 
-    private static string FormatRailResources(PlayerView player, string relation) =>
-        $"{relation}   ♥ {player.LeaderHealth}/{player.MaximumLeaderHealth}   " +
-        $"PP {FormatPpPips(player.CurrentPp, player.PpCapacity)}\n" +
-        $"裂痕 {player.Cracks}     进化 {player.EvolutionEnergy}";
+    private static string FormatRailResources(PlayerView player) =>
+        MatchHudPresenter.FormatCompactResources(
+            player.CurrentPp,
+            player.PpCapacity,
+            player.Cracks,
+            player.EvolutionEnergy);
 
     private void PresentViewerSafeFx(IEnumerable<GameEventView> events)
     {
@@ -4431,25 +4668,12 @@ public sealed partial class MatchScreen : Control
         }
     }
 
-    private static string FormatPublicRailResources(
-        HotseatPublicPlayerView player,
-        string relation) =>
-        $"{relation}   ♥ {player.LeaderHealth}/{player.MaximumLeaderHealth}   " +
-        $"PP {FormatPpPips(player.CurrentPp, player.PpCapacity)}\n" +
-        $"裂痕 {player.Cracks}     进化 {player.EvolutionEnergy}";
-
-    private static string FormatPpPips(int current, int capacity)
-    {
-        int safeCapacity = Math.Clamp(capacity, 0, 10);
-        int safeCurrent = Math.Clamp(current, 0, safeCapacity);
-        if (safeCapacity == 0)
-        {
-            return "0";
-        }
-
-        return $"{new string('●', safeCurrent)}{new string('○', safeCapacity - safeCurrent)} " +
-               $"{current}/{capacity}";
-    }
+    private static string FormatPublicRailResources(HotseatPublicPlayerView player) =>
+        MatchHudPresenter.FormatCompactResources(
+            player.CurrentPp,
+            player.PpCapacity,
+            player.Cracks,
+            player.EvolutionEnergy);
 
     private static string FormatPublicZoneSummary(HotseatPublicPlayerView player) =>
         $"手牌 {player.HandCount} · 牌组 {player.DeckCount} · " +
@@ -4936,6 +5160,8 @@ public sealed partial class MatchScreen : Control
         _ciSawReactionSignal = false;
         _ciCancelledDragNoSideEffects = false;
         _ciSourceAdjacentPanelVerified = false;
+        _ciSourcePanelPositionCount = 0;
+        _ciSourcePanelOverlapCount = 0;
         _ciPrivacySentinelArmed = false;
         _ciPrivacySentinelVerified = false;
         _ciPrivacySentinelFrameAuditPending = false;

@@ -13,6 +13,10 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
 {
     public const uint PickCollisionLayer = 1U << 9;
 
+    private const float BadgePlateCenterY = 0.067f;
+    private const float BadgeLabelY = 0.104f;
+    private const float MinimumBadgeDepthClearance = 0.012f;
+
     private static readonly Color LegalColor = new("55ead0");
     private static readonly Color DestinationColor = new("ffc35d");
     private static readonly Color SelectedColor = new("ff765f");
@@ -71,12 +75,16 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
     private MeshInstance3D _stackUnderlayB = null!;
     private MeshInstance3D _costBadge = null!;
     private MeshInstance3D _kindBadge = null!;
-    private MeshInstance3D _statsBadge = null!;
+    private MeshInstance3D _attackBadge = null!;
+    private MeshInstance3D _healthBadge = null!;
+    private MeshInstance3D _countdownBadge = null!;
     private Label3D _faceLabel = null!;
     private Label3D _pileLabel = null!;
     private Label3D _costLabel = null!;
     private Label3D _kindLabel = null!;
-    private Label3D _statsLabel = null!;
+    private Label3D _attackLabel = null!;
+    private Label3D _healthLabel = null!;
+    private Label3D _countdownLabel = null!;
     private Label3D _stateLabel = null!;
     private CollisionShape3D _collision = null!;
     private Transform3D _restTransform = Transform3D.Identity;
@@ -89,11 +97,15 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
     private ImageTexture? _ciPrivacyTexture;
     private string _displayText = string.Empty;
 
+    internal event Action<CardActor3D, bool>? PointerHoverChanged;
+    private bool _showsIdentity;
+
     public BattlefieldSurfaceRef? Surface { get; private set; }
 
     public BattlefieldCardPresentation? CardPresentation { get; private set; }
 
-    public Vector3 WorldAnchor => GlobalPosition + new Vector3(0.0f, 0.22f, 0.0f);
+    public Vector3 WorldAnchor => GlobalPosition +
+        (GlobalTransform.Basis.Y.Normalized() * 0.22f);
 
     public bool CanActivate { get; private set; }
 
@@ -107,12 +119,61 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
 
     internal BattlefieldCardLayout CiLayout => _layout;
 
+    /// <summary>
+    /// Local-space bounds of the complete card body. The battlefield presenter
+    /// projects these corners when a board-adjacent HUD element must avoid the
+    /// card's real on-screen footprint.
+    /// </summary>
+    internal Aabb VisualBounds => CardMesh.GetAabb();
+
+    internal bool CiPointerHovered => _pointerHovered;
+
     internal float CiFaceLabelWorldWidth =>
         _faceLabel.Width * _faceLabel.PixelSize * GlobalTransform.Basis.X.Length();
 
     internal int CiFaceLineCount => string.IsNullOrEmpty(DisplayText)
         ? 0
         : DisplayText.Count(character => character == '\n') + 1;
+
+    internal CardReadabilityEvidence CiReadabilityEvidence
+    {
+        get
+        {
+            EnsureBuilt();
+            return new CardReadabilityEvidence(
+                _showsIdentity,
+                _layout,
+                CardPresentation?.Kind,
+                CardPresentation?.Cost ?? 0,
+                CardPresentation?.Attack ?? 0,
+                CardPresentation?.Health ?? 0,
+                CardPresentation?.Countdown ?? 0,
+                _faceLabel.Text,
+                _faceLabel.Visible,
+                CreateBadgeEvidence(_costLabel, _costBadge),
+                CreateBadgeEvidence(_kindLabel, _kindBadge),
+                CreateBadgeEvidence(_attackLabel, _attackBadge),
+                CreateBadgeEvidence(_healthLabel, _healthBadge),
+                CreateBadgeEvidence(_countdownLabel, _countdownBadge),
+                MinimumBadgeDepthClearance);
+        }
+    }
+
+    internal bool CiHasReadableComposition =>
+        CiReadabilityEvidence.MatchesExpectedComposition;
+
+    internal CardGpuReadabilityEvidence CiGpuReadabilityEvidence(Camera3D camera)
+    {
+        ArgumentNullException.ThrowIfNull(camera);
+        CardReadabilityEvidence local = CiReadabilityEvidence;
+        return new CardGpuReadabilityEvidence(
+            local,
+            CreateGpuBadgeEvidence(camera, _costLabel, local.CostBadge),
+            CreateGpuBadgeEvidence(camera, _kindLabel, local.KindBadge),
+            CreateGpuBadgeEvidence(camera, _attackLabel, local.AttackBadge),
+            CreateGpuBadgeEvidence(camera, _healthLabel, local.HealthBadge),
+            CreateGpuBadgeEvidence(camera, _countdownLabel, local.CountdownBadge));
+    }
 
     internal bool CiHasPrivacyTextureSentinel(string token) =>
         _ciPrivacyMaterial is { } material &&
@@ -302,6 +363,13 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         }
 
         _pointerHovered = hovered;
+        if (_layout is BattlefieldCardLayout.NearHand or BattlefieldCardLayout.FarHand &&
+            PointerHoverChanged is not null)
+        {
+            PointerHoverChanged.Invoke(this, hovered);
+            return;
+        }
+
         Transform3D target = _restTransform;
         if (hovered)
         {
@@ -324,6 +392,27 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             ClientVisualSettingsRuntime.Duration(0.12f));
     }
 
+    /// <summary>
+    /// Applies a camera-locked presentation pose while preserving the actor,
+    /// collision surface and privacy binding. Hand hover is coordinated by the
+    /// presenter so neighbouring cards can move as one composition.
+    /// </summary>
+    internal void ApplyPresentationPose(Transform3D pose, bool animate)
+    {
+        EnsureBuilt();
+        _restTransform = pose;
+        CancelHoverTween();
+        float duration = animate ? ClientVisualSettingsRuntime.Duration(0.18f) : 0.0f;
+        if (duration <= 0.0f || !IsInsideTree())
+        {
+            Transform = pose;
+            return;
+        }
+
+        _hoverTween = CreateTween().SetTrans(Tween.TransitionType.Cubic).SetEase(Tween.EaseType.Out);
+        _hoverTween.TweenProperty(this, "transform", pose, duration);
+    }
+
     public void ClearSensitive()
     {
         EnsureBuilt();
@@ -338,6 +427,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         _restTransform = Transform3D.Identity;
         Transform = Transform3D.Identity;
         _displayText = string.Empty;
+        _showsIdentity = false;
         ClearLabels();
         _baseMesh.MaterialOverride = NeutralFrame;
         _artworkSurface.MaterialOverride = null;
@@ -349,7 +439,9 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         _stackUnderlayB.Visible = false;
         _costBadge.Visible = false;
         _kindBadge.Visible = false;
-        _statsBadge.Visible = false;
+        _attackBadge.Visible = false;
+        _healthBadge.Visible = false;
+        _countdownBadge.Visible = false;
         _outlineMesh.Visible = false;
         _outlineMesh.MaterialOverride = LegalOutline;
         _collision.Disabled = true;
@@ -369,7 +461,8 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         foreach (string? value in new[]
                  {
                      DisplayText, _faceLabel.Text, _pileLabel.Text, StateText, _costLabel.Text, _kindLabel.Text,
-                     _statsLabel.Text, CardPresentation?.Name,
+                     _attackLabel.Text, _healthLabel.Text, _countdownLabel.Text,
+                     CardPresentation?.Name,
                      _baseMesh.MaterialOverride?.ResourceName,
                      _artworkSurface.MaterialOverride?.ResourceName,
                      _outlineMesh.MaterialOverride?.ResourceName,
@@ -433,6 +526,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         CancelHoverTween();
         DisposeCiPrivacyResources();
         _layout = layout;
+        ApplyShadowPolicy(layout);
         ApplyLabelLayout(layout);
         Surface = surface;
         _boundSurface = surface;
@@ -445,6 +539,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
 
         bool known = showIdentityOnBoard && presentation.KnownIdentity &&
                      presentation.DefinitionId.HasValue;
+        _showsIdentity = known;
         Texture2D faceTexture = known
             ? _visualCatalog.LoadArtwork(presentation.DefinitionId!.Value)
             : _visualCatalog.CardBack;
@@ -458,7 +553,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         _faceLabel.Text = known
             ? EllipsizeCardName(
                 presentation.Name,
-                layout is BattlefieldCardLayout.NearHand or BattlefieldCardLayout.FarHand ? 5 : 7)
+                layout is BattlefieldCardLayout.NearHand or BattlefieldCardLayout.FarHand ? 3 : 7)
             : string.Empty;
         _faceLabel.Visible = known && layout is BattlefieldCardLayout.NearHand;
         _pileLabel.Text = string.Empty;
@@ -467,13 +562,29 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         _stackUnderlayB.Visible = false;
         _costLabel.Text = known ? presentation.Cost.ToString(CultureInfo.InvariantCulture) : string.Empty;
         _kindLabel.Text = known ? KindLabel(presentation.Kind) : string.Empty;
-        _statsLabel.Text = known ? StatsLabel(presentation) : string.Empty;
+        bool unit = known && presentation.Kind == CardKind.Unit;
+        bool countdown = known &&
+                         presentation.Kind is CardKind.Relic or CardKind.Trap &&
+                         presentation.Countdown > 0;
+        _attackLabel.Text = unit
+            ? presentation.Attack.ToString(CultureInfo.InvariantCulture)
+            : string.Empty;
+        _healthLabel.Text = unit
+            ? presentation.Health.ToString(CultureInfo.InvariantCulture)
+            : string.Empty;
+        _countdownLabel.Text = countdown
+            ? presentation.Countdown.ToString(CultureInfo.InvariantCulture)
+            : string.Empty;
         _costLabel.Visible = known;
         _kindLabel.Visible = known;
-        _statsLabel.Visible = known && !string.IsNullOrEmpty(_statsLabel.Text);
+        _attackLabel.Visible = unit;
+        _healthLabel.Visible = unit;
+        _countdownLabel.Visible = countdown;
         _costBadge.Visible = known;
         _kindBadge.Visible = known;
-        _statsBadge.Visible = known && !string.IsNullOrEmpty(_statsLabel.Text);
+        _attackBadge.Visible = unit;
+        _healthBadge.Visible = unit;
+        _countdownBadge.Visible = countdown;
         _stateLabel.Text = string.Empty;
         _stateLabel.Visible = false;
         _outlineMesh.Visible = false;
@@ -508,13 +619,6 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             _ => $"{card.Cost}费\n{name}",
         };
     }
-
-    private static string StatsLabel(BattlefieldCardPresentation card) => card.Kind switch
-    {
-        CardKind.Unit => $"{card.Attack} / {card.Health}",
-        CardKind.Relic or CardKind.Trap when card.Countdown > 0 => $"倒计时 {card.Countdown}",
-        _ => string.Empty,
-    };
 
     private static string KindLabel(CardKind? kind) => kind switch
     {
@@ -566,18 +670,48 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         (_faceLabel.FontSize, _faceLabel.PixelSize, _faceLabel.OutlineSize, _faceLabel.Width) =
             layout switch
             {
-                BattlefieldCardLayout.NearHand => (27, 0.0088f, 5, 124.0f),
+                BattlefieldCardLayout.NearHand => (23, 0.0085f, 5, 112.0f),
                 BattlefieldCardLayout.FarHand => (25, 0.0085f, 4, 120.0f),
                 BattlefieldCardLayout.Pile => (28, 0.0092f, 5, 126.0f),
                 _ => (28, 0.0091f, 5, 128.0f),
             };
-        _faceLabel.Position = new Vector3(0.0f, 0.073f, 0.63f);
+        _faceLabel.Position = new Vector3(0.0f, 0.073f, 0.53f);
 
-        int badgeSize = layout == BattlefieldCardLayout.NearHand ? 24 : 26;
+        int badgeSize = layout switch
+        {
+            BattlefieldCardLayout.NearHand => 28,
+            BattlefieldCardLayout.Field => 46,
+            _ => 26,
+        };
+        float badgePixelSize = layout == BattlefieldCardLayout.Field ? 0.0094f : 0.009f;
+        float roundBadgeWidth = layout == BattlefieldCardLayout.Field ? 58.0f : 44.0f;
+        foreach (Label3D badgeLabel in new[]
+                 {
+                     _costLabel, _kindLabel, _attackLabel, _healthLabel,
+                     _countdownLabel, _stateLabel,
+                 })
+        {
+            badgeLabel.PixelSize = badgePixelSize;
+        }
+        _costLabel.Width = roundBadgeWidth;
+        _attackLabel.Width = roundBadgeWidth;
+        _healthLabel.Width = roundBadgeWidth;
+        _countdownLabel.Width = layout == BattlefieldCardLayout.Field ? 72.0f : 64.0f;
+        float fieldPlateScale = layout == BattlefieldCardLayout.Field ? 1.22f : 1.0f;
+        Vector3 roundScale = new(fieldPlateScale, 1.0f, fieldPlateScale);
+        _costBadge.Scale = roundScale;
+        _attackBadge.Scale = roundScale;
+        _healthBadge.Scale = roundScale;
+        _kindBadge.Scale = Vector3.One;
+        _countdownBadge.Scale = layout == BattlefieldCardLayout.Field
+            ? new Vector3(1.18f, 1.0f, 1.18f)
+            : Vector3.One;
         _costLabel.FontSize = badgeSize;
-        _statsLabel.FontSize = badgeSize;
-        _kindLabel.FontSize = Math.Max(18, badgeSize - 5);
-        _stateLabel.FontSize = badgeSize;
+        _attackLabel.FontSize = badgeSize;
+        _healthLabel.FontSize = badgeSize;
+        _countdownLabel.FontSize = badgeSize;
+        _kindLabel.FontSize = Math.Max(18, badgeSize - 8);
+        _stateLabel.FontSize = Math.Max(24, badgeSize - 6);
     }
 
     private void UpdateHighlight()
@@ -595,7 +729,8 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
     {
         foreach (Label3D label in new[]
                  {
-                     _faceLabel, _pileLabel, _costLabel, _kindLabel, _statsLabel, _stateLabel,
+                     _faceLabel, _pileLabel, _costLabel, _kindLabel, _attackLabel,
+                     _healthLabel, _countdownLabel, _stateLabel,
                  })
         {
             label.Text = string.Empty;
@@ -659,12 +794,31 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         };
         AddChild(_artworkSurface);
 
-        _costBadge = CreateBadge("CostBadgePlate", RoundBadgeMesh, new Vector3(-0.57f, 0.067f, -0.84f));
+        _costBadge = CreateBadge(
+            "CostBadgePlate",
+            RoundBadgeMesh,
+            new Vector3(-0.57f, BadgePlateCenterY, -0.84f));
         AddChild(_costBadge);
-        _kindBadge = CreateBadge("KindBadgePlate", PillBadgeMesh, new Vector3(0.45f, 0.067f, -0.84f));
+        _kindBadge = CreateBadge(
+            "KindBadgePlate",
+            PillBadgeMesh,
+            new Vector3(0.45f, BadgePlateCenterY, -0.84f));
         AddChild(_kindBadge);
-        _statsBadge = CreateBadge("StatsBadgePlate", PillBadgeMesh, new Vector3(0.43f, 0.067f, 0.84f));
-        AddChild(_statsBadge);
+        _attackBadge = CreateBadge(
+            "AttackBadgePlate",
+            RoundBadgeMesh,
+            new Vector3(-0.57f, BadgePlateCenterY, 0.84f));
+        AddChild(_attackBadge);
+        _healthBadge = CreateBadge(
+            "HealthBadgePlate",
+            RoundBadgeMesh,
+            new Vector3(0.57f, BadgePlateCenterY, 0.84f));
+        AddChild(_healthBadge);
+        _countdownBadge = CreateBadge(
+            "CountdownBadgePlate",
+            PillBadgeMesh,
+            new Vector3(0.43f, BadgePlateCenterY, 0.84f));
+        AddChild(_countdownBadge);
 
         _collision = new CollisionShape3D
         {
@@ -674,7 +828,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         };
         AddChild(_collision);
 
-        _faceLabel = CreateTopLabel("FaceLabel", 28, new Vector3(0.0f, 0.073f, 0.63f));
+        _faceLabel = CreateTopLabel("FaceLabel", 28, new Vector3(0.0f, 0.073f, 0.53f));
         _faceLabel.Width = 128.0f;
         AddChild(_faceLabel);
 
@@ -683,22 +837,47 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         _pileLabel.Modulate = new Color("efffff");
         AddChild(_pileLabel);
 
-        _costLabel = CreateTopLabel("CostBadge", 26, new Vector3(-0.57f, 0.079f, -0.84f));
+        _costLabel = CreateTopLabel(
+            "CostBadge",
+            26,
+            new Vector3(-0.57f, BadgeLabelY, -0.84f));
         _costLabel.Width = 36.0f;
         _costLabel.Modulate = new Color("ddfff9");
         AddChild(_costLabel);
 
-        _kindLabel = CreateTopLabel("KindBadge", 20, new Vector3(0.45f, 0.079f, -0.84f));
+        _kindLabel = CreateTopLabel(
+            "KindBadge",
+            20,
+            new Vector3(0.45f, BadgeLabelY, -0.84f));
         _kindLabel.Width = 56.0f;
         _kindLabel.Modulate = new Color("d7e4ed");
         AddChild(_kindLabel);
 
-        _statsLabel = CreateTopLabel("StatsBadge", 25, new Vector3(0.43f, 0.079f, 0.84f));
-        _statsLabel.Width = 64.0f;
-        _statsLabel.Modulate = new Color("fff0b2");
-        AddChild(_statsLabel);
+        _attackLabel = CreateTopLabel(
+            "AttackBadge",
+            25,
+            new Vector3(-0.57f, BadgeLabelY, 0.84f));
+        _attackLabel.Width = 36.0f;
+        _attackLabel.Modulate = new Color("ffe0a5");
+        AddChild(_attackLabel);
 
-        _stateLabel = CreateTopLabel("StateLabel", 26, new Vector3(0.59f, 0.095f, -0.70f));
+        _healthLabel = CreateTopLabel(
+            "HealthBadge",
+            25,
+            new Vector3(0.57f, BadgeLabelY, 0.84f));
+        _healthLabel.Width = 36.0f;
+        _healthLabel.Modulate = new Color("baffcf");
+        AddChild(_healthLabel);
+
+        _countdownLabel = CreateTopLabel(
+            "CountdownBadge",
+            23,
+            new Vector3(0.43f, BadgeLabelY, 0.84f));
+        _countdownLabel.Width = 64.0f;
+        _countdownLabel.Modulate = new Color("fff0b2");
+        AddChild(_countdownLabel);
+
+        _stateLabel = CreateTopLabel("StateLabel", 26, new Vector3(0.59f, 0.112f, -0.70f));
         _stateLabel.Width = 46.0f;
         _stateLabel.Modulate = new Color(1.0f, 0.94f, 0.63f, 1.0f);
         AddChild(_stateLabel);
@@ -800,6 +979,81 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
     };
 
+    private static CardBadgeReadabilityEvidence CreateBadgeEvidence(
+        Label3D label,
+        MeshInstance3D plate)
+    {
+        Aabb bounds = plate.Mesh?.GetAabb() ?? new Aabb();
+        float plateTop = plate.Position.Y + bounds.End.Y;
+        return new CardBadgeReadabilityEvidence(
+            label.Text,
+            label.Visible,
+            plate.Visible,
+            label.Position.Y,
+            plateTop);
+    }
+
+    private static CardBadgeGpuEvidence CreateGpuBadgeEvidence(
+        Camera3D camera,
+        Label3D label,
+        CardBadgeReadabilityEvidence local)
+    {
+        if (!label.Visible || string.IsNullOrEmpty(label.Text) ||
+            camera.IsPositionBehind(label.GlobalPosition))
+        {
+            return new CardBadgeGpuEvidence(local, new Rect2());
+        }
+
+        Aabb bounds = label.GetAabb();
+        Vector3 start = bounds.Position;
+        Vector3 end = bounds.End;
+        Vector2 minimum = new(float.PositiveInfinity, float.PositiveInfinity);
+        Vector2 maximum = new(float.NegativeInfinity, float.NegativeInfinity);
+        for (int corner = 0; corner < 8; ++corner)
+        {
+            Vector3 localPoint = new(
+                (corner & 1) == 0 ? start.X : end.X,
+                (corner & 2) == 0 ? start.Y : end.Y,
+                (corner & 4) == 0 ? start.Z : end.Z);
+            Vector3 worldPoint = label.GlobalTransform * localPoint;
+            if (camera.IsPositionBehind(worldPoint))
+            {
+                return new CardBadgeGpuEvidence(local, new Rect2());
+            }
+            Vector2 projected = camera.UnprojectPosition(worldPoint);
+            minimum = new Vector2(
+                MathF.Min(minimum.X, projected.X),
+                MathF.Min(minimum.Y, projected.Y));
+            maximum = new Vector2(
+                MathF.Max(maximum.X, projected.X),
+                MathF.Max(maximum.Y, projected.Y));
+        }
+
+        return new CardBadgeGpuEvidence(
+            local,
+            new Rect2(minimum, maximum - minimum));
+    }
+
+    private void ApplyShadowPolicy(BattlefieldCardLayout layout)
+    {
+        // Camera-locked hand actors live between the camera and the authored
+        // table. Letting those oversized foreground actors cast into the world
+        // produces huge black card-shaped blocks across the battlefield. Field
+        // cards retain a small contact shadow; screen-space hands never cast.
+        GeometryInstance3D.ShadowCastingSetting setting =
+            layout is BattlefieldCardLayout.NearHand or BattlefieldCardLayout.FarHand
+                ? GeometryInstance3D.ShadowCastingSetting.Off
+                : GeometryInstance3D.ShadowCastingSetting.On;
+        _baseMesh.CastShadow = setting;
+        _stackUnderlayA.CastShadow = setting;
+        _stackUnderlayB.CastShadow = setting;
+        _costBadge.CastShadow = setting;
+        _kindBadge.CastShadow = setting;
+        _attackBadge.CastShadow = setting;
+        _healthBadge.CastShadow = setting;
+        _countdownBadge.CastShadow = setting;
+    }
+
     private static bool ContainsToken(string? value, string token) =>
         value?.Contains(token, StringComparison.Ordinal) == true;
 
@@ -847,5 +1101,126 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         }
 
         return count;
+    }
+}
+
+internal readonly record struct CardBadgeReadabilityEvidence(
+    string Text,
+    bool LabelVisible,
+    bool PlateVisible,
+    float LabelLocalY,
+    float PlateTopLocalY)
+{
+    internal float DepthClearance => LabelLocalY - PlateTopLocalY;
+
+    internal bool IsCleared =>
+        string.IsNullOrEmpty(Text) && !LabelVisible && !PlateVisible;
+
+    internal bool IsReadable(float minimumDepthClearance) =>
+        !string.IsNullOrEmpty(Text) && LabelVisible && PlateVisible &&
+        DepthClearance >= minimumDepthClearance;
+}
+
+internal sealed record CardReadabilityEvidence(
+    bool KnownIdentity,
+    BattlefieldCardLayout Layout,
+    CardKind? Kind,
+    int Cost,
+    int Attack,
+    int Health,
+    int Countdown,
+    string NameText,
+    bool NameVisible,
+    CardBadgeReadabilityEvidence CostBadge,
+    CardBadgeReadabilityEvidence KindBadge,
+    CardBadgeReadabilityEvidence AttackBadge,
+    CardBadgeReadabilityEvidence HealthBadge,
+    CardBadgeReadabilityEvidence CountdownBadge,
+    float MinimumDepthClearance)
+{
+    internal bool MatchesExpectedComposition
+    {
+        get
+        {
+            if (!KnownIdentity)
+            {
+                return string.IsNullOrEmpty(NameText) && !NameVisible &&
+                       CostBadge.IsCleared && KindBadge.IsCleared &&
+                       AttackBadge.IsCleared && HealthBadge.IsCleared &&
+                       CountdownBadge.IsCleared;
+            }
+
+            bool nameMatchesLayout = Layout == BattlefieldCardLayout.NearHand
+                ? NameVisible && !string.IsNullOrWhiteSpace(NameText)
+                : !NameVisible;
+            bool common = nameMatchesLayout &&
+                          CostBadge.Text == Cost.ToString(CultureInfo.InvariantCulture) &&
+                          CostBadge.IsReadable(MinimumDepthClearance) &&
+                          KindBadge.IsReadable(MinimumDepthClearance);
+            if (!common)
+            {
+                return false;
+            }
+
+            return Kind switch
+            {
+                CardKind.Unit =>
+                    AttackBadge.Text == Attack.ToString(CultureInfo.InvariantCulture) &&
+                    HealthBadge.Text == Health.ToString(CultureInfo.InvariantCulture) &&
+                    AttackBadge.IsReadable(MinimumDepthClearance) &&
+                    HealthBadge.IsReadable(MinimumDepthClearance) &&
+                    CountdownBadge.IsCleared,
+                CardKind.Relic or CardKind.Trap when Countdown > 0 =>
+                    AttackBadge.IsCleared && HealthBadge.IsCleared &&
+                    CountdownBadge.Text == Countdown.ToString(CultureInfo.InvariantCulture) &&
+                    CountdownBadge.IsReadable(MinimumDepthClearance),
+                _ => AttackBadge.IsCleared && HealthBadge.IsCleared &&
+                     CountdownBadge.IsCleared,
+            };
+        }
+    }
+}
+
+internal readonly record struct CardBadgeGpuEvidence(
+    CardBadgeReadabilityEvidence Local,
+    Rect2 ScreenRect)
+{
+    internal bool IsReadable(float minimumPixelHeight) =>
+        Local.IsReadable(0.012f) &&
+        ScreenRect.Size.X > 0.0f &&
+        ScreenRect.Size.Y >= minimumPixelHeight;
+}
+
+internal sealed record CardGpuReadabilityEvidence(
+    CardReadabilityEvidence Local,
+    CardBadgeGpuEvidence CostBadge,
+    CardBadgeGpuEvidence KindBadge,
+    CardBadgeGpuEvidence AttackBadge,
+    CardBadgeGpuEvidence HealthBadge,
+    CardBadgeGpuEvidence CountdownBadge)
+{
+    internal bool MatchesExpectedComposition(float minimumPixelHeight)
+    {
+        if (!Local.MatchesExpectedComposition)
+        {
+            return false;
+        }
+        if (!Local.KnownIdentity)
+        {
+            return true;
+        }
+
+        if (!CostBadge.IsReadable(minimumPixelHeight))
+        {
+            return false;
+        }
+        return Local.Kind switch
+        {
+            CardKind.Unit => AttackBadge.IsReadable(minimumPixelHeight) &&
+                             HealthBadge.IsReadable(minimumPixelHeight),
+            CardKind.Relic or CardKind.Trap when Local.Countdown > 0 =>
+                CountdownBadge.IsReadable(minimumPixelHeight),
+            _ => true,
+        };
     }
 }

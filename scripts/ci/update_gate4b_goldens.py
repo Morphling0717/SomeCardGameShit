@@ -36,6 +36,13 @@ def main() -> int:
     except VisualSuiteError as error:
         print(f"golden update refused: {error}", file=sys.stderr)
         return 1
+    if report["schema_version"] != 4 or report["gate"] != "4B-R2":
+        print(
+            "golden update refused: historical schema 3 reports remain valid for "
+            "audit but cannot replace the Gate 4B-R2 goldens",
+            file=sys.stderr,
+        )
+        return 1
     source_root = args.report.resolve().parent
     destination = args.destination.resolve()
     destination.mkdir(parents=True, exist_ok=True)
@@ -45,10 +52,12 @@ def main() -> int:
         shutil.copyfile(source, target)
         print(f"updated {target}")
     metadata = {
-        "schema_version": 3,
-        "gate": "4B-R1",
+        "schema_version": 4,
+        "gate": "4B-R2",
         "source_manifest": args.report.resolve().name,
+        "source_report_schema_version": report["schema_version"],
         "asset_manifest_sha256": report["asset_manifest_sha256"],
+        "capture_contract": report["capture_contract"],
         "states": sorted(capture["state"] for capture in report["captures"]),
     }
     (destination / "GOLDEN_METADATA.json").write_text(

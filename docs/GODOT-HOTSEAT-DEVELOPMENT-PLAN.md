@@ -8,14 +8,15 @@
 **Gate 3B 已验收尖端：** `codex/godot-hotseat-gate3b@dd38e93`
 **Gate 3C 已验收尖端：** `codex/godot-hotseat-gate3c@a29dd14`
 **Gate 4A 自动化验收尖端：** `codex/godot-hotseat-gate4a@7a6808ddcd76d2c78fd906a9235f867c11c84e7c`
-**Gate 4B-R1 当前实现分支：** `codex/godot-hotseat-gate4b-visual-baseline`
+**Gate 4B-R1 已完成基线：** `codex/godot-hotseat-gate4b-visual-baseline@1370491`
+**Gate 4B-R2 当前实现分支：** `codex/godot-hotseat-gate4b-r2-battle-presentation`
 **规则基线：** `docs/rules-v0.4.md`  
-**目标客户端：** Godot 4.7.2 .NET（Gate 4B-R1 默认 3D + 现代玻璃 HUD）
+**目标客户端：** Godot 4.7.2 .NET（Gate 4B-R2 默认 3D + 相机相对 2.5D 手牌）
 **.NET SDK：** 10.0.400
 **目标平台：** macOS Apple Silicon、Windows x86-64  
 **M1-G 总目标：** 从完整无界面引擎推进到人类可以完整打一局的单机热座版本
 
-> Gate 3C 已建立点击/拖拽战场直操、复杂动作上下文选择与中立公开 `Resolving` 投影，Gate 4A 建立默认 3D/2.5D 表现。Gate 4B-R1 在不改变 11 个 `ActionKind` 或热座隐私状态机的前提下，交付产品菜单、设置、现代玻璃 HUD、临时视觉目录和严格视觉/性能自动化；隐藏 `--legacy-2d-board` 继续只作同源功能回归。最终自动化、导出和 CI 结果只以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 的同提交实测为准。物理 Apple Silicon、无 Visual Studio Windows 和两名真人热座整局仍是发布标签前的三项硬门。项目不支持 Web，不修改 legacy v1 wire 字节，也不在本 Gate 创建 PR、合并或标签。
+> Gate 3C 已建立点击/拖拽战场直操、复杂动作上下文选择与中立公开 `Resolving` 投影，Gate 4A 建立默认 3D/2.5D 表现，Gate 4B-R1 交付产品菜单、设置、视觉目录和自动化基线。Gate 4B-R2 在不改变 11 个 `ActionKind` 或热座隐私状态机的前提下，重写前景手牌、卡牌数值可读性、稳定镜头与战场/HUD 构图，并在四项 CI 全绿后提供 Windows 实机包进行第一轮验收；隐藏 `--legacy-2d-board` 继续只作同源功能回归。最终自动化、导出和 CI 结果只以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 的同提交实测为准。项目不支持 Web，不修改 legacy v1 wire 字节，也不在本 Gate 创建 PR、合并或标签。
 
 ---
 
@@ -1328,5 +1329,18 @@ Gate 4B-R1 继续使用 `codex/godot-hotseat-gate4b-visual-baseline`。它不修
 Gate 4B-R1 的实现自动化与四项 CI 已完成；包含本轮文档更新的最终分支尖端仍须重新执行相同矩阵，准确 run、数量和 artifact 摘要只在 `TEST_REPORT.md` 中落账。当前临时卡图、卡背、菜单背景、头像与卡框不等同于最终发布美术，本 Gate 也未加入音效或音乐。
 
 发布标签前仍只有三项未完成硬门：物理 Apple Silicon 完成整局/退出/重开、无 Visual Studio Windows x86-64 完成导出整局、两名真人完成完整热座对局并逐次观察交接隐私与交互。三项全部完成前不得创建 `v0.4-hotseat-alpha.1`。
+
+## 十八、Gate 4B-R2：战斗表现重写与第一轮实机验收
+
+Gate 4B-R2 使用 `codex/godot-hotseat-gate4b-r2-battle-presentation`，基线固定为 `codex/godot-hotseat-gate4b-visual-baseline@1370491`。本轮复用 34 项原创临时素材和既有菜单/设置，不修改 C++ 规则、DTO、`IScgsGameSession`、C ABI、schema 1、14 个导出、固定牌组或 legacy wire。
+
+- `BattlefieldHandRig` 把己方 1～10 张手牌放在相机相对的前景弧线；对手手牌使用更紧凑、只含共享卡背的上方匿名架。
+- `CardActor3D` 的费用、攻击、生命和倒计时徽章必须高于底板并接受正常深度测试；场上卡隐藏长名称，手牌只保留短名称条。
+- `BattlefieldViewportLayout` 固定四种验收宽度的左右安全区；详情、日志或 HUD 显隐不再重新缩放桌面，滚轮也不改变前景手牌屏幕卡高。
+- 战场至少占物理安全矩形 92% 宽、78% 高，区域托座、阵营边界和状态 HUD 都必须在 1280×720 到 2560×1600 保持清楚归属。
+- Gate 4B-R2 visual-suite 使用独立 schema 4：在历史 11 状态上增加单张/五张/十张手牌、悬停与场上可读性，共 16 状态；截图要求连续两个内容一致的 `FramePostDraw` 和最终 GPU 数值 ROI。
+- 实现、四尺寸实拍、golden、Windows/macOS 导出、四项 CI 和第一次实机反馈均未执行完成前，不得在本文或 `TEST_REPORT.md` 宣称通过。
+
+第一次实机验收通过后，R3 再处理精细卡体、机械场地模型、材质灯光、完整响应链/动作演出、弹层和菜单统一。
 
 **历史决策与持续约束：Gate 0+1 先完成文档纠偏、规则回归和客户端查询接口，再进入 UI；后续也必须保持 Godot 只是表现层，不让 C# 逐步长成第二套规则引擎。**

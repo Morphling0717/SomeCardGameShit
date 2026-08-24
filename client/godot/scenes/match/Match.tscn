@@ -75,14 +75,14 @@ grow_horizontal = 0
 
 [node name="HeaderMargin" type="MarginContainer" parent="HudLayer/BattlefieldControlRail"]
 layout_mode = 2
-theme_override_constants/margin_left = 10
-theme_override_constants/margin_top = 10
-theme_override_constants/margin_right = 10
-theme_override_constants/margin_bottom = 10
+theme_override_constants/margin_left = 6
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 6
+theme_override_constants/margin_bottom = 8
 
 [node name="HeaderRow" type="VBoxContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin"]
 layout_mode = 2
-theme_override_constants/separation = 8
+theme_override_constants/separation = 6
 
 [node name="Title" type="Label" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
 visible = false
@@ -106,7 +106,7 @@ vertical_alignment = 1
 
 [node name="OpponentStatusPod" type="PanelContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 82)
+custom_minimum_size = Vector2(0, 70)
 layout_mode = 2
 mouse_filter = 2
 theme_type_variation = &"GlassStatusPod"
@@ -116,10 +116,10 @@ show_behind_parent = true
 
 [node name="OpponentStatusRow" type="HBoxContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OpponentStatusPod"]
 layout_mode = 2
-theme_override_constants/separation = 10
+theme_override_constants/separation = 6
 
 [node name="OpponentPortraitFrame" type="PanelContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OpponentStatusPod/OpponentStatusRow"]
-custom_minimum_size = Vector2(62, 62)
+custom_minimum_size = Vector2(48, 48)
 layout_mode = 2
 theme_type_variation = &"GlassChip"
 
@@ -151,8 +151,9 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(0.8, 0.84, 0.96, 1)
-theme_override_font_sizes/font_size = 14
-text = "对手 · 玩家 1"
+theme_override_font_sizes/font_size = 13
+text = "对手·P1 ♥25/25"
+clip_text = true
 
 [node name="OpponentHealthBar" type="ProgressBar" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OpponentStatusPod/OpponentStatusRow/OpponentStatusText"]
 unique_name_in_owner = true
@@ -166,13 +167,13 @@ show_percentage = false
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(0.8, 0.84, 0.96, 1)
-theme_override_font_sizes/font_size = 13
-text = "对手资源：—"
-autowrap_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "PP 10/10  裂99  进99"
+clip_text = true
 
 [node name="OwnStatusPod" type="PanelContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
 unique_name_in_owner = true
-custom_minimum_size = Vector2(0, 82)
+custom_minimum_size = Vector2(0, 70)
 layout_mode = 2
 mouse_filter = 2
 theme_type_variation = &"GlassStatusPod"
@@ -182,10 +183,10 @@ show_behind_parent = true
 
 [node name="OwnStatusRow" type="HBoxContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OwnStatusPod"]
 layout_mode = 2
-theme_override_constants/separation = 10
+theme_override_constants/separation = 6
 
 [node name="OwnPortraitFrame" type="PanelContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OwnStatusPod/OwnStatusRow"]
-custom_minimum_size = Vector2(62, 62)
+custom_minimum_size = Vector2(48, 48)
 layout_mode = 2
 theme_type_variation = &"GlassChip"
 
@@ -217,8 +218,9 @@ unique_name_in_owner = true
 layout_mode = 2
 size_flags_horizontal = 3
 theme_override_colors/font_color = Color(0.62, 0.91, 0.86, 1)
-theme_override_font_sizes/font_size = 14
-text = "己方 · 玩家 0"
+theme_override_font_sizes/font_size = 13
+text = "己方·P0 ♥25/25"
+clip_text = true
 
 [node name="OwnHealthBar" type="ProgressBar" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OwnStatusPod/OwnStatusRow/OwnStatusText"]
 unique_name_in_owner = true
@@ -232,9 +234,9 @@ show_percentage = false
 unique_name_in_owner = true
 layout_mode = 2
 theme_override_colors/font_color = Color(0.62, 0.91, 0.86, 1)
-theme_override_font_sizes/font_size = 13
-text = "己方资源：—"
-autowrap_mode = 2
+theme_override_font_sizes/font_size = 12
+text = "PP 10/10  裂99  进99"
+clip_text = true
 
 [node name="SurrenderButton" type="Button" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
 unique_name_in_owner = true
@@ -265,7 +267,7 @@ unique_name_in_owner = true
 visible = false
 custom_minimum_size = Vector2(126, 46)
 layout_mode = 2
-theme_override_font_sizes/font_size = 17
+theme_override_font_sizes/font_size = 15
 text = "返回菜单"
 
 [node name="LogButton" type="Button" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/RailActions"]
@@ -319,6 +321,7 @@ focus_mode = 0
 disabled = true
 theme_type_variation = &"EndTurnButton"
 text = "结束回合   〉"
+theme_override_font_sizes/font_size = 16
 
 [node name="OpponentPanel" type="PanelContainer" parent="SafeMargin/Layout"]
 custom_minimum_size = Vector2(0, 112)

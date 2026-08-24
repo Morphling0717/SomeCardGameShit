@@ -8,7 +8,8 @@ namespace Scgs.GodotClient.UI;
 
 public sealed partial class CardDetailPanel : PanelContainer
 {
-    private const float CompactWidth = 94.0f;
+    private const float MinimumExpandedWidth = 240.0f;
+    private const float CompactWidth = 86.0f;
     private const float CompactHeight = 58.0f;
 
     private Label _title = null!;
@@ -82,7 +83,7 @@ public sealed partial class CardDetailPanel : PanelContainer
 
     public void SetExpandedRect(Rect2 rect)
     {
-        if (rect.Size.X < 248.0f || rect.Size.Y < 360.0f ||
+        if (rect.Size.X < MinimumExpandedWidth || rect.Size.Y < 360.0f ||
             !float.IsFinite(rect.Position.X) || !float.IsFinite(rect.Position.Y))
         {
             throw new ArgumentOutOfRangeException(nameof(rect));
@@ -100,7 +101,7 @@ public sealed partial class CardDetailPanel : PanelContainer
         _collapseButton.Text = compact ? "展开" : "收起";
         CustomMinimumSize = compact
             ? new Vector2(CompactWidth, CompactHeight)
-            : new Vector2(Mathf.Max(_expandedRect.Size.X, 248.0f), 360.0f);
+            : new Vector2(Mathf.Max(_expandedRect.Size.X, MinimumExpandedWidth), 360.0f);
         ApplyFloatingRect();
     }
 

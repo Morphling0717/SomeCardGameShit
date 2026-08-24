@@ -1,8 +1,12 @@
 # Gate 4B Windows visual goldens
 
-This directory contains the reviewed 1600×900 display-backed reference images
-for the Gate 4B product visual baseline. They were approved from a visual-suite
-schema 3 report. CI never updates these files.
+This directory contains the manually reviewed 1600×900 display-backed Gate
+4B-R2/schema 4 reference set. It contains exactly the required 16 states,
+including the four hand fixtures and `field-readability`; CI never updates these
+files. CI first validates that `GOLDEN_METADATA.json` names the complete frozen
+state inventory and capture contract, then requires exactly one real capture and
+one committed PNG for every state. Removing a state or reusing only a subset of
+the goldens therefore fails before perceptual comparison begins.
 
 Hardware-accelerated display-backed runs enforce the strict frame-time budget:
 p95 must be at most 33.3 ms and every measured frame must remain below 100 ms.
@@ -20,8 +24,10 @@ python scripts/ci/update_gate4b_goldens.py `
   --accept
 ```
 
-The updater first validates all required states, screenshot hashes, asset-manifest
-hash, viewport size, and the 600-frame evidence. The `--accept` acknowledgement
+The updater accepts only a Gate 4B-R2/schema 4 report, then validates all 16
+required states, two-FramePostDraw capture contract, pixel anchors/ROIs,
+screenshot hashes, asset-manifest hash, viewport size, and the 600-frame evidence.
+The `--accept` acknowledgement
 is mandatory and is intentionally absent from CI. Neither a software-renderer
 run nor a passing comparison can approve or replace a golden automatically;
 every replacement remains a deliberate human review decision.

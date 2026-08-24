@@ -210,7 +210,7 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/ci/validate_gate4a_report.py --report "$report" --scenario full-match --presentation legacy-2d
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Godot Gate 4B display-backed visual and performance suite
+      - name: Godot Gate 4B-R2 display-backed visual and performance suite
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
         shell: pwsh
@@ -251,11 +251,29 @@ jobs:
             if ($width -eq 1600 -and $height -eq 900) {
               $goldenRoot = Join-Path "${{ github.workspace }}" "client/godot/tests/visual_goldens/gate4b/windows-1600x900"
               $manifest = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
-              foreach ($capture in $manifest.captures) {
+              $goldenMetadataPath = Join-Path $goldenRoot "GOLDEN_METADATA.json"
+              python scripts/ci/validate_gate4b_golden_metadata.py `
+                --metadata "$goldenMetadataPath" --report "$report"
+              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+              $goldenMetadata = Get-Content -LiteralPath $goldenMetadataPath -Raw | ConvertFrom-Json
+              $approvedStates = @($goldenMetadata.states)
+              if ($approvedStates.Count -eq 0 -or
+                  @($approvedStates | Sort-Object -Unique).Count -ne $approvedStates.Count) {
+                throw "visual golden metadata must list unique approved states"
+              }
+              foreach ($state in $approvedStates) {
+                $matches = @($manifest.captures | Where-Object { $_.state -eq $state })
+                if ($matches.Count -ne 1) {
+                  throw "visual suite must contain exactly one capture for approved state '$state'"
+                }
+                $capture = $matches[0]
                 $actual = Join-Path $suite $capture.file
-                $expected = Join-Path $goldenRoot "$($capture.state).png"
-                $expectedCopy = Join-Path $suite "expected/$($capture.state).png"
-                $heatmap = Join-Path $suite "heatmaps/$($capture.state).png"
+                $expected = Join-Path $goldenRoot "$state.png"
+                if (-not (Test-Path -LiteralPath $expected -PathType Leaf)) {
+                  throw "visual golden metadata references missing capture '$state.png'"
+                }
+                $expectedCopy = Join-Path $suite "expected/$state.png"
+                $heatmap = Join-Path $suite "heatmaps/$state.png"
                 New-Item -ItemType Directory -Path (Split-Path $expectedCopy) -Force | Out-Null
                 New-Item -ItemType Directory -Path (Split-Path $heatmap) -Force | Out-Null
                 Copy-Item -LiteralPath $expected -Destination $expectedCopy -Force
@@ -269,7 +287,7 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: SomeCardGameShit-gate4b-windows-visual-suite
+          name: SomeCardGameShit-gate4b-r2-windows-visual-suite
           path: artifacts/visual-suite
           if-no-files-found: error
       - name: Export and finalize Windows client
@@ -319,12 +337,12 @@ jobs:
           New-Item -ItemType Directory -Path $packageDirectory -Force | Out-Null
           Compress-Archive `
             -Path "artifacts/godot/windows-x86_64/*" `
-            -DestinationPath "$packageDirectory/SomeCardGameShit-gate4b-windows-x86_64.zip" `
+            -DestinationPath "$packageDirectory/SomeCardGameShit-gate4b-r2-windows-x86_64.zip" `
             -CompressionLevel Optimal
       - name: Round-trip audit and launch packaged Windows default 3D client
         shell: pwsh
         run: |
-          $package = Join-Path "${{ github.workspace }}" "artifacts/packages/SomeCardGameShit-gate4b-windows-x86_64.zip"
+          $package = Join-Path "${{ github.workspace }}" "artifacts/packages/SomeCardGameShit-gate4b-r2-windows-x86_64.zip"
           $roundTrip = Join-Path "${{ github.workspace }}" "artifacts/roundtrip/windows-x86_64"
           New-Item -ItemType Directory -Path $roundTrip -Force | Out-Null
           Expand-Archive -LiteralPath $package -DestinationPath $roundTrip -Force
@@ -349,8 +367,8 @@ jobs:
         run: git diff --check
       - uses: actions/upload-artifact@v7
         with:
-          name: SomeCardGameShit-gate4b-windows-x86_64
-          path: artifacts/packages/SomeCardGameShit-gate4b-windows-x86_64.zip
+          name: SomeCardGameShit-gate4b-r2-windows-x86_64
+          path: artifacts/packages/SomeCardGameShit-gate4b-r2-windows-x86_64.zip
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
@@ -512,10 +530,10 @@ jobs:
           mkdir -p artifacts/packages
           ditto -c -k --sequesterRsrc --keepParent \
             artifacts/godot/macos-arm64/SomeCardGameShit.app \
-            artifacts/packages/SomeCardGameShit-gate4b-macos-arm64.app.zip
+            artifacts/packages/SomeCardGameShit-gate4b-r2-macos-arm64.app.zip
       - name: Round-trip audit and launch packaged macOS default 3D client
         run: |
-          package="${GITHUB_WORKSPACE}/artifacts/packages/SomeCardGameShit-gate4b-macos-arm64.app.zip"
+          package="${GITHUB_WORKSPACE}/artifacts/packages/SomeCardGameShit-gate4b-r2-macos-arm64.app.zip"
           round_trip="${GITHUB_WORKSPACE}/artifacts/roundtrip/macos-arm64"
           mkdir -p "$round_trip"
           ditto -x -k "$package" "$round_trip"
@@ -538,8 +556,8 @@ jobs:
         run: git diff --check
       - uses: actions/upload-artifact@v7
         with:
-          name: SomeCardGameShit-gate4b-macos-arm64
-          path: artifacts/packages/SomeCardGameShit-gate4b-macos-arm64.app.zip
+          name: SomeCardGameShit-gate4b-r2-macos-arm64
+          path: artifacts/packages/SomeCardGameShit-gate4b-r2-macos-arm64.app.zip
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:

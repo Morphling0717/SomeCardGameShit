@@ -42,6 +42,7 @@ public sealed partial class DirectActionPanel : PanelContainer
         string? paymentText,
         bool canGoBack)
     {
+        SetCompactMode(false);
         ClearButtons();
         _prompt.Text = prompt;
         _payment.Text = paymentText ?? string.Empty;
@@ -68,6 +69,24 @@ public sealed partial class DirectActionPanel : PanelContainer
         Visible = true;
     }
 
+    /// <summary>
+    /// Reduces the prompt to its actionable pills when a full card-adjacent
+    /// panel cannot fit without covering the selected card. Labels remain on
+    /// the buttons and in their tooltips, so this fallback never changes the
+    /// command or choice semantics.
+    /// </summary>
+    public void SetCompactMode(bool compact)
+    {
+        CustomMinimumSize = compact ? new Vector2(196, 64) : new Vector2(360, 92);
+        _prompt.Visible = !compact;
+        _payment.Visible = !compact && !string.IsNullOrWhiteSpace(_payment.Text);
+        _back.CustomMinimumSize = compact ? new Vector2(72, 36) : new Vector2(88, 42);
+        foreach (Button button in _chips.GetChildren().OfType<Button>())
+        {
+            button.CustomMinimumSize = compact ? new Vector2(88, 36) : new Vector2(108, 42);
+        }
+    }
+
     public void SetBusy(bool busy)
     {
         foreach (Node child in _chips.GetChildren())
@@ -82,6 +101,7 @@ public sealed partial class DirectActionPanel : PanelContainer
 
     public void ClearSensitive()
     {
+        CustomMinimumSize = new Vector2(360, 92);
         _prompt.Text = string.Empty;
         _payment.Text = string.Empty;
         _payment.Visible = false;

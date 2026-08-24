@@ -230,7 +230,9 @@ if(SCGS_ENABLE_LEGACY_YGO2_TESTS)
     )
     add_test(
         NAME scgs_gate4b_visual_pipeline_contract
-        COMMAND ${Python3_EXECUTABLE} -m unittest scripts.tests.test_gate4b_visual_pipeline
+        COMMAND ${Python3_EXECUTABLE} -m unittest
+            scripts.tests.test_gate4b_visual_pipeline
+            scripts.tests.test_gate4b_golden_metadata
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
 endif()

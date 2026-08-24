@@ -11,12 +11,20 @@ namespace Scgs.GodotClient.Battlefield;
 public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresenter
 {
     private const int MaximumRenderedHandCards = BattlefieldPerspective.MaximumHandCards;
+    private static readonly uint[] CiFixtureDefinitionIds =
+    [
+        1001, 1002, 1003, 1004, 1005, 1006, 1007, 1009, 1010, 1011,
+    ];
     private readonly List<CardActor3D> _cardPool = [];
     private readonly List<SlotActor3D> _slotPool = [];
+    private readonly List<HandActorBinding> _handBindings = [];
+    private readonly List<HandCardPose> _nearHandPoses = [];
+    private readonly List<HandCardPose> _farHandPoses = [];
     private readonly Dictionary<BattlefieldSurfaceRef, IBattlefieldPickTarget> _surfaceActors = [];
     private readonly List<BattlefieldSurfaceRef> _keyboardSurfaces = [];
     private ICardVisualCatalog _visualCatalog = CardVisualCatalog.Shared;
     private BattlefieldCameraRig _camera = null!;
+    private BattlefieldHandRig _handRig = null!;
     private BattlefieldRaycastInput _raycastInput = null!;
     private BattlefieldTargetArrow3D _targetArrow = null!;
     private BattlefieldPlacementGhost3D _placementGhost = null!;
@@ -28,14 +36,24 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
     private BattlefieldSurfaceRef? _targetingSource;
     private bool _built;
     private bool _privateRender;
-    private float _leftViewportInset;
-    private float _rightViewportInset;
+    private BattlefieldViewportLayout _viewportLayout =
+        BattlefieldViewportLayout.Product(new Vector2(1600.0f, 900.0f));
+    private bool _usesProductViewportLayout = true;
     private Viewport? _subscribedViewport;
     private Control? _leftObstruction;
     private Control? _rightObstruction;
     private float _obstructionPadding;
     private int _keyboardSurfaceIndex = -1;
     private BattlefieldSurfaceRef? _dragVisualSource;
+    private BattlefieldSurfaceRef? _selectedHandSurface;
+    private CardActor3D? _hoveredHandActor;
+    private MatchView? _lastPrivateView;
+    private HotseatInteractionContext? _lastPrivateInteraction;
+    private BattlefieldInteractionSurface[] _lastInteractionSurfaces = [];
+    private BattlefieldSurfaceRef? _lastInteractionSelected;
+    private BattlefieldSurfaceRef? _lastInteractionTargetingSource;
+    private bool _lastRequestedInputEnabled;
+    private bool _ciHandFixtureActive;
 
     public event EventHandler<BattlefieldSurfaceGestureEventArgs>? SurfaceGestureRequested;
 
@@ -91,33 +109,26 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
     {
         get
         {
-            if (_camera is null || !GodotObject.IsInstanceValid(_camera))
+            if (_nearHandPoses.Count == 0)
             {
                 return new Rect2();
             }
 
-            Vector2[] anchors = _cardPool
-                .Where(actor => actor.Visible &&
-                                actor.CiLayout == BattlefieldCardLayout.NearHand &&
-                                !_camera.IsPositionBehind(actor.WorldAnchor))
-                .Select(actor => _camera.UnprojectPosition(actor.WorldAnchor))
-                .ToArray();
-            if (anchors.Length == 0)
-            {
-                return new Rect2();
-            }
-
-            float minX = anchors.Min(point => point.X);
-            float minY = anchors.Min(point => point.Y);
-            float maxX = anchors.Max(point => point.X);
-            float maxY = anchors.Max(point => point.Y);
+            float minX = _nearHandPoses.Min(pose => pose.ScreenBounds.Position.X);
+            float minY = _nearHandPoses.Min(pose => pose.ScreenBounds.Position.Y);
+            float maxX = _nearHandPoses.Max(pose => pose.ScreenBounds.End.X);
+            float maxY = _nearHandPoses.Max(pose => pose.ScreenBounds.End.Y);
             // This intentionally remains unclamped: visual contracts must see
             // an off-screen hand instead of receiving a viewport-trimmed lie.
             return new Rect2(
                 new Vector2(minX, minY),
-                new Vector2(maxX - minX, maxY - minY)).Grow(48.0f);
+                new Vector2(maxX - minX, maxY - minY));
         }
     }
+
+    internal IReadOnlyList<HandCardPose> CiNearHandPoses => _nearHandPoses.ToArray();
+
+    internal IReadOnlyList<HandCardPose> CiFarHandPoses => _farHandPoses.ToArray();
 
     public int CiStableSurfaceLookupCount =>
         _surfaceActors.Keys.Count(surface => surface.InstanceId.HasValue);
@@ -315,9 +326,15 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         Revision = view.Revision;
         PerspectiveViewer = view.Viewer;
         _privateRender = true;
+        _lastPrivateView = view;
+        _lastPrivateInteraction = interaction;
+        _lastInteractionSurfaces = [];
+        _lastInteractionSelected = null;
+        _lastInteractionTargetingSource = null;
         RenderPrivatePlayer(FindPlayer(view, PlayerId.Player0), view.Viewer);
         RenderPrivatePlayer(FindPlayer(view, PlayerId.Player1), view.Viewer);
         FinishRender();
+        RelayoutHands(animate: false);
     }
 
     public void RenderPublic(HotseatPublicBoardView board, PlayerId perspectiveViewer)
@@ -337,6 +354,7 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         RenderPublicPlayer(FindPlayer(board, PlayerId.Player0), perspectiveViewer);
         RenderPublicPlayer(FindPlayer(board, PlayerId.Player1), perspectiveViewer);
         FinishRender();
+        RelayoutHands(animate: false);
         SetInputEnabled(false);
     }
 
@@ -394,12 +412,25 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
 
         CiSawTripleAffordance |= CiTripleAffordanceSurfaceCount > 0;
 
+        _selectedHandSurface = selected;
+        RelayoutHands(animate: true);
+        if (!_ciHandFixtureActive)
+        {
+            _lastInteractionSurfaces = configured;
+            _lastInteractionSelected = selected;
+            _lastInteractionTargetingSource = targetingSource;
+        }
+
         return true;
     }
 
     public void SetInputEnabled(bool enabled)
     {
         EnsureBuilt();
+        if (!_ciHandFixtureActive)
+        {
+            _lastRequestedInputEnabled = enabled;
+        }
         bool wasEnabled = InputEnabled;
         _raycastInput.SetInputEnabled(enabled && _privateRender && IsVisibleInTree());
         if (InputEnabled && !wasEnabled)
@@ -416,20 +447,31 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         }
     }
 
+    public void SetViewportLayout(BattlefieldViewportLayout layout)
+    {
+        EnsureBuilt();
+        ClearObstructionSubscriptions();
+        _usesProductViewportLayout = false;
+        ApplyViewportLayout(layout);
+    }
+
     public void SetViewportInsets(float leftPixels, float rightPixels)
     {
         EnsureBuilt();
         ClearObstructionSubscriptions();
-        _leftViewportInset = leftPixels;
-        _rightViewportInset = rightPixels;
-        float width = GetViewport()?.GetVisibleRect().Size.X ?? 1600.0f;
-        _camera.SetViewportInsets(leftPixels, rightPixels, width);
+        _usesProductViewportLayout = false;
+        Vector2 viewportSize = GetViewport()?.GetVisibleRect().Size ??
+                               new Vector2(1600.0f, 900.0f);
+        ApplyViewportLayout(BattlefieldViewportLayout.FromInsets(
+            viewportSize,
+            leftPixels,
+            rightPixels));
     }
 
     public void SetViewportObstructions(
         Control? leftControl,
         Control? rightControl,
-        float paddingPixels = 16.0f)
+        float paddingPixels = 12.0f)
     {
         if (!float.IsFinite(paddingPixels) || paddingPixels < 0.0f)
         {
@@ -441,6 +483,7 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         _leftObstruction = leftControl;
         _rightObstruction = rightControl;
         _obstructionPadding = paddingPixels;
+        _usesProductViewportLayout = true;
         SubscribeObstruction(_leftObstruction);
         if (!ReferenceEquals(_rightObstruction, _leftObstruction))
         {
@@ -524,6 +567,11 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         ClearKeyboardFocus();
         _keyboardSurfaces.Clear();
         _surfaceActors.Clear();
+        _handBindings.Clear();
+        _nearHandPoses.Clear();
+        _farHandPoses.Clear();
+        _hoveredHandActor = null;
+        _selectedHandSurface = null;
         foreach (CardActor3D actor in _cardPool)
         {
             actor.ClearSensitive();
@@ -538,6 +586,13 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         _slotCursor = 0;
         Revision = 0;
         _privateRender = false;
+        _lastPrivateView = null;
+        _lastPrivateInteraction = null;
+        _lastInteractionSurfaces = [];
+        _lastInteractionSelected = null;
+        _lastInteractionTargetingSource = null;
+        _lastRequestedInputEnabled = false;
+        _ciHandFixtureActive = false;
     }
 
     public int CiCountForbiddenToken(string token) =>
@@ -562,6 +617,219 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         }
 
         return actor.CiHasPrivacyTextureSentinel(token);
+    }
+
+    /// <summary>
+    /// CI-only visual fixture. It renders an exact private/anonymous hand pair
+    /// without a session or native call, while retaining enough viewer-safe
+    /// presenter state for <see cref="CiRestoreHandFixture"/>.
+    /// </summary>
+    internal void CiPresentHandFixture(
+        int ownCount,
+        int opponentCount = 5,
+        int? hoveredIndex = null,
+        bool includeFieldReadabilityCards = false)
+    {
+        if (ownCount is < 1 or > MaximumRenderedHandCards ||
+            opponentCount is < 0 or > MaximumRenderedHandCards)
+        {
+            throw new ArgumentOutOfRangeException(nameof(ownCount));
+        }
+        if (hoveredIndex is < 0 || hoveredIndex >= ownCount)
+        {
+            throw new ArgumentOutOfRangeException(nameof(hoveredIndex));
+        }
+        EnsureBuilt();
+        if (_lastPrivateView is null || _lastPrivateInteraction is null || !_privateRender)
+        {
+            throw new InvalidOperationException(
+                "A hand fixture requires an already presented private snapshot.");
+        }
+
+        _ciHandFixtureActive = true;
+        SetInputEnabled(false);
+        ResetForRender();
+        Revision = _lastPrivateView.Revision;
+        PerspectiveViewer = _lastPrivateView.Viewer;
+        _privateRender = true;
+        RenderCiFixtureBoard(includeFieldReadabilityCards);
+        for (int index = 0; index < ownCount; ++index)
+        {
+            CardActor3D actor = RentCard();
+            HandCardPose pose = _handRig.CreatePose(
+                PerspectiveViewer,
+                PerspectiveViewer,
+                index,
+                ownCount);
+            CardView card = CreateCiFixtureCard(PerspectiveViewer, index);
+            BattlefieldSurfaceRef surface = new(
+                BattlefieldSurfaceKind.HandCard,
+                PerspectiveViewer,
+                index,
+                card.InstanceId);
+            actor.BindPrivate(card, surface, pose.Transform, BattlefieldCardLayout.NearHand);
+            Register(surface, actor);
+            _handBindings.Add(new HandActorBinding(
+                actor,
+                PerspectiveViewer,
+                index,
+                ownCount,
+                Near: true));
+        }
+
+        PlayerId opponent = PerspectiveViewer == PlayerId.Player0
+            ? PlayerId.Player1
+            : PlayerId.Player0;
+        for (int index = 0; index < opponentCount; ++index)
+        {
+            CardActor3D actor = RentCard();
+            HandCardPose pose = _handRig.CreatePose(
+                opponent,
+                PerspectiveViewer,
+                index,
+                opponentCount);
+            actor.BindHidden(
+                opponent,
+                Zone.Hand,
+                pose.Transform,
+                BattlefieldCardLayout.FarHand);
+            _handBindings.Add(new HandActorBinding(
+                actor,
+                opponent,
+                index,
+                opponentCount,
+                Near: false));
+        }
+
+        FinishRender();
+        _hoveredHandActor = hoveredIndex.HasValue
+            ? _handBindings.Single(binding =>
+                binding.Near && binding.Index == hoveredIndex.Value).Actor
+            : null;
+        RelayoutHands(animate: false);
+    }
+
+    private void RenderCiFixtureBoard(bool includeReadabilityCards)
+    {
+        PlayerId opponent = PerspectiveViewer == PlayerId.Player0
+            ? PlayerId.Player1
+            : PlayerId.Player0;
+        foreach (PlayerId player in new[] { PerspectiveViewer, opponent })
+        {
+            for (int slot = 0; slot < BattlefieldPerspective.UnitSlotCount; ++slot)
+            {
+                Transform3D transform = BattlefieldPerspective.UnitTransform(
+                    player,
+                    PerspectiveViewer,
+                    slot);
+                var slotSurface = new BattlefieldSurfaceRef(
+                    BattlefieldSurfaceKind.UnitSlot,
+                    player,
+                    slot);
+                SlotActor3D slotActor = RentSlot();
+                slotActor.Bind(transform, "单位位", slotSurface);
+                Register(slotSurface, slotActor);
+
+                if (includeReadabilityCards && player == PerspectiveViewer && slot == 1)
+                {
+                    CardView card = CreateCiFixtureCard(
+                        player,
+                        index: 9,
+                        Zone.Unit,
+                        CardKind.Unit);
+                    var cardSurface = new BattlefieldSurfaceRef(
+                        BattlefieldSurfaceKind.Unit,
+                        player,
+                        slot,
+                        card.InstanceId);
+                    CardActor3D cardActor = RentCard();
+                    cardActor.BindPrivate(
+                        card,
+                        cardSurface,
+                        transform,
+                        BattlefieldCardLayout.Field);
+                    Register(cardSurface, cardActor);
+                }
+            }
+
+            for (int slot = 0; slot < BattlefieldPerspective.TacticSlotCount; ++slot)
+            {
+                Transform3D transform = BattlefieldPerspective.TacticTransform(
+                    player,
+                    PerspectiveViewer,
+                    slot);
+                var slotSurface = new BattlefieldSurfaceRef(
+                    BattlefieldSurfaceKind.TacticSlot,
+                    player,
+                    slot);
+                SlotActor3D slotActor = RentSlot();
+                slotActor.Bind(transform, "策略位", slotSurface);
+                Register(slotSurface, slotActor);
+
+                if (includeReadabilityCards && player == PerspectiveViewer && slot == 1)
+                {
+                    CardView card = CreateCiFixtureCard(
+                        player,
+                        index: 1,
+                        Zone.Tactic,
+                        CardKind.Relic);
+                    var cardSurface = new BattlefieldSurfaceRef(
+                        BattlefieldSurfaceKind.Tactic,
+                        player,
+                        slot,
+                        card.InstanceId);
+                    CardActor3D cardActor = RentCard();
+                    cardActor.BindPrivate(
+                        card,
+                        cardSurface,
+                        transform,
+                        BattlefieldCardLayout.Field);
+                    Register(cardSurface, cardActor);
+                }
+            }
+
+            RenderLeader(
+                player,
+                PerspectiveViewer,
+                health: 25,
+                maximumHealth: 25,
+                interactive: true);
+            RenderPile(player, PerspectiveViewer, Zone.Deck, "牌组", 26, hidden: true);
+            RenderEmptyPile(player, PerspectiveViewer, Zone.Graveyard, "墓地");
+            RenderEmptyPile(player, PerspectiveViewer, Zone.Archive, "封存");
+            RentCard().BindPile(
+                player,
+                Zone.Standby,
+                "战备",
+                2,
+                BattlefieldPerspective.StandbyPileTransform(player, PerspectiveViewer),
+                hidden: true);
+        }
+    }
+
+    internal void CiRestoreHandFixture()
+    {
+        if (!_ciHandFixtureActive)
+        {
+            return;
+        }
+
+        MatchView view = _lastPrivateView ??
+            throw new InvalidOperationException("The hand fixture lost its private snapshot.");
+        HotseatInteractionContext interaction = _lastPrivateInteraction ??
+            throw new InvalidOperationException("The hand fixture lost its interaction context.");
+        BattlefieldInteractionSurface[] surfaces = _lastInteractionSurfaces;
+        BattlefieldSurfaceRef? selected = _lastInteractionSelected;
+        BattlefieldSurfaceRef? targetingSource = _lastInteractionTargetingSource;
+        bool inputEnabled = _lastRequestedInputEnabled;
+
+        _ciHandFixtureActive = false;
+        RenderPrivate(view, interaction);
+        if (surfaces.Length > 0 || selected.HasValue || targetingSource.HasValue)
+        {
+            TryConfigureInteraction(view.Revision, surfaces, selected, targetingSource);
+        }
+        SetInputEnabled(inputEnabled);
     }
 
     public bool CiTryGetScreenAnchor(BattlefieldSurfaceRef surface, out Vector2 screenAnchor)
@@ -616,6 +884,86 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         return false;
     }
 
+    /// <summary>
+    /// Resolves the real screen-space footprint of a visible card surface.
+    /// Hand cards use the hand rig's roll/scale-aware bounds; field and pile
+    /// cards project their actual mesh AABB through the active camera.
+    /// </summary>
+    public bool TryGetScreenBounds(BattlefieldSurfaceRef surface, out Rect2 screenBounds)
+    {
+        if (!TryResolveSurfaceActor(surface, out IBattlefieldPickTarget? target) ||
+            target is not CardActor3D card)
+        {
+            screenBounds = default;
+            return false;
+        }
+
+        HandActorBinding? hand = _handBindings.FirstOrDefault(binding =>
+            ReferenceEquals(binding.Actor, card));
+        if (hand is not null)
+        {
+            IReadOnlyList<HandCardPose> poses = hand.Near ? _nearHandPoses : _farHandPoses;
+            foreach (HandCardPose pose in poses)
+            {
+                if (pose.Player == hand.Player && pose.Index == hand.Index)
+                {
+                    screenBounds = pose.ScreenBounds;
+                    if (TryProjectBounds(card, card.VisualBounds, out Rect2 currentBounds))
+                    {
+                        // Selection and hover poses tween for a few frames. The
+                        // action panel must avoid both the current rendered card
+                        // and its destination pose throughout that movement.
+                        screenBounds = screenBounds.Merge(currentBounds);
+                    }
+                    return screenBounds.Size.X > 0.0f && screenBounds.Size.Y > 0.0f;
+                }
+            }
+        }
+
+        return TryProjectBounds(card, card.VisualBounds, out screenBounds);
+    }
+
+    private bool TryProjectBounds(Node3D actor, Aabb localBounds, out Rect2 screenBounds)
+    {
+        Vector3 minimum = localBounds.Position;
+        Vector3 maximum = localBounds.End;
+        float minX = float.PositiveInfinity;
+        float minY = float.PositiveInfinity;
+        float maxX = float.NegativeInfinity;
+        float maxY = float.NegativeInfinity;
+
+        for (int corner = 0; corner < 8; ++corner)
+        {
+            var local = new Vector3(
+                (corner & 1) == 0 ? minimum.X : maximum.X,
+                (corner & 2) == 0 ? minimum.Y : maximum.Y,
+                (corner & 4) == 0 ? minimum.Z : maximum.Z);
+            Vector3 world = actor.GlobalTransform * local;
+            if (_camera.IsPositionBehind(world))
+            {
+                screenBounds = default;
+                return false;
+            }
+
+            Vector2 projected = _camera.UnprojectPosition(world);
+            if (!float.IsFinite(projected.X) || !float.IsFinite(projected.Y))
+            {
+                screenBounds = default;
+                return false;
+            }
+
+            minX = Math.Min(minX, projected.X);
+            minY = Math.Min(minY, projected.Y);
+            maxX = Math.Max(maxX, projected.X);
+            maxY = Math.Max(maxY, projected.Y);
+        }
+
+        screenBounds = new Rect2(
+            new Vector2(minX, minY),
+            new Vector2(maxX - minX, maxY - minY));
+        return screenBounds.Size.X > 0.0f && screenBounds.Size.Y > 0.0f;
+    }
+
     public bool CiValidateReadableLayout(MatchView view)
     {
         ArgumentNullException.ThrowIfNull(view);
@@ -630,24 +978,15 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
             ? PlayerId.Player1
             : PlayerId.Player0;
         PlayerView opponent = FindPlayer(view, opponentId);
-        CardActor3D[] ownHand = _cardPool
-            .Where(actor => actor.Visible &&
-                            actor.CardPresentation is
-                            {
-                                Zone: Zone.Hand,
-                                KnownIdentity: true,
-                            } presentation &&
-                            presentation.Controller == view.Viewer)
-            .OrderBy(actor => actor.GlobalPosition.X)
+        CardActor3D[] ownHand = _handBindings
+            .Where(binding => binding.Near)
+            .OrderBy(binding => binding.Index)
+            .Select(binding => binding.Actor)
             .ToArray();
-        CardActor3D[] opposingHand = _cardPool
-            .Where(actor => actor.Visible &&
-                            actor.CardPresentation is
-                            {
-                                Zone: Zone.Hand,
-                                KnownIdentity: false,
-                            } presentation &&
-                            presentation.Controller == opponentId)
+        CardActor3D[] opposingHand = _handBindings
+            .Where(binding => !binding.Near)
+            .OrderBy(binding => binding.Index)
+            .Select(binding => binding.Actor)
             .ToArray();
 
         if (ownHand.Length != Math.Min(own.Hand.Length, MaximumRenderedHandCards) ||
@@ -658,18 +997,26 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
                                  actor.StateText.Contains("目标", StringComparison.Ordinal) ||
                                  actor.StateText.Contains("已选", StringComparison.Ordinal)) ||
             opposingHand.Any(actor => actor.CiLayout != BattlefieldCardLayout.FarHand ||
-                                      actor.DisplayText.Length != 0))
+                                       actor.DisplayText.Length != 0) ||
+            _nearHandPoses.Count != ownHand.Length ||
+            _farHandPoses.Count != opposingHand.Length ||
+            _nearHandPoses.Any(pose =>
+                MathF.Abs(
+                    pose.PixelHeight -
+                    BattlefieldHandRig.NearPixelHeightFor(_viewportLayout.ViewportSize.Y)) > 0.5f ||
+                pose.ScreenBounds.Position.X < -1.0f ||
+                pose.ScreenBounds.End.X > _viewportLayout.ViewportSize.X + 1.0f ||
+                pose.ScreenBounds.Position.Y < -1.0f ||
+                pose.ScreenBounds.End.Y > _viewportLayout.ViewportSize.Y + 1.0f))
         {
             return false;
         }
 
-        for (int index = 1; index < ownHand.Length; ++index)
+        for (int index = 1; index < _nearHandPoses.Count; ++index)
         {
-            CardActor3D left = ownHand[index - 1];
-            CardActor3D right = ownHand[index];
-            float requiredSeparation =
-                ((left.CiFaceLabelWorldWidth + right.CiFaceLabelWorldWidth) / 2.0f) + 0.04f;
-            if (right.GlobalPosition.X - left.GlobalPosition.X < requiredSeparation)
+            HandCardPose left = _nearHandPoses[index - 1];
+            HandCardPose right = _nearHandPoses[index];
+            if (right.ScreenCenter.X - left.ScreenCenter.X < 32.0f)
             {
                 return false;
             }
@@ -692,6 +1039,97 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         return true;
     }
 
+    internal bool CiValidateHandRigContract()
+    {
+        EnsureBuilt();
+        Vector2[] productSizes =
+        [
+            new Vector2(1280.0f, 720.0f),
+            new Vector2(1600.0f, 900.0f),
+            new Vector2(2560.0f, 1440.0f),
+            new Vector2(2560.0f, 1600.0f),
+        ];
+        foreach (Vector2 size in productSizes)
+        {
+            BattlefieldViewportLayout layout = BattlefieldViewportLayout.Product(size);
+            var rig = new BattlefieldHandRig(_camera, layout);
+            foreach (int count in new[] { 1, 5, 10 })
+            {
+                HandCardPose[] poses = Enumerable.Range(0, count)
+                    .Select(index => rig.CreatePose(
+                        PlayerId.Player0,
+                        PlayerId.Player0,
+                        index,
+                        count))
+                    .ToArray();
+                float minimumHeight = size.Y <= 720.0f ? 142.0f :
+                    size.Y <= 900.0f ? 170.0f : 170.0f;
+                if (poses.Any(pose =>
+                        !pose.Near || pose.PixelHeight < minimumHeight ||
+                        MathF.Abs(pose.RollDegrees) > 8.001f ||
+                        pose.ScreenBounds.Position.X < -1.0f ||
+                        pose.ScreenBounds.Position.Y < -1.0f ||
+                        pose.ScreenBounds.End.X > size.X + 1.0f ||
+                        pose.ScreenBounds.End.Y > size.Y + 1.0f))
+                {
+                    return false;
+                }
+                for (int index = 1; index < poses.Length; ++index)
+                {
+                    if (poses[index].ScreenCenter.X <= poses[index - 1].ScreenCenter.X ||
+                        poses[index].ScreenCenter.X - poses[index - 1].ScreenCenter.X < 32.0f)
+                    {
+                        return false;
+                    }
+                }
+            }
+
+            const int focusIndex = 5;
+            HandCardPose[] normal = Enumerable.Range(0, 10)
+                .Select(index => rig.CreatePose(
+                    PlayerId.Player0,
+                    PlayerId.Player0,
+                    index,
+                    10))
+                .ToArray();
+            HandCardPose[] hovered = Enumerable.Range(0, 10)
+                .Select(index => rig.CreatePose(
+                    PlayerId.Player0,
+                    PlayerId.Player0,
+                    index,
+                    10,
+                    hoveredIndex: focusIndex))
+                .ToArray();
+            HandCardPose[] selected = Enumerable.Range(0, 10)
+                .Select(index => rig.CreatePose(
+                    PlayerId.Player0,
+                    PlayerId.Player0,
+                    index,
+                    10,
+                    selectedIndex: focusIndex))
+                .ToArray();
+            Rect2 viewport = new(Vector2.Zero, size);
+            Rect2 selectedVisible = selected[focusIndex].ScreenBounds.Intersection(viewport);
+            float selectedArea = selected[focusIndex].ScreenBounds.Size.X *
+                                 selected[focusIndex].ScreenBounds.Size.Y;
+            float visibleArea = selectedVisible.Size.X * selectedVisible.Size.Y;
+            if (!hovered[focusIndex].Hovered ||
+                hovered[focusIndex].PixelHeight < normal[focusIndex].PixelHeight * 1.119f ||
+                hovered[focusIndex].ScreenCenter.Y >= normal[focusIndex].ScreenCenter.Y ||
+                hovered[focusIndex - 1].ScreenCenter.X >= normal[focusIndex - 1].ScreenCenter.X ||
+                hovered[focusIndex + 1].ScreenCenter.X <= normal[focusIndex + 1].ScreenCenter.X ||
+                !selected[focusIndex].Selected || selectedArea <= 0.0f ||
+                visibleArea / selectedArea < 0.9f ||
+                selected.Where((_, index) => index != focusIndex)
+                    .Any(pose => pose.CameraDepth <= selected[focusIndex].CameraDepth))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
     private void RenderPrivatePlayer(PlayerView player, PlayerId viewer)
     {
         RenderPrivateField(player, viewer, Zone.Unit, player.Units);
@@ -704,7 +1142,7 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         for (int index = 0; index < handCount; ++index)
         {
             CardActor3D actor = RentCard();
-            Transform3D transform = BattlefieldPerspective.HandTransform(
+            HandCardPose pose = _handRig.CreatePose(
                 player.Player,
                 viewer,
                 index,
@@ -718,7 +1156,7 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
                 actor.BindPrivate(
                     card,
                     surface,
-                    transform,
+                    pose.Transform,
                     BattlefieldCardLayout.NearHand);
                 Register(surface, actor);
             }
@@ -727,9 +1165,15 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
                 actor.BindHidden(
                     player.Player,
                     Zone.Hand,
-                    transform,
+                    pose.Transform,
                     BattlefieldCardLayout.FarHand);
             }
+            _handBindings.Add(new HandActorBinding(
+                actor,
+                player.Player,
+                index,
+                handCount,
+                pose.Near));
         }
 
         RenderPrivateStandby(player, viewer);
@@ -824,13 +1268,25 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         int handCount = Math.Min(CheckedDisplayCount(player.HandCount), MaximumRenderedHandCards);
         for (int index = 0; index < handCount; ++index)
         {
-            RentCard().BindHidden(
+            CardActor3D actor = RentCard();
+            HandCardPose pose = _handRig.CreatePose(
+                player.Player,
+                viewer,
+                index,
+                handCount);
+            actor.BindHidden(
                 player.Player,
                 Zone.Hand,
-                BattlefieldPerspective.HandTransform(player.Player, viewer, index, handCount),
-                BattlefieldPerspective.IsNear(player.Player, viewer)
+                pose.Transform,
+                pose.Near
                     ? BattlefieldCardLayout.NearHand
                     : BattlefieldCardLayout.FarHand);
+            _handBindings.Add(new HandActorBinding(
+                actor,
+                player.Player,
+                index,
+                handCount,
+                pose.Near));
         }
 
         RentCard().BindPile(
@@ -947,12 +1403,85 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
             0);
     }
 
+    private void RelayoutHands(bool animate)
+    {
+        if (_handRig is null || _handBindings.Count == 0)
+        {
+            _nearHandPoses.Clear();
+            _farHandPoses.Clear();
+            return;
+        }
+
+        HandActorBinding? hoveredBinding = _hoveredHandActor is null
+            ? null
+            : _handBindings.FirstOrDefault(binding =>
+                ReferenceEquals(binding.Actor, _hoveredHandActor));
+        HandActorBinding? selectedBinding = _selectedHandSurface is not { } selected
+            ? null
+            : _handBindings.FirstOrDefault(binding =>
+                SurfaceMatches(binding.Actor.Surface, selected));
+        _nearHandPoses.Clear();
+        _farHandPoses.Clear();
+        foreach (HandActorBinding binding in _handBindings)
+        {
+            int? hoveredIndex = hoveredBinding is { Near: true } hovered &&
+                                hovered.Player == binding.Player
+                ? hovered.Index
+                : null;
+            int? selectedIndex = selectedBinding is { Near: true } selectedHand &&
+                                 selectedHand.Player == binding.Player
+                ? selectedHand.Index
+                : null;
+            HandCardPose pose = _handRig.CreatePose(
+                binding.Player,
+                PerspectiveViewer,
+                binding.Index,
+                binding.Count,
+                hoveredIndex,
+                selectedIndex);
+            binding.Actor.ApplyPresentationPose(pose.Transform, animate);
+            (pose.Near ? _nearHandPoses : _farHandPoses).Add(pose);
+        }
+
+        _nearHandPoses.Sort(static (left, right) => left.Index.CompareTo(right.Index));
+        _farHandPoses.Sort(static (left, right) => left.Index.CompareTo(right.Index));
+    }
+
+    private void OnHandActorPointerHoverChanged(CardActor3D actor, bool hovered)
+    {
+        if (!_privateRender || !_handBindings.Any(binding => ReferenceEquals(binding.Actor, actor)))
+        {
+            return;
+        }
+
+        if (hovered)
+        {
+            _hoveredHandActor = actor;
+        }
+        else if (ReferenceEquals(_hoveredHandActor, actor))
+        {
+            _hoveredHandActor = null;
+        }
+
+        RelayoutHands(animate: true);
+    }
+
+    private static bool SurfaceMatches(
+        BattlefieldSurfaceRef? candidate,
+        BattlefieldSurfaceRef expected) =>
+        candidate == expected ||
+        candidate is { } value &&
+        value.Kind == expected.Kind &&
+        value.InstanceId.HasValue &&
+        value.InstanceId == expected.InstanceId;
+
     private CardActor3D RentCard()
     {
         if (_cardCursor == _cardPool.Count)
         {
             var actor = new CardActor3D { Name = $"CardActor{_cardPool.Count}" };
             actor.ConfigureVisualCatalog(_visualCatalog);
+            actor.PointerHoverChanged += OnHandActorPointerHoverChanged;
             _cardPool.Add(actor);
             AddChild(actor);
         }
@@ -1034,6 +1563,11 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         ClearKeyboardFocus();
         _keyboardSurfaces.Clear();
         _surfaceActors.Clear();
+        _handBindings.Clear();
+        _nearHandPoses.Clear();
+        _farHandPoses.Clear();
+        _hoveredHandActor = null;
+        _selectedHandSurface = null;
         _cardCursor = 0;
         _slotCursor = 0;
     }
@@ -1067,8 +1601,10 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
 
         _targetingSource = null;
         _dragVisualSource = null;
+        _selectedHandSurface = null;
         _targetArrow.Stop();
         _placementGhost.Stop();
+        RelayoutHands(animate: true);
     }
 
     private void OverrideOccupiedCardsForLegalSlots()
@@ -1136,7 +1672,12 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
 
         _camera = new BattlefieldCameraRig { Name = "BattlefieldCamera" };
         AddChild(_camera);
-        _camera.ProjectionChanged += () => ProjectionChanged?.Invoke(this, EventArgs.Empty);
+        Vector2 viewportSize = GetViewport()?.GetVisibleRect().Size ??
+                               new Vector2(1600.0f, 900.0f);
+        _viewportLayout = BattlefieldViewportLayout.Product(viewportSize);
+        _handRig = new BattlefieldHandRig(_camera, _viewportLayout);
+        _camera.SetViewportLayout(_viewportLayout);
+        _camera.ProjectionChanged += OnCameraProjectionChanged;
 
         _raycastInput = new BattlefieldRaycastInput { Name = "RaycastInput" };
         AddChild(_raycastInput);
@@ -1385,6 +1926,12 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         }
     }
 
+    private void OnCameraProjectionChanged()
+    {
+        RelayoutHands(animate: false);
+        ProjectionChanged?.Invoke(this, EventArgs.Empty);
+    }
+
     private void ClearKeyboardFocus()
     {
         SetKeyboardActorHovered(hovered: false);
@@ -1414,16 +1961,18 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         }
         else
         {
-            _camera.SetViewportInsets(
-                _leftViewportInset,
-                _rightViewportInset,
-                GetViewport().GetVisibleRect().Size.X);
+            Vector2 viewportSize = GetViewport().GetVisibleRect().Size;
+            BattlefieldViewportLayout layout = _usesProductViewportLayout
+                ? BattlefieldViewportLayout.Product(viewportSize, _obstructionPadding)
+                : _viewportLayout.WithViewportSize(viewportSize);
+            ApplyViewportLayout(layout);
         }
     }
 
     private void ApplyObstructionInsets()
     {
-        float viewportWidth = GetViewport().GetVisibleRect().Size.X;
+        Vector2 viewportSize = GetViewport().GetVisibleRect().Size;
+        float viewportWidth = viewportSize.X;
         float leftCandidate = ObstructionInset(
             _leftObstruction,
             viewportWidth,
@@ -1434,18 +1983,21 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
             viewportWidth,
             fromLeft: false,
             _obstructionPadding);
-        // A drawer can temporarily hide while a source selection is cleared.
-        // Retain its last real lane instead of shifting every 3D hit target
-        // underneath the pointer; actual non-zero responsive resizes still apply.
-        if (leftCandidate > _obstructionPadding || _leftViewportInset <= 0.0f)
-        {
-            _leftViewportInset = leftCandidate;
-        }
-        if (rightCandidate > _obstructionPadding || _rightViewportInset <= 0.0f)
-        {
-            _rightViewportInset = rightCandidate;
-        }
-        _camera.SetViewportInsets(_leftViewportInset, _rightViewportInset, viewportWidth);
+        BattlefieldViewportLayout layout = BattlefieldViewportLayout
+            .Product(viewportSize, _obstructionPadding)
+            .MaxHorizontalReservations(leftCandidate, rightCandidate);
+        ApplyViewportLayout(layout);
+    }
+
+    private void ApplyViewportLayout(BattlefieldViewportLayout layout)
+    {
+        _viewportLayout = layout;
+        _handRig.SetViewportLayout(layout);
+        _camera.SetViewportLayout(layout);
+        // SetViewportLayout intentionally suppresses identical camera updates;
+        // the rig still needs an explicit refresh if only its layout object was
+        // renewed with equivalent camera framing values.
+        RelayoutHands(animate: false);
     }
 
     private void SubscribeObstruction(Control? control)
@@ -1456,7 +2008,6 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         }
 
         control.ItemRectChanged += OnObstructionRectChanged;
-        control.VisibilityChanged += OnObstructionRectChanged;
     }
 
     private void ClearObstructionSubscriptions()
@@ -1480,7 +2031,6 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         }
 
         control.ItemRectChanged -= OnObstructionRectChanged;
-        control.VisibilityChanged -= OnObstructionRectChanged;
     }
 
     private void OnObstructionRectChanged() => ApplyObstructionInsets();
@@ -1519,6 +2069,115 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
 
     private static int CheckedDisplayCount(ulong value) =>
         value > int.MaxValue ? int.MaxValue : (int)value;
+
+    private static CardView CreateCiFixtureCard(
+        PlayerId player,
+        int index,
+        Zone zone = Zone.Hand,
+        CardKind? forcedKind = null)
+    {
+        uint definitionId = CiFixtureDefinitionIds[index % CiFixtureDefinitionIds.Length];
+        CardKind kind = forcedKind ?? index switch
+        {
+            1 => CardKind.Relic,
+            2 => CardKind.Trap,
+            3 => CardKind.Spell,
+            _ => CardKind.Unit,
+        };
+        int cost = index switch
+        {
+            0 => 0,
+            9 => 12,
+            _ => 1 + (index % 6),
+        };
+        int countdown = kind is CardKind.Relic or CardKind.Trap
+            ? index == 1 ? 12 : 4
+            : 0;
+        int attack = kind == CardKind.Unit
+            ? index switch
+            {
+                0 => 0,
+                9 => 11,
+                _ => 2 + (index % 5),
+            }
+            : 0;
+        int printedHealth = kind == CardKind.Unit
+            ? index switch
+            {
+                0 => 0,
+                8 => 9,
+                9 => 12,
+                _ => 3 + (index % 5),
+            }
+            : 0;
+        int currentHealth = kind == CardKind.Unit && index == 8 ? 2 : printedHealth;
+        var component = new ComponentSpec
+        {
+            HasComponent = false,
+            GrantedKind = EffectKind.DrawCards,
+            GrantedAmount = 0,
+        };
+        var definition = new CardDefinition
+        {
+            Id = definitionId,
+            Name = kind switch
+            {
+                CardKind.Unit => $"测试单位 {index + 1}",
+                CardKind.Relic => "测试倒计时设施",
+                CardKind.Trap => "测试伏策装置",
+                _ => "测试战术法术",
+            },
+            Kind = kind,
+            Cost = cost,
+            Attack = attack,
+            Health = printedHealth,
+            Countdown = countdown,
+            PrintedGuard = false,
+            PrintedRush = false,
+            PrintedStorm = false,
+            PrintedBarrier = false,
+            PrintedLifesteal = false,
+            PrintedBane = false,
+            EvolvedAttack = attack + 2,
+            EvolvedHealth = printedHealth + 2,
+            AdditionalCost = new AdditionalCost { BurnPpCapacity = 0 },
+            Component = component,
+            Effects = [],
+        };
+        ulong instanceId = 0xf000_0000_0000_0000UL + (ulong)index + 1UL;
+        return new CardView
+        {
+            InstanceId = instanceId,
+            DefinitionId = definitionId,
+            Definition = definition,
+            Kind = kind,
+            Name = definition.Name,
+            Owner = player,
+            Controller = player,
+            Zone = zone,
+            Sequence = instanceId,
+            Cost = cost,
+            CurrentAttack = attack,
+            CurrentHealth = currentHealth,
+            MaximumHealth = printedHealth,
+            Keywords = Keyword.None,
+            Evolved = false,
+            AttackedThisTurn = false,
+            EnteredThisTurn = false,
+            TemporaryRush = false,
+            DeployedFromStandby = false,
+            FaceDown = false,
+            Countdown = countdown,
+            GrantedComponent = component,
+        };
+    }
+
+    private sealed record HandActorBinding(
+        CardActor3D Actor,
+        PlayerId Player,
+        int Index,
+        int Count,
+        bool Near);
 
     private static void ValidatePlayer(PlayerId player)
     {

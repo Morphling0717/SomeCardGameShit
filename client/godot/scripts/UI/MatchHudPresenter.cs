@@ -118,10 +118,13 @@ public sealed class MatchHudPresenter
         MatchHudMetrics metrics = GlassHudTheme.MetricsFor(viewportSize);
         float width = Mathf.Max(viewportSize.X, GlassHudTheme.MinimumWidth);
         float height = Mathf.Max(viewportSize.Y, GlassHudTheme.MinimumHeight);
+        float safeLeft = metrics.EdgeInset + metrics.DetailWidth + GlassHudTheme.CompactGap;
+        float safeRight = width - metrics.EdgeInset - metrics.StatusWidth - GlassHudTheme.CompactGap;
+        float safeCenter = (safeLeft + safeRight) * 0.5f;
 
         var detailsRect = new Rect2(
             metrics.EdgeInset,
-            metrics.TopInset + 54.0f,
+            metrics.TopInset + 48.0f,
             metrics.DetailWidth,
             metrics.DetailHeight);
         if (cardDetails is CardDetailPanel detailsPanel)
@@ -138,24 +141,24 @@ public sealed class MatchHudPresenter
                 width - metrics.EdgeInset - metrics.StatusWidth,
                 metrics.TopInset,
                 metrics.StatusWidth,
-                248.0f));
+                218.0f));
         SetTopLeftRect(
             phaseCapsule,
-            new Rect2(width * 0.5f - 112.0f, metrics.TopInset, 224.0f, 44.0f));
+            new Rect2(safeCenter - 96.0f, metrics.TopInset, 192.0f, 38.0f));
         SetTopLeftRect(
             interactionDock,
             new Rect2(
                 width - metrics.EdgeInset - metrics.DockWidth,
-                284.0f,
+                metrics.TopInset + 228.0f,
                 metrics.DockWidth,
-                Mathf.Min(300.0f, height - 410.0f)));
+                Mathf.Min(286.0f, height - 380.0f)));
         SetTopLeftRect(
             endTurnButton,
             new Rect2(
-                width - metrics.EdgeInset - 196.0f,
-                height - metrics.EdgeInset - 64.0f,
-                196.0f,
-                52.0f));
+                width - metrics.EdgeInset - metrics.StatusWidth,
+                height - metrics.EdgeInset - 56.0f,
+                metrics.StatusWidth,
+                48.0f));
 
         return new MatchHudLayout(
             cardDetails.GetRect(),
@@ -205,7 +208,7 @@ public sealed class MatchHudPresenter
         ProgressBar healthBar = root.GetNode<ProgressBar>($"%{prefix}HealthBar");
         Control pod = root.GetNode<Control>(own ? "%OwnStatusPod" : "%OpponentStatusPod");
 
-        seat.Text = $"{(own ? "己方" : "对手")} · {PlayerLabel(player)}";
+        seat.Text = FormatCompactSeat(own, player, health, maximumHealth);
         bool isActive = player == activePlayer;
         active.Visible = isActive;
         pod.Modulate = isActive
@@ -214,6 +217,71 @@ public sealed class MatchHudPresenter
         int safeMaximum = Math.Max(maximumHealth, 1);
         healthBar.MaxValue = safeMaximum;
         healthBar.Value = Math.Clamp(health, 0, safeMaximum);
+    }
+
+    internal static string FormatCompactSeat(
+        bool own,
+        PlayerId player,
+        int health,
+        int maximumHealth) =>
+        $"{(own ? "己方" : "对手")}·{PlayerLabel(player)} ♥{health}/{maximumHealth}";
+
+    internal static string FormatCompactResources(
+        int currentPp,
+        int ppCapacity,
+        int cracks,
+        int evolutionEnergy) =>
+        $"PP {currentPp}/{ppCapacity}  裂{cracks}  进{evolutionEnergy}";
+
+    internal MatchHudMaximumStateEvidence MeasureMaximumStateForCi()
+    {
+        Control root = EnsureBound();
+        Control rail = root.GetNode<Control>("%BattlefieldControlRail");
+        Rect2 railRect = rail.GetGlobalRect();
+        bool podsInsideRail = true;
+        bool labelsSingleLine = true;
+        bool labelsFit = true;
+        bool valuesPresent = true;
+        bool healthBarsMaxed = true;
+
+        foreach (string prefix in new[] { "Opponent", "Own" })
+        {
+            Control pod = root.GetNode<Control>($"%{prefix}StatusPod");
+            Label seat = root.GetNode<Label>($"%{prefix}SeatLabel");
+            Label resources = root.GetNode<Label>($"%{prefix}ResourceLabel");
+            ProgressBar health = root.GetNode<ProgressBar>($"%{prefix}HealthBar");
+            Rect2 podRect = pod.GetGlobalRect();
+
+            podsInsideRail &= railRect.Grow(1.0f).Encloses(podRect);
+            labelsSingleLine &= seat.GetLineCount() == 1 &&
+                                seat.GetVisibleLineCount() == 1 &&
+                                resources.GetLineCount() == 1 &&
+                                resources.GetVisibleLineCount() == 1;
+            labelsFit &= TextFits(seat) && TextFits(resources);
+            valuesPresent &= seat.Text.Contains("25/25", StringComparison.Ordinal) &&
+                             resources.Text == "PP 10/10  裂99  进99";
+            healthBarsMaxed &= Math.Abs(health.MaxValue - 25.0) < 0.01 &&
+                               Math.Abs(health.Value - 25.0) < 0.01;
+        }
+
+        return new MatchHudMaximumStateEvidence(
+            podsInsideRail,
+            labelsSingleLine,
+            labelsFit,
+            valuesPresent,
+            healthBarsMaxed);
+
+        static bool TextFits(Label label)
+        {
+            Font font = label.GetThemeFont("font");
+            int fontSize = label.GetThemeFontSize("font_size");
+            float textWidth = font.GetStringSize(
+                label.Text,
+                HorizontalAlignment.Left,
+                -1.0f,
+                fontSize).X;
+            return textWidth <= label.Size.X + 0.5f;
+        }
     }
 
     private Control EnsureBound() => _root ??
@@ -228,9 +296,9 @@ public sealed class MatchHudPresenter
 
     private static string PlayerLabel(PlayerId player) => player switch
     {
-        PlayerId.Player0 => "玩家 0",
-        PlayerId.Player1 => "玩家 1",
-        _ => "玩家 ?",
+        PlayerId.Player0 => "P0",
+        PlayerId.Player1 => "P1",
+        _ => "P?",
     };
 }
 
@@ -246,4 +314,15 @@ public readonly record struct MatchHudLayout(
         !CardDetails.Intersects(InteractionDock) &&
         !PhaseCapsule.Intersects(StatusRail) &&
         !EndTurnButton.Intersects(InteractionDock);
+}
+
+internal readonly record struct MatchHudMaximumStateEvidence(
+    bool PodsInsideRail,
+    bool LabelsSingleLine,
+    bool LabelsFit,
+    bool ValuesPresent,
+    bool HealthBarsMaxed)
+{
+    internal bool IsValid =>
+        PodsInsideRail && LabelsSingleLine && LabelsFit && ValuesPresent && HealthBarsMaxed;
 }

@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using Scgs.Client;
+using Scgs.GodotClient.Battlefield;
 using Scgs.GodotClient.Match;
 using Scgs.Hotseat;
 
@@ -68,6 +69,7 @@ internal sealed class Gate3CFullMatchSmoke
     private bool visualReactionCaptured;
     private bool visualResolvingCaptured;
     private bool visualPerformanceCaptured;
+    private bool visualHandStatesCaptured;
 
     internal Gate3CFullMatchSmoke(
         MatchScreen match,
@@ -254,6 +256,49 @@ internal sealed class Gate3CFullMatchSmoke
                 state.Snapshot?.Revision);
             visualActionCaptured = true;
         }
+        if (visualSuite is not null && state.Mode == HotseatUiMode.Action &&
+            !visualHandStatesCaptured && match.CiPresentationMode == "3d")
+        {
+            Battlefield3DPresenter presenter = match.FindChild(
+                "Battlefield3D",
+                recursive: true,
+                owned: false) as Battlefield3DPresenter ??
+                throw new InvalidOperationException(
+                    "The Gate 4B-R2 hand fixture could not find the 3D presenter.");
+            if (!await match.VerifyMaximumHudStateForCiAsync())
+            {
+                throw new InvalidOperationException(
+                    "The 25/25, PP 10/10, double-digit crack/evolution HUD fixture " +
+                    "wrapped or clipped inside the compact status rail.");
+            }
+            try
+            {
+                (string State, int Count, int? Hovered, bool FieldCards)[] fixtures =
+                [
+                    ("hand-one", 1, null, false),
+                    ("hand-five", 5, null, false),
+                    ("hand-ten", 10, null, false),
+                    ("hand-hover", 5, 2, false),
+                    ("field-readability", 10, 1, true),
+                ];
+                foreach ((string fixtureState, int count, int? hovered, bool fieldCards) in fixtures)
+                {
+                    presenter.CiPresentHandFixture(
+                        count,
+                        hoveredIndex: hovered,
+                        includeFieldReadabilityCards: fieldCards);
+                    await visualSuite.CaptureAsync(
+                        fixtureState,
+                        state.Snapshot?.Viewer,
+                        state.Snapshot?.Revision);
+                }
+                visualHandStatesCaptured = true;
+            }
+            finally
+            {
+                presenter.CiRestoreHandFixture();
+            }
+        }
         MatchView view = state.Snapshot ??
             throw new InvalidOperationException("A command state is missing its safe snapshot.");
         if (!keyboardProbed)
@@ -366,6 +411,7 @@ internal sealed class Gate3CFullMatchSmoke
         // command whose private DTO/material sentinel was actually injected.
         // Mulligan also enters Resolving, but capturing it would make the GPU
         // #ff00ff scan a false green because no private texture existed yet.
+        bool completedVisualFramePair = false;
         if (visualSuite is not null && !visualResolvingCaptured &&
             match.CiPrivacySentinelVerified)
         {
@@ -373,20 +419,30 @@ internal sealed class Gate3CFullMatchSmoke
                 "resolving",
                 revision: match.CiState.PublicBoard?.Revision);
             visualResolvingCaptured = true;
+            completedVisualFramePair = true;
         }
 
         // The native command may run only after the public projection has
-        // survived two complete process frames.
-        await nextFrame();
-        if (match.CiSubmissionCount != before)
+        // survived two complete process frames. A schema-4 visual capture has
+        // already waited for two consecutive FramePostDraws; otherwise keep
+        // the historical one-frame pre-submit probe here.
+        if (!completedVisualFramePair)
+        {
+            await nextFrame();
+        }
+        if (match.CiSubmissionCount < before ||
+            match.CiSubmissionCount > before + 1)
         {
             throw new InvalidOperationException(
-                $"{expectedAction} was submitted before the public board survived a complete frame.");
+                $"{expectedAction} submission count changed unexpectedly across the stable frame pair.");
         }
 
-        await WaitUntilAsync(
-            () => match.CiSubmissionCount == before + 1,
-            $"the deferred {expectedAction} command was not submitted");
+        if (match.CiSubmissionCount == before)
+        {
+            await WaitUntilAsync(
+                () => match.CiSubmissionCount == before + 1,
+                $"the deferred {expectedAction} command was not submitted");
+        }
         EngineStatus status = match.CiLastSubmissionStatus ??
             throw new InvalidOperationException("The UI did not retain the latest engine status.");
         if (!status.IsSuccess || match.CiSuccessfulSubmissionCount != before + 1)
@@ -447,6 +503,7 @@ internal sealed class Gate3CFullMatchSmoke
             !match.CiCancelledDragNoSideEffects ||
             match.CiHasTransientDragData ||
             !match.CiSourceAdjacentPanelVerified ||
+            !match.CiDirectPanelSourceNonOverlap ||
             !match.CiSignalE2e ||
             !match.CiClickDragCanonicalParity ||
             !match.CiSelectionCommitWithoutConfirmation ||

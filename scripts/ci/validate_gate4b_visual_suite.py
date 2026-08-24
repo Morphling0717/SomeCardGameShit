@@ -7,13 +7,15 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import struct
 import sys
+import zlib
 from pathlib import Path
 from typing import Any
 
 
-EXPECTED_STATES = {
+LEGACY_EXPECTED_STATES = {
     "menu",
     "match-setup",
     "covered",
@@ -26,7 +28,14 @@ EXPECTED_STATES = {
     "result",
     "error",
 }
-EXPECTED_TOP_LEVEL = {
+EXPECTED_STATES = LEGACY_EXPECTED_STATES | {
+    "hand-one",
+    "hand-five",
+    "hand-ten",
+    "hand-hover",
+    "field-readability",
+}
+EXPECTED_TOP_LEVEL_V3 = {
     "schema_version",
     "gate",
     "scenario",
@@ -35,7 +44,8 @@ EXPECTED_TOP_LEVEL = {
     "captures",
     "performance",
 }
-EXPECTED_CAPTURE = {
+EXPECTED_TOP_LEVEL_V4 = EXPECTED_TOP_LEVEL_V3 | {"capture_contract"}
+EXPECTED_CAPTURE_V3 = {
     "state",
     "viewer",
     "revision",
@@ -45,6 +55,11 @@ EXPECTED_CAPTURE = {
     "sha256",
     "asset_manifest_sha256",
     "layout",
+}
+EXPECTED_CAPTURE_V4 = EXPECTED_CAPTURE_V3 | {
+    "stable_frame_post_draws",
+    "frame_pair_mae",
+    "pixel_evidence",
 }
 EXPECTED_LAYOUT = {
     "controls_inside_viewport",
@@ -63,6 +78,57 @@ BOARD_STATES = {
     "reaction",
     "resolving",
     "result",
+    "hand-one",
+    "hand-five",
+    "hand-ten",
+    "hand-hover",
+    "field-readability",
+}
+EXPECTED_CAPTURE_CONTRACT = {
+    "frame_post_draws",
+    "pixel_space",
+    "maximum_frame_pair_mae",
+    "maximum_region_frame_pair_mae",
+    "maximum_region_channel_delta",
+}
+EXPECTED_PIXEL_EVIDENCE = {"anchors", "regions"}
+EXPECTED_PIXEL_ANCHOR = {"name", "x", "y", "r", "g", "b"}
+EXPECTED_PIXEL_REGION = {
+    "name",
+    "x",
+    "y",
+    "width",
+    "height",
+    "sha256",
+    "mean_luma",
+    "edge_ratio",
+    "frame_pair_mae",
+    "max_channel_delta",
+}
+HAND_STATES = {"hand-one", "hand-five", "hand-ten", "hand-hover"}
+EXPECTED_HAND_EVIDENCE = {
+    "card_count",
+    "hovered_count",
+    "selected_count",
+    "minimum_pixel_height",
+    "maximum_abs_roll_degrees",
+}
+EXPECTED_HAND_COUNTS = {
+    "hand-one": (1, 0, 0),
+    "hand-five": (5, 0, 0),
+    "hand-ten": (10, 0, 0),
+    "hand-hover": (5, 1, 0),
+}
+FIELD_READABILITY_REGIONS = {
+    "near_hand",
+    "cost",
+    "attack",
+    "health",
+    "countdown",
+    "battlefield",
+    "own_leader",
+    "opponent_leader",
+    "hud",
 }
 EXPECTED_PERFORMANCE = {
     "adapter_name",
@@ -102,10 +168,422 @@ def _png_dimensions(path: Path) -> tuple[int, int]:
     return width, height
 
 
+def _paeth(left: int, up: int, upper_left: int) -> int:
+    estimate = left + up - upper_left
+    left_distance = abs(estimate - left)
+    up_distance = abs(estimate - up)
+    diagonal_distance = abs(estimate - upper_left)
+    if left_distance <= up_distance and left_distance <= diagonal_distance:
+        return left
+    return up if up_distance <= diagonal_distance else upper_left
+
+
+def _read_png_rgb(path: Path) -> tuple[int, int, bytes]:
+    """Decode the 8-bit non-interlaced PNG formats emitted by Godot."""
+    data = path.read_bytes()
+    if data[:8] != b"\x89PNG\r\n\x1a\n":
+        raise VisualSuiteError(f"capture is not a valid PNG: {path}")
+    offset = 8
+    compressed = bytearray()
+    width = height = bit_depth = color_type = interlace = -1
+    while offset + 12 <= len(data):
+        length = struct.unpack(">I", data[offset : offset + 4])[0]
+        kind = data[offset + 4 : offset + 8]
+        payload_end = offset + 8 + length
+        if payload_end + 4 > len(data):
+            raise VisualSuiteError(f"capture has a truncated PNG chunk: {path}")
+        payload = data[offset + 8 : payload_end]
+        if kind == b"IHDR":
+            width, height, bit_depth, color_type, _, _, interlace = struct.unpack(
+                ">IIBBBBB", payload
+            )
+        elif kind == b"IDAT":
+            compressed.extend(payload)
+        elif kind == b"IEND":
+            break
+        offset = payload_end + 4
+    channels = {0: 1, 2: 3, 4: 2, 6: 4}.get(color_type)
+    if (
+        width <= 0
+        or height <= 0
+        or bit_depth != 8
+        or channels is None
+        or interlace != 0
+    ):
+        raise VisualSuiteError(
+            f"capture must be a non-interlaced 8-bit gray/RGB/RGBA PNG: {path}"
+        )
+    try:
+        encoded = zlib.decompress(bytes(compressed))
+    except zlib.error as error:
+        raise VisualSuiteError(f"capture has an invalid PNG stream: {path}") from error
+    row_bytes = width * channels
+    if len(encoded) != height * (row_bytes + 1):
+        raise VisualSuiteError(f"capture has an invalid PNG scanline length: {path}")
+
+    rgb = bytearray(width * height * 3)
+    previous = bytearray(row_bytes)
+    source = 0
+    destination = 0
+    for _ in range(height):
+        filter_type = encoded[source]
+        source += 1
+        filtered = encoded[source : source + row_bytes]
+        source += row_bytes
+        if filter_type == 0:
+            row = bytearray(filtered)
+        else:
+            row = bytearray(row_bytes)
+            for index, value in enumerate(filtered):
+                left = row[index - channels] if index >= channels else 0
+                up = previous[index]
+                upper_left = previous[index - channels] if index >= channels else 0
+                predictor = {
+                    1: left,
+                    2: up,
+                    3: (left + up) // 2,
+                    4: _paeth(left, up, upper_left),
+                }.get(filter_type)
+                if predictor is None:
+                    raise VisualSuiteError(
+                        f"capture uses unsupported PNG filter {filter_type}: {path}"
+                    )
+                row[index] = (value + predictor) & 0xFF
+        if color_type == 2:
+            rgb[destination : destination + row_bytes] = row
+            destination += row_bytes
+            previous = row
+            continue
+        for x in range(width):
+            at = x * channels
+            if color_type in (0, 4):
+                red = green = blue = row[at]
+            else:
+                red, green, blue = row[at], row[at + 1], row[at + 2]
+            rgb[destination] = red
+            rgb[destination + 1] = green
+            rgb[destination + 2] = blue
+            destination += 3
+        previous = row
+    return width, height, bytes(rgb)
+
+
+def _validate_pixel_evidence(
+    evidence: object,
+    *,
+    state: str,
+    index: int,
+    width: int,
+    height: int,
+    pixels: bytes,
+    maximum_region_frame_pair_mae: float,
+    maximum_region_channel_delta: int,
+    enforce_structure: bool,
+) -> dict[str, tuple[int, int, int, int, str]]:
+    if not isinstance(evidence, dict) or set(evidence) != EXPECTED_PIXEL_EVIDENCE:
+        raise VisualSuiteError(
+            f"capture[{index}].pixel_evidence fields must be exactly "
+            f"{sorted(EXPECTED_PIXEL_EVIDENCE)}"
+        )
+    anchors = evidence["anchors"]
+    regions = evidence["regions"]
+    if not isinstance(anchors, list) or not isinstance(regions, list):
+        raise VisualSuiteError(
+            f"capture[{index}].pixel_evidence anchors and regions must be arrays"
+        )
+    anchor_names: set[str] = set()
+    for anchor_index, anchor in enumerate(anchors):
+        if not isinstance(anchor, dict) or set(anchor) != EXPECTED_PIXEL_ANCHOR:
+            raise VisualSuiteError(
+                f"capture[{index}].pixel_evidence.anchors[{anchor_index}] fields "
+                f"must be exactly {sorted(EXPECTED_PIXEL_ANCHOR)}"
+            )
+        name = anchor["name"]
+        if not isinstance(name, str) or not name or name in anchor_names:
+            raise VisualSuiteError(
+                f"capture[{index}] has an invalid or duplicate pixel anchor name"
+            )
+        anchor_names.add(name)
+        x = int(_number(anchor["x"], f"capture[{index}].anchor.x"))
+        y = int(_number(anchor["y"], f"capture[{index}].anchor.y"))
+        if not (0 <= x < width and 0 <= y < height):
+            raise VisualSuiteError(f"capture[{index}] pixel anchor {name!r} is outside the PNG")
+        at = (y * width + x) * 3
+        expected_rgb = tuple(pixels[at : at + 3])
+        actual_rgb = tuple(anchor[channel] for channel in ("r", "g", "b"))
+        if any(isinstance(value, bool) or not isinstance(value, int) for value in actual_rgb):
+            raise VisualSuiteError(f"capture[{index}] pixel anchor {name!r} RGB must be integers")
+        if actual_rgb != expected_rgb:
+            raise VisualSuiteError(
+                f"capture[{index}] pixel anchor {name!r} disagrees with the PNG"
+            )
+
+    region_names: set[str] = set()
+    measured_region_quality: dict[str, tuple[int, float]] = {}
+    measured_regions: dict[str, tuple[int, int, int, int, str]] = {}
+    for region_index, region in enumerate(regions):
+        if not isinstance(region, dict) or set(region) != EXPECTED_PIXEL_REGION:
+            raise VisualSuiteError(
+                f"capture[{index}].pixel_evidence.regions[{region_index}] fields "
+                f"must be exactly {sorted(EXPECTED_PIXEL_REGION)}"
+            )
+        name = region["name"]
+        if not isinstance(name, str) or not name or name in region_names:
+            raise VisualSuiteError(
+                f"capture[{index}] has an invalid or duplicate pixel region name"
+            )
+        region_names.add(name)
+        x = int(_number(region["x"], f"capture[{index}].region.x"))
+        y = int(_number(region["y"], f"capture[{index}].region.y"))
+        region_width = int(_number(
+            region["width"], f"capture[{index}].region.width", minimum=1
+        ))
+        region_height = int(_number(
+            region["height"], f"capture[{index}].region.height", minimum=1
+        ))
+        if x + region_width > width or y + region_height > height:
+            raise VisualSuiteError(f"capture[{index}] pixel region {name!r} is outside the PNG")
+        region_rgb = bytearray(region_width * region_height * 3)
+        destination = 0
+        luma = 0
+        for pixel_y in range(y, y + region_height):
+            start = (pixel_y * width + x) * 3
+            row = pixels[start : start + region_width * 3]
+            region_rgb[destination : destination + len(row)] = row
+            destination += len(row)
+            for pixel in range(0, len(row), 3):
+                red, green, blue = row[pixel : pixel + 3]
+                luma += (54 * red + 183 * green + 19 * blue + 128) >> 8
+        expected_hash = hashlib.sha256(region_rgb).hexdigest()
+        if region["sha256"] != expected_hash:
+            raise VisualSuiteError(
+                f"capture[{index}] pixel region {name!r} SHA-256 disagrees with the PNG"
+            )
+        pixel_count = region_width * region_height
+        expected_luma = (luma + pixel_count // 2) // pixel_count
+        if region["mean_luma"] != expected_luma:
+            raise VisualSuiteError(
+                f"capture[{index}] pixel region {name!r} mean_luma disagrees with the PNG"
+            )
+        edge_pixels = 0
+        for pixel_y in range(region_height):
+            for pixel_x in range(region_width):
+                at = (pixel_y * region_width + pixel_x) * 3
+                red, green, blue = region_rgb[at : at + 3]
+                current_luma = (54 * red + 183 * green + 19 * blue + 128) >> 8
+                edge = False
+                if pixel_x > 0:
+                    left = region_rgb[at - 3 : at]
+                    left_luma = (54 * left[0] + 183 * left[1] + 19 * left[2] + 128) >> 8
+                    edge = abs(current_luma - left_luma) >= 24
+                if not edge and pixel_y > 0:
+                    above_at = at - region_width * 3
+                    above = region_rgb[above_at : above_at + 3]
+                    above_luma = (
+                        54 * above[0] + 183 * above[1] + 19 * above[2] + 128
+                    ) >> 8
+                    edge = abs(current_luma - above_luma) >= 24
+                edge_pixels += int(edge)
+        expected_edge_ratio = edge_pixels / pixel_count
+        edge_ratio = _number(
+            region["edge_ratio"], f"capture[{index}].region.edge_ratio"
+        )
+        if edge_ratio > 1.0 or abs(edge_ratio - expected_edge_ratio) > 1e-12:
+            raise VisualSuiteError(
+                f"capture[{index}] pixel region {name!r} edge_ratio disagrees with the PNG"
+            )
+        region_frame_pair_mae = _number(
+            region["frame_pair_mae"],
+            f"capture[{index}] pixel region {name!r} frame_pair_mae",
+        )
+        if region_frame_pair_mae > maximum_region_frame_pair_mae:
+            raise VisualSuiteError(
+                f"capture[{index}] pixel region {name!r} frame_pair_mae exceeds "
+                "the capture contract"
+            )
+        max_channel_delta = region["max_channel_delta"]
+        if isinstance(max_channel_delta, bool) or not isinstance(max_channel_delta, int):
+            raise VisualSuiteError(
+                f"capture[{index}] pixel region {name!r} max_channel_delta "
+                "must be an integer"
+            )
+        if not 0 <= max_channel_delta <= maximum_region_channel_delta:
+            raise VisualSuiteError(
+                f"capture[{index}] pixel region {name!r} max_channel_delta exceeds "
+                "the capture contract"
+            )
+        measured_region_quality[name] = (expected_luma, expected_edge_ratio)
+        measured_regions[name] = (
+            x,
+            y,
+            region_width,
+            region_height,
+            expected_hash,
+        )
+
+    if anchor_names != region_names or "viewport_center" not in region_names:
+        raise VisualSuiteError(
+            f"capture[{index}] pixel anchors must correspond one-to-one with regions "
+            "and include viewport_center"
+        )
+    if state in BOARD_STATES and not {"battlefield", "hud"}.issubset(region_names):
+        raise VisualSuiteError(
+            f"capture[{index}] board state lacks battlefield or HUD pixel evidence"
+        )
+    if state in HAND_STATES and "near_hand" not in region_names:
+        raise VisualSuiteError(f"capture[{index}] hand state lacks a near_hand pixel region")
+    if state == "field-readability" and not FIELD_READABILITY_REGIONS.issubset(region_names):
+        missing = sorted(FIELD_READABILITY_REGIONS - region_names)
+        raise VisualSuiteError(
+            f"capture[{index}] field-readability lacks pixel regions: {missing}"
+        )
+    if state == "field-readability":
+        unreadable = [
+            f"{name}(luma={measured_region_quality[name][0]},"
+            f"edge={measured_region_quality[name][1]:.4f})"
+            for name in ("cost", "attack", "health", "countdown")
+            if measured_region_quality[name][0] < 18
+            or measured_region_quality[name][1] < 0.008
+        ]
+        if unreadable:
+            raise VisualSuiteError(
+                f"capture[{index}] field badge GPU ROIs are blank: {unreadable}"
+            )
+        if enforce_structure:
+            _validate_field_badge_structure(
+                measured_regions,
+                index=index,
+                viewport_width=width,
+                viewport_height=height,
+            )
+    return measured_regions
+
+
+def _validate_field_badge_structure(
+    regions: dict[str, tuple[int, int, int, int, str]],
+    *,
+    index: int,
+    viewport_width: int,
+    viewport_height: int,
+) -> None:
+    badge_names = ("cost", "attack", "health", "countdown")
+    badges = {name: regions[name] for name in badge_names}
+    for name, (_, _, region_width, region_height, _) in badges.items():
+        minimum_width = 56 if name == "countdown" else 40
+        if region_width < minimum_width or region_height < 40:
+            raise VisualSuiteError(
+                f"capture[{index}] field badge ROI {name!r} is too small: "
+                f"{region_width}x{region_height}"
+            )
+
+    centers: dict[str, tuple[float, float]] = {}
+    for name, (x, y, region_width, region_height, _) in badges.items():
+        normalized_x = (x + region_width / 2.0) / viewport_width
+        normalized_y = (y + region_height / 2.0) / viewport_height
+        if not (0.20 <= normalized_x <= 0.80 and 0.25 <= normalized_y <= 0.75):
+            raise VisualSuiteError(
+                f"capture[{index}] field badge ROI {name!r} is outside the "
+                "reasonable central viewport range"
+            )
+        centers[name] = (normalized_x, normalized_y)
+
+    rectangles = {
+        (x, y, region_width, region_height)
+        for x, y, region_width, region_height, _ in badges.values()
+    }
+    if len(rectangles) != len(badge_names):
+        raise VisualSuiteError(
+            f"capture[{index}] field badge ROIs must use distinct rectangles"
+        )
+
+    for first_index, first_name in enumerate(badge_names):
+        first_x, first_y, first_width, first_height, _ = badges[first_name]
+        for second_name in badge_names[first_index + 1 :]:
+            second_x, second_y, second_width, second_height, _ = badges[second_name]
+            overlap_width = max(
+                0,
+                min(first_x + first_width, second_x + second_width)
+                - max(first_x, second_x),
+            )
+            overlap_height = max(
+                0,
+                min(first_y + first_height, second_y + second_height)
+                - max(first_y, second_y),
+            )
+            overlap_area = overlap_width * overlap_height
+            smaller_area = min(first_width * first_height, second_width * second_height)
+            if overlap_area / smaller_area > 0.20:
+                raise VisualSuiteError(
+                    f"capture[{index}] field badge ROIs {first_name!r} and "
+                    f"{second_name!r} overlap by more than 20%"
+                )
+
+    if not (
+        centers["cost"][1] < centers["attack"][1]
+        and centers["cost"][1] < centers["health"][1]
+    ):
+        raise VisualSuiteError(
+            f"capture[{index}] field cost badge ROI must be above attack and health"
+        )
+    if centers["attack"][0] >= centers["health"][0]:
+        raise VisualSuiteError(
+            f"capture[{index}] field attack badge ROI must be left of health"
+        )
+    if len({badge[4] for badge in badges.values()}) == 1:
+        raise VisualSuiteError(
+            f"capture[{index}] field badge ROIs reuse identical checker pixels"
+        )
+
+
+def _validate_hand_evidence(
+    evidence: object,
+    *,
+    state: str,
+    index: int,
+    viewport_height: int,
+) -> None:
+    if not isinstance(evidence, dict) or set(evidence) != EXPECTED_HAND_EVIDENCE:
+        raise VisualSuiteError(
+            f"capture[{index}].hand_evidence fields must be exactly "
+            f"{sorted(EXPECTED_HAND_EVIDENCE)}"
+        )
+    expected_counts = EXPECTED_HAND_COUNTS[state]
+    for field, expected in zip(
+        ("card_count", "hovered_count", "selected_count"),
+        expected_counts,
+    ):
+        value = evidence[field]
+        if isinstance(value, bool) or not isinstance(value, int) or value != expected:
+            raise VisualSuiteError(
+                f"capture[{index}].hand_evidence.{field} must be {expected} "
+                f"for {state}"
+            )
+    minimum_pixel_height = _number(
+        evidence["minimum_pixel_height"],
+        f"capture[{index}].hand_evidence.minimum_pixel_height",
+    )
+    required_pixel_height = 170.0 if viewport_height >= 900 else 142.0
+    if minimum_pixel_height < required_pixel_height:
+        raise VisualSuiteError(
+            f"capture[{index}] hand cards are too short: {minimum_pixel_height:.3f}px "
+            f"< {required_pixel_height:.0f}px"
+        )
+    maximum_abs_roll = _number(
+        evidence["maximum_abs_roll_degrees"],
+        f"capture[{index}].hand_evidence.maximum_abs_roll_degrees",
+    )
+    if maximum_abs_roll > 8.0:
+        raise VisualSuiteError(
+            f"capture[{index}] hand card roll exceeds 8 degrees"
+        )
+
+
 def _number(value: object, name: str, *, minimum: float = 0.0) -> float:
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise VisualSuiteError(f"{name} must be numeric")
     result = float(value)
+    if not math.isfinite(result):
+        raise VisualSuiteError(f"{name} must be finite")
     if result < minimum:
         raise VisualSuiteError(f"{name} must be >= {minimum}")
     return result
@@ -120,14 +598,49 @@ def validate(report_path: Path, *, expected_width: int | None = None,
         report = json.loads(report_path.read_text(encoding="utf-8"))
     except (OSError, UnicodeDecodeError, json.JSONDecodeError) as error:
         raise VisualSuiteError(f"cannot read visual suite manifest: {error}") from error
-    if not isinstance(report, dict) or set(report) != EXPECTED_TOP_LEVEL:
-        raise VisualSuiteError(f"report fields must be exactly {sorted(EXPECTED_TOP_LEVEL)}")
-    if (
-        report["schema_version"] != 3
-        or report["gate"] != "4B-R1"
-        or report["scenario"] != "visual-suite"
-    ):
-        raise VisualSuiteError("report must identify Gate 4B-R1 visual-suite schema 3")
+    if not isinstance(report, dict):
+        raise VisualSuiteError("report must be an object")
+    schema_version = report.get("schema_version")
+    if schema_version == 3:
+        expected_top_level = EXPECTED_TOP_LEVEL_V3
+        expected_captures = EXPECTED_CAPTURE_V3
+        expected_states = LEGACY_EXPECTED_STATES
+        expected_gate = "4B-R1"
+    elif schema_version == 4:
+        expected_top_level = EXPECTED_TOP_LEVEL_V4
+        expected_captures = EXPECTED_CAPTURE_V4
+        expected_states = EXPECTED_STATES
+        expected_gate = "4B-R2"
+    else:
+        raise VisualSuiteError("report schema_version must be historical 3 or current 4")
+    if set(report) != expected_top_level:
+        raise VisualSuiteError(
+            f"schema {schema_version} report fields must be exactly "
+            f"{sorted(expected_top_level)}"
+        )
+    if report["gate"] != expected_gate or report["scenario"] != "visual-suite":
+        raise VisualSuiteError(
+            f"schema {schema_version} report must identify Gate {expected_gate} visual-suite"
+        )
+    if schema_version == 4:
+        capture_contract = report["capture_contract"]
+        if (
+            not isinstance(capture_contract, dict)
+            or set(capture_contract) != EXPECTED_CAPTURE_CONTRACT
+            or isinstance(capture_contract.get("frame_post_draws"), bool)
+            or not isinstance(capture_contract.get("frame_post_draws"), int)
+            or capture_contract["frame_post_draws"] != 2
+            or capture_contract["pixel_space"] != "srgb8"
+            or capture_contract["maximum_frame_pair_mae"] != 0.01
+            or capture_contract["maximum_region_frame_pair_mae"] != 0.01
+            or isinstance(capture_contract.get("maximum_region_channel_delta"), bool)
+            or not isinstance(capture_contract.get("maximum_region_channel_delta"), int)
+            or capture_contract["maximum_region_channel_delta"] != 64
+        ):
+            raise VisualSuiteError(
+                "schema 4 capture_contract must strictly require two FramePostDraws "
+                "and srgb8 frame/region stability evidence"
+            )
     asset_hash = report["asset_manifest_sha256"]
     if (
         not isinstance(asset_hash, str)
@@ -163,16 +676,30 @@ def validate(report_path: Path, *, expected_width: int | None = None,
         raise VisualSuiteError("captures must be an array")
     states: set[str] = set()
     screenshot_hashes: set[str] = set()
+    hand_screenshot_hashes: dict[str, str] = {}
+    hand_region_hashes: dict[str, str] = {}
     suite_root = report_path.parent
     for index, capture in enumerate(captures):
-        if not isinstance(capture, dict) or set(capture) != EXPECTED_CAPTURE:
-            raise VisualSuiteError(
-                f"capture[{index}] fields must be exactly {sorted(EXPECTED_CAPTURE)}"
-            )
-        state = capture["state"]
-        if not isinstance(state, str) or state not in EXPECTED_STATES or state in states:
+        if not isinstance(capture, dict):
+            raise VisualSuiteError(f"capture[{index}] must be an object")
+        state = capture.get("state")
+        if not isinstance(state, str) or state not in expected_states or state in states:
             raise VisualSuiteError(f"capture[{index}] has an invalid or duplicate state: {state!r}")
+        expected_capture_fields = expected_captures
+        if schema_version == 4 and state in HAND_STATES:
+            expected_capture_fields = expected_captures | {"hand_evidence"}
+        if set(capture) != expected_capture_fields:
+            raise VisualSuiteError(
+                f"capture[{index}] fields must be exactly {sorted(expected_capture_fields)}"
+            )
         states.add(state)
+        if schema_version == 4 and state in HAND_STATES:
+            _validate_hand_evidence(
+                capture["hand_evidence"],
+                state=state,
+                index=index,
+                viewport_height=height,
+            )
         viewer = capture["viewer"]
         if viewer is not None and viewer not in (0, 1):
             raise VisualSuiteError(f"capture[{index}].viewer must be null, 0, or 1")
@@ -220,8 +747,10 @@ def validate(report_path: Path, *, expected_width: int | None = None,
             layout["battlefield_height_ratio"],
             f"capture[{index}].layout.battlefield_height_ratio",
         )
+        width_minimum = 0.92 if schema_version == 4 else 0.68
+        height_minimum = 0.78 if schema_version == 4 else 0.72
         if state in BOARD_STATES and (
-            battlefield_width < 0.68 or battlefield_height < 0.72
+            battlefield_width < width_minimum or battlefield_height < height_minimum
         ):
             raise VisualSuiteError(
                 f"capture[{index}] battlefield coverage is too small: "
@@ -237,7 +766,11 @@ def validate(report_path: Path, *, expected_width: int | None = None,
             raise VisualSuiteError(f"capture[{index}] escapes the suite directory") from error
         if not path.is_file():
             raise VisualSuiteError(f"capture[{index}] is missing: {relative}")
-        png_width, png_height = _png_dimensions(path)
+        if schema_version == 4:
+            png_width, png_height, pixels = _read_png_rgb(path)
+        else:
+            png_width, png_height = _png_dimensions(path)
+            pixels = b""
         if (capture["width"], capture["height"]) != (png_width, png_height):
             raise VisualSuiteError(f"capture[{index}] PNG dimensions disagree with metadata")
         if (png_width, png_height) != (width, height):
@@ -245,16 +778,56 @@ def validate(report_path: Path, *, expected_width: int | None = None,
         actual_hash = hashlib.sha256(path.read_bytes()).hexdigest()
         if capture["sha256"] != actual_hash:
             raise VisualSuiteError(f"capture[{index}] SHA-256 mismatch")
+        if schema_version == 4:
+            if capture["stable_frame_post_draws"] != 2:
+                raise VisualSuiteError(
+                    f"capture[{index}] must follow two consecutive stable FramePostDraws"
+                )
+            frame_pair_mae = _number(
+                capture["frame_pair_mae"], f"capture[{index}].frame_pair_mae"
+            )
+            if frame_pair_mae > report["capture_contract"]["maximum_frame_pair_mae"]:
+                raise VisualSuiteError(
+                    f"capture[{index}] consecutive FramePostDraws are not stable"
+                )
+            measured_regions = _validate_pixel_evidence(
+                capture["pixel_evidence"],
+                state=state,
+                index=index,
+                width=width,
+                height=height,
+                pixels=pixels,
+                maximum_region_frame_pair_mae=report["capture_contract"][
+                    "maximum_region_frame_pair_mae"
+                ],
+                maximum_region_channel_delta=report["capture_contract"][
+                    "maximum_region_channel_delta"
+                ],
+                enforce_structure=enforce_structure,
+            )
+            if state in HAND_STATES:
+                hand_screenshot_hashes[state] = actual_hash
+                hand_region_hashes[state] = measured_regions["near_hand"][4]
         screenshot_hashes.add(actual_hash)
         if enforce_structure and path.stat().st_size < 16 * 1024:
             raise VisualSuiteError(
                 f"capture[{index}] is implausibly sparse/blank ({path.stat().st_size} bytes)"
             )
 
-    missing = EXPECTED_STATES - states
+    missing = expected_states - states
     if missing:
         raise VisualSuiteError(f"visual suite is missing states: {sorted(missing)}")
-    if enforce_structure and len(screenshot_hashes) < 8:
+    if schema_version == 4:
+        if len(set(hand_screenshot_hashes.values())) != len(HAND_STATES):
+            raise VisualSuiteError(
+                "the four hand captures must use distinct PNG SHA-256 values"
+            )
+        if len(set(hand_region_hashes.values())) != len(HAND_STATES):
+            raise VisualSuiteError(
+                "the four hand captures must use distinct near_hand ROI SHA-256 values"
+            )
+    minimum_distinct = 12 if schema_version == 4 else 8
+    if enforce_structure and len(screenshot_hashes) < minimum_distinct:
         raise VisualSuiteError(
             "visual suite did not render enough structurally distinct UI states"
         )

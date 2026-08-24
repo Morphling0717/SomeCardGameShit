@@ -2,6 +2,7 @@
 using Godot;
 using Scgs.Client;
 using Scgs.GodotClient.Battlefield;
+using Scgs.GodotClient.Match;
 using Scgs.GodotClient.Visuals;
 using System.Diagnostics;
 using System.Security.Cryptography;
@@ -18,6 +19,11 @@ namespace Scgs.GodotClient.Ci;
 /// </summary>
 internal sealed class Gate4BVisualSuite
 {
+    private const double MaximumFramePairMae = 0.01;
+    private const double MaximumRegionFramePairMae = 0.01;
+    private const int MaximumRegionChannelDelta = 64;
+    private const int MaximumStableFramePairAttempts = 30;
+
     private const string AssetManifestPath =
         "res://assets/visual/ASSET_MANIFEST.json";
 
@@ -34,6 +40,24 @@ internal sealed class Gate4BVisualSuite
         "resolving",
         "result",
         "error",
+        "hand-one",
+        "hand-five",
+        "hand-ten",
+        "hand-hover",
+        "field-readability",
+    ];
+
+    private static readonly string[] FieldReadabilityRegions =
+    [
+        "near_hand",
+        "cost",
+        "attack",
+        "health",
+        "countdown",
+        "battlefield",
+        "own_leader",
+        "opponent_leader",
+        "hud",
     ];
 
     private static readonly string[] SoftwareAdapterNameMarkers =
@@ -203,24 +227,93 @@ internal sealed class Gate4BVisualSuite
             return;
         }
 
-        await root.ToSignal(root.GetTree(), SceneTree.SignalName.ProcessFrame);
-        await root.ToSignal(
-            RenderingServer.Singleton,
-            RenderingServer.SignalName.FramePostDraw);
+        // A capture is eligible only after two consecutive fully drawn frames
+        // satisfy both the whole-frame and semantic-region stability contracts.
+        // State transitions can legitimately begin a short UI tween, so keep
+        // sampling adjacent FramePostDraws instead of recording a transition
+        // frame or weakening the evidence thresholds.
+        Image firstFrame = await ReadCompletedFrameAsync();
+        Image? image = null;
+        Gate4BPixelEvidence? pixelEvidence = null;
+        double framePairMae = double.PositiveInfinity;
+        try
+        {
+            for (int attempt = 0; attempt < MaximumStableFramePairAttempts; attempt++)
+            {
+                image = await ReadCompletedFrameAsync();
+                int candidateWidth = image.GetWidth();
+                int candidateHeight = image.GetHeight();
+                if (candidateWidth <= 0 || candidateHeight <= 0 ||
+                    firstFrame.GetWidth() != candidateWidth ||
+                    firstFrame.GetHeight() != candidateHeight)
+                {
+                    throw new InvalidOperationException(
+                        $"Gate 4B visual capture {state} produced an empty or unstable viewport.");
+                }
 
-        Image image = root.GetViewport().GetTexture().GetImage();
+                framePairMae = MeasureFramePairMae(firstFrame, image);
+                pixelEvidence = MeasurePixelEvidence(
+                    state,
+                    viewer,
+                    firstFrame,
+                    image,
+                    enforceStability: false);
+                bool regionsStable = pixelEvidence.Regions.All(region =>
+                    region.FramePairMae <= MaximumRegionFramePairMae &&
+                    region.MaxChannelDelta <= MaximumRegionChannelDelta);
+                if (framePairMae <= MaximumFramePairMae && regionsStable)
+                {
+                    break;
+                }
+
+                firstFrame.Dispose();
+                firstFrame = image;
+                image = null;
+                pixelEvidence = null;
+            }
+
+            if (image is null || pixelEvidence is null ||
+                framePairMae > MaximumFramePairMae ||
+                pixelEvidence.Regions.Any(region =>
+                    region.FramePairMae > MaximumRegionFramePairMae ||
+                    region.MaxChannelDelta > MaximumRegionChannelDelta))
+            {
+                throw new InvalidOperationException(
+                    $"Gate 4B visual capture {state} did not produce two stable consecutive " +
+                    $"FramePostDraws within {MaximumStableFramePairAttempts} attempts.");
+            }
+
+            SaveCapture(
+                state,
+                viewer,
+                revision,
+                image,
+                pixelEvidence,
+                framePairMae);
+        }
+        finally
+        {
+            image?.Dispose();
+            firstFrame.Dispose();
+        }
+    }
+
+    private void SaveCapture(
+        string state,
+        PlayerId? viewer,
+        ulong? revision,
+        Image image,
+        Gate4BPixelEvidence pixelEvidence,
+        double framePairMae)
+    {
         int width = image.GetWidth();
         int height = image.GetHeight();
-        if (width <= 0 || height <= 0)
-        {
-            throw new InvalidOperationException(
-                $"Gate 4B visual capture {state} produced an empty viewport.");
-        }
         if (state == "resolving" && ContainsGpuPrivacySentinel(image))
         {
             throw new InvalidOperationException(
                 "The resolving screenshot contains the private GPU sentinel (#ff00ff).");
         }
+        Gate4BHandEvidence? handEvidence = MeasureHandEvidence(state);
         string safeState = string.Concat(state.Select(character =>
             char.IsAsciiLetterOrDigit(character) || character == '-'
                 ? character
@@ -245,11 +338,51 @@ internal sealed class Gate4BVisualSuite
             File = filename,
             Sha256 = screenshotHash,
             AssetManifestSha256 = assetManifestSha256,
+            StableFramePostDraws = 2,
+            FramePairMae = framePairMae,
+            HandEvidence = handEvidence,
+            PixelEvidence = pixelEvidence,
             Layout = MeasureLayout(state, width, height),
         });
         GD.Print(
             $"SCGS_GODOT_CI_VISUAL_CAPTURE_OK state={state} viewer={viewer?.ToString() ?? "none"} " +
             $"revision={revision?.ToString() ?? "none"} size={width}x{height} path={path}");
+    }
+
+    private async Task<Image> ReadCompletedFrameAsync()
+    {
+        await root.ToSignal(root.GetTree(), SceneTree.SignalName.ProcessFrame);
+        await root.ToSignal(
+            RenderingServer.Singleton,
+            RenderingServer.SignalName.FramePostDraw);
+        return root.GetViewport().GetTexture().GetImage();
+    }
+
+    private static double MeasureFramePairMae(Image first, Image second)
+    {
+        if (first.GetFormat() != Image.Format.Rgba8)
+        {
+            first.Convert(Image.Format.Rgba8);
+        }
+        if (second.GetFormat() != Image.Format.Rgba8)
+        {
+            second.Convert(Image.Format.Rgba8);
+        }
+        byte[] left = first.GetData();
+        byte[] right = second.GetData();
+        if (left.Length != right.Length || left.Length % 4 != 0)
+        {
+            return double.PositiveInfinity;
+        }
+        long difference = 0;
+        for (int index = 0; index < left.Length; index += 4)
+        {
+            difference += Math.Abs(left[index] - right[index]);
+            difference += Math.Abs(left[index + 1] - right[index + 1]);
+            difference += Math.Abs(left[index + 2] - right[index + 2]);
+        }
+        long channels = checked((long)(left.Length / 4) * 3);
+        return difference / (channels * 255.0);
     }
 
     internal async Task RunPerformanceSmokeAsync()
@@ -354,6 +487,7 @@ internal sealed class Gate4BVisualSuite
         var report = new Gate4BVisualSuiteReport
         {
             AssetManifestSha256 = assetManifestSha256,
+            CaptureContract = new Gate4BCaptureContract(),
             Viewport = new Gate4BViewportSize
             {
                 Width = firstCapture.Width,
@@ -467,6 +601,474 @@ internal sealed class Gate4BVisualSuite
         return false;
     }
 
+    private Gate4BHandEvidence? MeasureHandEvidence(string state)
+    {
+        (int CardCount, int HoveredCount, int SelectedCount)? expected = state switch
+        {
+            "hand-one" => (1, 0, 0),
+            "hand-five" => (5, 0, 0),
+            "hand-ten" => (10, 0, 0),
+            "hand-hover" => (5, 1, 0),
+            _ => null,
+        };
+        if (!expected.HasValue)
+        {
+            return null;
+        }
+
+        Battlefield3DPresenter? battlefield = root.FindChild(
+            "Battlefield3D",
+            recursive: true,
+            owned: false) as Battlefield3DPresenter;
+        if (battlefield?.IsVisibleInTree() != true)
+        {
+            throw new InvalidOperationException(
+                $"The {state} frame did not expose the real 3D hand presenter.");
+        }
+
+        HandCardPose[] poses = battlefield.CiNearHandPoses.ToArray();
+        if (poses.Length == 0 || poses.Any(pose =>
+                !float.IsFinite(pose.PixelHeight) || pose.PixelHeight <= 0.0f ||
+                !float.IsFinite(pose.RollDegrees)))
+        {
+            throw new InvalidOperationException(
+                $"The {state} frame produced missing or invalid near-hand poses.");
+        }
+        var evidence = new Gate4BHandEvidence
+        {
+            CardCount = poses.Length,
+            HoveredCount = poses.Count(pose => pose.Hovered),
+            SelectedCount = poses.Count(pose => pose.Selected),
+            MinimumPixelHeight = poses.Min(pose => pose.PixelHeight),
+            MaximumAbsRollDegrees = poses.Max(pose => MathF.Abs(pose.RollDegrees)),
+        };
+        if (evidence.CardCount != expected.Value.CardCount ||
+            evidence.HoveredCount != expected.Value.HoveredCount ||
+            evidence.SelectedCount != expected.Value.SelectedCount)
+        {
+            throw new InvalidOperationException(
+                $"The {state} real hand poses disagree with the fixture contract: " +
+                $"cards={evidence.CardCount}, hovered={evidence.HoveredCount}, " +
+                $"selected={evidence.SelectedCount}.");
+        }
+        return evidence;
+    }
+
+    private Gate4BPixelEvidence MeasurePixelEvidence(
+        string state,
+        PlayerId? viewer,
+        Image firstFrame,
+        Image image,
+        bool enforceStability = true)
+    {
+        if (firstFrame.GetFormat() != Image.Format.Rgba8)
+        {
+            firstFrame.Convert(Image.Format.Rgba8);
+        }
+        if (image.GetFormat() != Image.Format.Rgba8)
+        {
+            image.Convert(Image.Format.Rgba8);
+        }
+
+        int width = image.GetWidth();
+        int height = image.GetHeight();
+        Transform2D stretchTransform = root.GetViewport().GetStretchTransform();
+        var viewportRect = new Rect2(Vector2.Zero, new Vector2(width, height));
+        var regions = new Dictionary<string, Rect2>(StringComparer.Ordinal)
+        {
+            ["viewport_center"] = new Rect2(
+                width * 0.42f,
+                height * 0.42f,
+                width * 0.16f,
+                height * 0.16f),
+        };
+
+        Battlefield3DPresenter? battlefield = root.FindChild(
+            "Battlefield3D",
+            recursive: true,
+            owned: false) as Battlefield3DPresenter;
+        if (battlefield?.IsVisibleInTree() == true)
+        {
+            TryAddRegion(
+                regions,
+                "battlefield",
+                TransformRect(stretchTransform, battlefield.CiProjectedBoardRect),
+                viewportRect);
+            TryAddRegion(
+                regions,
+                "near_hand",
+                TransformRect(stretchTransform, battlefield.CiOwnHandScreenRect),
+                viewportRect);
+        }
+
+        string[] hudNames =
+        [
+            "OwnStatusPod",
+            "OpponentStatusPod",
+            "PhaseCapsule",
+            "EndTurnButton",
+        ];
+        Rect2? hudRect = null;
+        foreach (Control control in FindNodes<Control>(root).Where(control =>
+                     control.IsVisibleInTree() &&
+                     hudNames.Contains(control.Name.ToString(), StringComparer.Ordinal)))
+        {
+            Rect2 screenRect = GetScreenRect(control, stretchTransform);
+            hudRect = hudRect.HasValue ? hudRect.Value.Merge(screenRect) : screenRect;
+        }
+        if (hudRect.HasValue)
+        {
+            TryAddRegion(regions, "hud", hudRect.Value, viewportRect);
+        }
+
+        BattlefieldCameraRig? camera = FindNodes<BattlefieldCameraRig>(root)
+            .FirstOrDefault(item => item.IsVisibleInTree());
+        if (battlefield is not null && camera is not null && viewer.HasValue)
+        {
+            PlayerId opponent = viewer.Value == PlayerId.Player0
+                ? PlayerId.Player1
+                : PlayerId.Player0;
+            TryAddNamedControlRegion("own_leader", "OwnLeaderPortrait");
+            TryAddNamedControlRegion("opponent_leader", "OpponentLeaderPortrait");
+            TryAddNamedControlRegion("own_leader", "OwnStatusPod");
+            TryAddNamedControlRegion("opponent_leader", "OpponentStatusPod");
+            if (hudRect.HasValue)
+            {
+                Rect2 statusBounds = hudRect.Value;
+                var opponentStatus = new Rect2(
+                    statusBounds.Position,
+                    new Vector2(statusBounds.Size.X, statusBounds.Size.Y / 2.0f));
+                var ownStatus = new Rect2(
+                    new Vector2(statusBounds.Position.X, statusBounds.Position.Y +
+                        statusBounds.Size.Y / 2.0f),
+                    new Vector2(statusBounds.Size.X, statusBounds.Size.Y / 2.0f));
+                if (!regions.ContainsKey("opponent_leader"))
+                {
+                    TryAddRegion(regions, "opponent_leader", opponentStatus, viewportRect);
+                }
+                if (!regions.ContainsKey("own_leader"))
+                {
+                    TryAddRegion(regions, "own_leader", ownStatus, viewportRect);
+                }
+            }
+            TryAddSurfaceRegion("own_leader", viewer.Value);
+            TryAddSurfaceRegion("opponent_leader", opponent);
+
+            AddBadgeRegion("cost", "CostBadge", 52.0f, 52.0f);
+            AddBadgeRegion("attack", "AttackBadge", 52.0f, 52.0f);
+            AddBadgeRegion("health", "HealthBadge", 52.0f, 52.0f);
+            AddBadgeRegion("countdown", "CountdownBadge", 76.0f, 52.0f);
+        }
+
+        if (state == "field-readability")
+        {
+            string[] missing = FieldReadabilityRegions
+                .Where(name => !regions.ContainsKey(name))
+                .ToArray();
+            if (missing.Length != 0)
+            {
+                throw new InvalidOperationException(
+                    "The field-readability frame is missing real pixel regions: " +
+                    string.Join(", ", missing));
+            }
+        }
+        if ((state is "hand-one" or "hand-five" or "hand-ten" or "hand-hover") &&
+            !regions.ContainsKey("near_hand"))
+        {
+            throw new InvalidOperationException(
+                $"The {state} frame did not expose a real near-hand pixel region.");
+        }
+
+        byte[] firstRgba = firstFrame.GetData();
+        byte[] rgba = image.GetData();
+        if (firstRgba.Length != rgba.Length)
+        {
+            throw new InvalidOperationException(
+                $"The {state} frame pair does not share an RGBA8 pixel extent.");
+        }
+        var measuredRegionList = new List<Gate4BPixelRegion>(regions.Count);
+        foreach (KeyValuePair<string, Rect2> pair in
+                 regions.OrderBy(pair => pair.Key, StringComparer.Ordinal))
+        {
+            Gate4BPixelRegion measured = MeasurePixelRegion(
+                pair.Key,
+                pair.Value,
+                width,
+                height,
+                firstRgba,
+                rgba);
+            if (enforceStability &&
+                (measured.FramePairMae > MaximumRegionFramePairMae ||
+                 measured.MaxChannelDelta > MaximumRegionChannelDelta))
+            {
+                throw new InvalidOperationException(
+                    $"Gate 4B visual capture {state} region {measured.Name} changed " +
+                    $"between consecutive FramePostDraws " +
+                    $"(MAE {measured.FramePairMae:F6}, " +
+                    $"max channel delta {measured.MaxChannelDelta}).");
+            }
+            measuredRegionList.Add(measured);
+        }
+        Gate4BPixelRegion[] measuredRegions = measuredRegionList.ToArray();
+        if (state == "field-readability")
+        {
+            string[] unreadable = measuredRegions
+                .Where(region => region.Name is "cost" or "attack" or "health" or "countdown")
+                .Where(region => region.MeanLuma < 18 || region.EdgeRatio < 0.008)
+                .Select(region =>
+                    $"{region.Name}(luma={region.MeanLuma},edge={region.EdgeRatio:F4})")
+                .ToArray();
+            if (unreadable.Length != 0)
+            {
+                throw new InvalidOperationException(
+                    "The field badge GPU ROIs are blank or lack glyph edges: " +
+                    string.Join(", ", unreadable));
+            }
+        }
+        Gate4BPixelAnchor[] anchors = measuredRegions.Select(region =>
+        {
+            int x = region.X + region.Width / 2;
+            int y = region.Y + region.Height / 2;
+            int offset = (y * width + x) * 4;
+            return new Gate4BPixelAnchor
+            {
+                Name = region.Name,
+                X = x,
+                Y = y,
+                Red = rgba[offset],
+                Green = rgba[offset + 1],
+                Blue = rgba[offset + 2],
+            };
+        }).ToArray();
+        return new Gate4BPixelEvidence
+        {
+            Anchors = anchors,
+            Regions = measuredRegions,
+        };
+
+        void TryAddSurfaceRegion(string name, PlayerId player)
+        {
+            if (regions.ContainsKey(name))
+            {
+                return;
+            }
+            var surface = new BattlefieldSurfaceRef(BattlefieldSurfaceKind.Leader, player);
+            if (!battlefield.CiTryGetScreenAnchor(surface, out Vector2 logicalAnchor))
+            {
+                return;
+            }
+            Vector2 screenAnchor = stretchTransform * logicalAnchor;
+            TryAddRegion(
+                regions,
+                name,
+                new Rect2(screenAnchor - new Vector2(42.0f, 42.0f), new Vector2(84.0f, 84.0f)),
+                viewportRect);
+        }
+
+        void TryAddNamedControlRegion(string name, string controlName)
+        {
+            if (regions.ContainsKey(name))
+            {
+                return;
+            }
+            Control? control = FindNodes<Control>(root).FirstOrDefault(item =>
+                item.IsVisibleInTree() &&
+                string.Equals(
+                    item.Name.ToString(),
+                    controlName,
+                    StringComparison.Ordinal));
+            if (control is not null)
+            {
+                TryAddRegion(
+                    regions,
+                    name,
+                    GetScreenRect(control, stretchTransform),
+                    viewportRect);
+            }
+        }
+
+        void AddBadgeRegion(string name, string nodeName, float regionWidth, float regionHeight)
+        {
+            CardActor3D? actor = FindNodes<CardActor3D>(root)
+                .Where(actor => actor.IsVisibleInTree() &&
+                                actor.CardPresentation?.KnownIdentity == true &&
+                                (state != "field-readability" ||
+                                 actor.CiLayout == BattlefieldCardLayout.Field))
+                .FirstOrDefault(candidate =>
+                    candidate.FindChild(nodeName, recursive: false, owned: false) is Label3D
+                    {
+                        Visible: true,
+                    });
+            if (actor is null)
+            {
+                return;
+            }
+
+            CardGpuReadabilityEvidence gpu = actor.CiGpuReadabilityEvidence(camera);
+            CardBadgeGpuEvidence badge = nodeName switch
+            {
+                "CostBadge" => gpu.CostBadge,
+                "AttackBadge" => gpu.AttackBadge,
+                "HealthBadge" => gpu.HealthBadge,
+                "CountdownBadge" => gpu.CountdownBadge,
+                _ => throw new ArgumentOutOfRangeException(
+                    nameof(nodeName),
+                    nodeName,
+                    "Unsupported readability badge."),
+            };
+            Rect2 screenLabel = TransformRect(stretchTransform, badge.ScreenRect);
+            if (state == "field-readability" &&
+                (!gpu.Local.MatchesExpectedComposition ||
+                 !badge.Local.IsReadable(gpu.Local.MinimumDepthClearance) ||
+                 screenLabel.Size.Y < 16.0f))
+            {
+                throw new InvalidOperationException(
+                    $"The real field {name} label is not GPU-readable: " +
+                    $"screen={screenLabel.Size.X:F1}x{screenLabel.Size.Y:F1}, " +
+                    $"clearance={badge.Local.DepthClearance:F4}.");
+            }
+            Vector2 minimumSize = new(regionWidth, regionHeight);
+            Rect2 evidenceRect = screenLabel.Grow(8.0f);
+            Vector2 center = evidenceRect.GetCenter();
+            evidenceRect = new Rect2(
+                center - new Vector2(
+                    MathF.Max(evidenceRect.Size.X, minimumSize.X),
+                    MathF.Max(evidenceRect.Size.Y, minimumSize.Y)) / 2.0f,
+                new Vector2(
+                    MathF.Max(evidenceRect.Size.X, minimumSize.X),
+                    MathF.Max(evidenceRect.Size.Y, minimumSize.Y)));
+            TryAddRegion(
+                regions,
+                name,
+                evidenceRect,
+                viewportRect);
+        }
+    }
+
+    private static Gate4BPixelRegion MeasurePixelRegion(
+        string name,
+        Rect2 rect,
+        int imageWidth,
+        int imageHeight,
+        byte[] firstRgba,
+        byte[] rgba)
+    {
+        int x = Math.Clamp(Mathf.FloorToInt(rect.Position.X), 0, imageWidth - 1);
+        int y = Math.Clamp(Mathf.FloorToInt(rect.Position.Y), 0, imageHeight - 1);
+        int endX = Math.Clamp(Mathf.CeilToInt(rect.End.X), x + 1, imageWidth);
+        int endY = Math.Clamp(Mathf.CeilToInt(rect.End.Y), y + 1, imageHeight);
+        int regionWidth = endX - x;
+        int regionHeight = endY - y;
+        var rgb = new byte[checked(regionWidth * regionHeight * 3)];
+        int destination = 0;
+        long luma = 0;
+        long frameDifference = 0;
+        int maxChannelDelta = 0;
+        for (int pixelY = y; pixelY < endY; pixelY++)
+        {
+            for (int pixelX = x; pixelX < endX; pixelX++)
+            {
+                int source = (pixelY * imageWidth + pixelX) * 4;
+                byte red = rgba[source];
+                byte green = rgba[source + 1];
+                byte blue = rgba[source + 2];
+                rgb[destination++] = red;
+                rgb[destination++] = green;
+                rgb[destination++] = blue;
+                luma += (54 * red + 183 * green + 19 * blue + 128) >> 8;
+                int redDelta = Math.Abs(firstRgba[source] - red);
+                int greenDelta = Math.Abs(firstRgba[source + 1] - green);
+                int blueDelta = Math.Abs(firstRgba[source + 2] - blue);
+                frameDifference += redDelta + greenDelta + blueDelta;
+                maxChannelDelta = Math.Max(
+                    maxChannelDelta,
+                    Math.Max(redDelta, Math.Max(greenDelta, blueDelta)));
+            }
+        }
+        int pixelCount = checked(regionWidth * regionHeight);
+        int edgePixels = 0;
+        for (int pixelY = 0; pixelY < regionHeight; pixelY++)
+        {
+            for (int pixelX = 0; pixelX < regionWidth; pixelX++)
+            {
+                int pixel = (pixelY * regionWidth + pixelX) * 3;
+                int currentLuma = PixelLuma(rgb, pixel);
+                bool edge = pixelX > 0 &&
+                            Math.Abs(currentLuma - PixelLuma(rgb, pixel - 3)) >= 24;
+                edge |= pixelY > 0 &&
+                        Math.Abs(currentLuma - PixelLuma(
+                            rgb,
+                            pixel - regionWidth * 3)) >= 24;
+                if (edge)
+                {
+                    edgePixels++;
+                }
+            }
+        }
+        return new Gate4BPixelRegion
+        {
+            Name = name,
+            X = x,
+            Y = y,
+            Width = regionWidth,
+            Height = regionHeight,
+            Sha256 = Convert.ToHexString(SHA256.HashData(rgb)).ToLowerInvariant(),
+            MeanLuma = checked((int)((luma + pixelCount / 2) / pixelCount)),
+            EdgeRatio = edgePixels / (double)pixelCount,
+            FramePairMae = frameDifference / (pixelCount * 3.0 * 255.0),
+            MaxChannelDelta = maxChannelDelta,
+        };
+
+        static int PixelLuma(byte[] pixels, int offset) =>
+            (54 * pixels[offset] + 183 * pixels[offset + 1] +
+             19 * pixels[offset + 2] + 128) >> 8;
+    }
+
+    private static void TryAddRegion(
+        IDictionary<string, Rect2> regions,
+        string name,
+        Rect2 rect,
+        Rect2 viewport)
+    {
+        Rect2 visible = rect.Intersection(viewport);
+        if (visible.Size.X >= 2.0f && visible.Size.Y >= 2.0f)
+        {
+            const float maximumRegionWidth = 640.0f;
+            const float maximumRegionHeight = 360.0f;
+            if (visible.Size.X > maximumRegionWidth)
+            {
+                visible.Position += new Vector2(
+                    (visible.Size.X - maximumRegionWidth) / 2.0f,
+                    0.0f);
+                visible.Size = new Vector2(maximumRegionWidth, visible.Size.Y);
+            }
+            if (visible.Size.Y > maximumRegionHeight)
+            {
+                visible.Position += new Vector2(
+                    0.0f,
+                    (visible.Size.Y - maximumRegionHeight) / 2.0f);
+                visible.Size = new Vector2(visible.Size.X, maximumRegionHeight);
+            }
+            regions[name] = visible;
+        }
+    }
+
+    private static IEnumerable<T> FindNodes<T>(Node node)
+        where T : Node
+    {
+        if (node is T match)
+        {
+            yield return match;
+        }
+        foreach (Node child in node.GetChildren())
+        {
+            foreach (T descendant in FindNodes<T>(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
+
     private Gate4BLayoutEvidence MeasureLayout(string state, int width, int height)
     {
         var controls = new List<Control>();
@@ -561,7 +1163,39 @@ internal sealed class Gate4BVisualSuite
                     battlefield.CiOwnHandScreenRect));
             overlapFree &= handIntersection.Size.X * handIntersection.Size.Y <= 16.0f;
         }
-        Rect2 visibleProjectedBoard = projectedBoard.Intersection(viewportRect);
+        if (state is "source-selection" or "slot-or-target-selection")
+        {
+            MatchScreen? match = FindNodes<MatchScreen>(root)
+                .FirstOrDefault(candidate => candidate.IsVisibleInTree());
+            overlapFree &= match?.CiDirectPanelAvoidsCurrentSource == true;
+        }
+        float detailWidth = width switch
+        {
+            < 1440 => 240.0f,
+            < 2200 => 288.0f,
+            _ => 320.0f,
+        };
+        float statusWidth = width switch
+        {
+            < 1440 => 196.0f,
+            < 2200 => 240.0f,
+            _ => 264.0f,
+        };
+        float edgeInset = width switch
+        {
+            < 1440 => 12.0f,
+            < 2200 => 16.0f,
+            _ => 20.0f,
+        };
+        const float compactGap = 12.0f;
+        var safeBattlefieldRect = new Rect2(
+            edgeInset + detailWidth + compactGap,
+            edgeInset,
+            Math.Max(
+                1.0f,
+                width - detailWidth - statusWidth - 2.0f * (edgeInset + compactGap)),
+            Math.Max(1.0f, height - 2.0f * edgeInset));
+        Rect2 visibleProjectedBoard = projectedBoard.Intersection(safeBattlefieldRect);
         return new Gate4BLayoutEvidence
         {
             ControlsInsideViewport = controlsInsideViewport,
@@ -570,11 +1204,11 @@ internal sealed class Gate4BVisualSuite
             GlassSurfaceCount = glassSurfaces,
             VisibleDebugLabelCount = visibleDebugLabels,
             BattlefieldWidthRatio = Math.Clamp(
-                visibleProjectedBoard.Size.X / width,
+                visibleProjectedBoard.Size.X / safeBattlefieldRect.Size.X,
                 0.0f,
                 1.0f),
             BattlefieldHeightRatio = Math.Clamp(
-                visibleProjectedBoard.Size.Y / height,
+                visibleProjectedBoard.Size.Y / safeBattlefieldRect.Size.Y,
                 0.0f,
                 1.0f),
         };
@@ -665,16 +1299,19 @@ internal sealed class Gate4BVisualSuite
 internal sealed record Gate4BVisualSuiteReport
 {
     [JsonPropertyName("schema_version")]
-    public int SchemaVersion { get; init; } = 3;
+    public int SchemaVersion { get; init; } = 4;
 
     [JsonPropertyName("gate")]
-    public string Gate { get; init; } = "4B-R1";
+    public string Gate { get; init; } = "4B-R2";
 
     [JsonPropertyName("scenario")]
     public string Scenario { get; init; } = "visual-suite";
 
     [JsonPropertyName("asset_manifest_sha256")]
     public required string AssetManifestSha256 { get; init; }
+
+    [JsonPropertyName("capture_contract")]
+    public required Gate4BCaptureContract CaptureContract { get; init; }
 
     [JsonPropertyName("viewport")]
     public required Gate4BViewportSize Viewport { get; init; }
@@ -684,6 +1321,24 @@ internal sealed record Gate4BVisualSuiteReport
 
     [JsonPropertyName("performance")]
     public required Gate4BPerformanceEvidence Performance { get; init; }
+}
+
+internal sealed record Gate4BCaptureContract
+{
+    [JsonPropertyName("frame_post_draws")]
+    public int FramePostDraws { get; init; } = 2;
+
+    [JsonPropertyName("pixel_space")]
+    public string PixelSpace { get; init; } = "srgb8";
+
+    [JsonPropertyName("maximum_frame_pair_mae")]
+    public double MaximumFramePairMae { get; init; } = 0.01;
+
+    [JsonPropertyName("maximum_region_frame_pair_mae")]
+    public double MaximumRegionFramePairMae { get; init; } = 0.01;
+
+    [JsonPropertyName("maximum_region_channel_delta")]
+    public int MaximumRegionChannelDelta { get; init; } = 64;
 }
 
 internal sealed record Gate4BViewportSize
@@ -721,8 +1376,102 @@ internal sealed record Gate4BVisualCapture
     [JsonPropertyName("asset_manifest_sha256")]
     public required string AssetManifestSha256 { get; init; }
 
+    [JsonPropertyName("stable_frame_post_draws")]
+    public required int StableFramePostDraws { get; init; }
+
+    [JsonPropertyName("frame_pair_mae")]
+    public required double FramePairMae { get; init; }
+
+    [JsonPropertyName("hand_evidence")]
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public Gate4BHandEvidence? HandEvidence { get; init; }
+
+    [JsonPropertyName("pixel_evidence")]
+    public required Gate4BPixelEvidence PixelEvidence { get; init; }
+
     [JsonPropertyName("layout")]
     public required Gate4BLayoutEvidence Layout { get; init; }
+}
+
+internal sealed record Gate4BHandEvidence
+{
+    [JsonPropertyName("card_count")]
+    public required int CardCount { get; init; }
+
+    [JsonPropertyName("hovered_count")]
+    public required int HoveredCount { get; init; }
+
+    [JsonPropertyName("selected_count")]
+    public required int SelectedCount { get; init; }
+
+    [JsonPropertyName("minimum_pixel_height")]
+    public required double MinimumPixelHeight { get; init; }
+
+    [JsonPropertyName("maximum_abs_roll_degrees")]
+    public required double MaximumAbsRollDegrees { get; init; }
+}
+
+internal sealed record Gate4BPixelEvidence
+{
+    [JsonPropertyName("anchors")]
+    public required IReadOnlyList<Gate4BPixelAnchor> Anchors { get; init; }
+
+    [JsonPropertyName("regions")]
+    public required IReadOnlyList<Gate4BPixelRegion> Regions { get; init; }
+}
+
+internal sealed record Gate4BPixelAnchor
+{
+    [JsonPropertyName("name")]
+    public required string Name { get; init; }
+
+    [JsonPropertyName("x")]
+    public required int X { get; init; }
+
+    [JsonPropertyName("y")]
+    public required int Y { get; init; }
+
+    [JsonPropertyName("r")]
+    public required int Red { get; init; }
+
+    [JsonPropertyName("g")]
+    public required int Green { get; init; }
+
+    [JsonPropertyName("b")]
+    public required int Blue { get; init; }
+}
+
+internal sealed record Gate4BPixelRegion
+{
+    [JsonPropertyName("name")]
+    public required string Name { get; init; }
+
+    [JsonPropertyName("x")]
+    public required int X { get; init; }
+
+    [JsonPropertyName("y")]
+    public required int Y { get; init; }
+
+    [JsonPropertyName("width")]
+    public required int Width { get; init; }
+
+    [JsonPropertyName("height")]
+    public required int Height { get; init; }
+
+    [JsonPropertyName("sha256")]
+    public required string Sha256 { get; init; }
+
+    [JsonPropertyName("mean_luma")]
+    public required int MeanLuma { get; init; }
+
+    [JsonPropertyName("edge_ratio")]
+    public required double EdgeRatio { get; init; }
+
+    [JsonPropertyName("frame_pair_mae")]
+    public required double FramePairMae { get; init; }
+
+    [JsonPropertyName("max_channel_delta")]
+    public required int MaxChannelDelta { get; init; }
 }
 
 internal sealed record Gate4BLayoutEvidence

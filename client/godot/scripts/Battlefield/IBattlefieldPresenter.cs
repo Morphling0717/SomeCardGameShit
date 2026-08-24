@@ -40,12 +40,15 @@ public interface IBattlefieldPresenter
 
     void SetInputEnabled(bool enabled);
 
+    void SetViewportLayout(BattlefieldViewportLayout layout);
+
+    /// <summary>Compatibility wrapper for callers which only reserve side lanes.</summary>
     void SetViewportInsets(float leftPixels, float rightPixels);
 
     void SetViewportObstructions(
         Control? leftControl,
         Control? rightControl,
-        float paddingPixels = 16.0f);
+        float paddingPixels = 12.0f);
 
     void SetGuiBlocker(Func<Vector2, bool>? guiBlocksPointer);
 

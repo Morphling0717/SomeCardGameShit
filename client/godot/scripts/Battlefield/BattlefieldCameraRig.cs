@@ -12,15 +12,16 @@ public sealed partial class BattlefieldCameraRig : Camera3D
     private const float MinimumProductAspectRatio = 16.0f / 10.0f;
     private const float ProductAspectFramingWeight = 0.5f;
     private float _zoom = 1.0f;
-    private float _leftInset;
-    private float _rightInset;
-    private float _viewportWidth = 1600.0f;
+    private BattlefieldViewportLayout _viewportLayout =
+        BattlefieldViewportLayout.Product(new Vector2(1600.0f, 900.0f));
 
     public event Action? ProjectionChanged;
 
     public float Zoom => _zoom;
 
     public float PitchDegrees => BattlefieldPerspective.CameraPitchDegrees;
+
+    public BattlefieldViewportLayout ViewportLayout => _viewportLayout;
 
     public override void _Ready()
     {
@@ -65,27 +66,39 @@ public sealed partial class BattlefieldCameraRig : Camera3D
         return true;
     }
 
-    public void SetViewportInsets(float leftPixels, float rightPixels, float viewportWidth)
+    public void SetViewportLayout(BattlefieldViewportLayout layout)
     {
-        if (!float.IsFinite(leftPixels) || !float.IsFinite(rightPixels) ||
-            !float.IsFinite(viewportWidth))
+        if (layout.ViewportSize.X <= 0.0f || layout.ViewportSize.Y <= 0.0f)
         {
-            throw new ArgumentOutOfRangeException(nameof(viewportWidth));
+            throw new ArgumentOutOfRangeException(nameof(layout));
         }
 
-        _leftInset = MathF.Max(0.0f, leftPixels);
-        _rightInset = MathF.Max(0.0f, rightPixels);
-        _viewportWidth = MathF.Max(1.0f, viewportWidth);
+        if (_viewportLayout == layout)
+        {
+            return;
+        }
+
+        _viewportLayout = layout;
         ApplyPose();
         ProjectionChanged?.Invoke();
     }
 
+    public void SetViewportInsets(float leftPixels, float rightPixels, float viewportWidth)
+    {
+        Vector2 visibleSize = GetViewport()?.GetVisibleRect().Size ??
+                              new Vector2(viewportWidth, 900.0f);
+        SetViewportLayout(BattlefieldViewportLayout.FromInsets(
+            new Vector2(viewportWidth, MathF.Max(1.0f, visibleSize.Y)),
+            leftPixels,
+            rightPixels));
+    }
+
     private void ApplyPose()
     {
-        float safeWidth = MathF.Max(1.0f, _viewportWidth - _leftInset - _rightInset);
-        float safeRatio = Mathf.Clamp(safeWidth / _viewportWidth, 0.42f, 1.0f);
-        Vector2 viewportSize = GetViewport()?.GetVisibleRect().Size ??
-                               new Vector2(_viewportWidth, 900.0f);
+        float viewportWidth = MathF.Max(1.0f, _viewportLayout.ViewportSize.X);
+        float safeWidth = _viewportLayout.SafeRect.Size.X;
+        float safeRatio = Mathf.Clamp(safeWidth / viewportWidth, 0.42f, 1.0f);
+        Vector2 viewportSize = _viewportLayout.ViewportSize;
         float aspectRatio = MathF.Max(0.5f, viewportSize.X / MathF.Max(1.0f, viewportSize.Y));
         // Insets are part of framing, not player zoom. Product viewports from
         // 16:9 through 16:10 have enough horizontal room for the authored board,
@@ -108,7 +121,8 @@ public sealed partial class BattlefieldCameraRig : Camera3D
         // Camera HOffset moves the projected scene in the opposite screen direction.
         // A wider right HUD therefore needs a positive camera offset so the board
         // shifts left into the center of the remaining play area.
-        HOffset = ((_rightInset - _leftInset) / _viewportWidth) *
+        HOffset = ((_viewportLayout.RightReservedPixels -
+                    _viewportLayout.LeftReservedPixels) / viewportWidth) *
                   HudInsetToWorldScale * _zoom;
         VOffset = -0.62f * _zoom;
         LookAt(Vector3.Zero, Vector3.Up);

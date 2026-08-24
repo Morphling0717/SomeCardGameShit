@@ -1,12 +1,25 @@
 {
-  "schema_version": 3,
-  "gate": "4B-R1",
+  "schema_version": 4,
+  "gate": "4B-R2",
   "source_manifest": "visual-suite.json",
+  "source_report_schema_version": 4,
   "asset_manifest_sha256": "550cee89ccb1b384149d85aa45725474371b022a646fbef8de28d4c9bbae8eac",
+  "capture_contract": {
+    "frame_post_draws": 2,
+    "pixel_space": "srgb8",
+    "maximum_frame_pair_mae": 0.01,
+    "maximum_region_frame_pair_mae": 0.01,
+    "maximum_region_channel_delta": 64
+  },
   "states": [
     "action",
     "covered",
     "error",
+    "field-readability",
+    "hand-five",
+    "hand-hover",
+    "hand-one",
+    "hand-ten",
     "match-setup",
     "menu",
     "mulligan",

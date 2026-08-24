@@ -1,6 +1,6 @@
 # Godot 客户端架构
 
-本文描述 Gate 4B-R1 的 Godot 4.7.2 .NET 桌面客户端边界。规则、费用、目标、响应与胜负仍完全由 C++ 引擎裁决；托管层只编排安全查询/规范命令，Godot 的 authored 默认 3D 与隐藏 legacy 2D presenter 都只把点击、拖拽和键盘输入转换成同一套 surface intent。卡图、头像、玻璃 HUD 和基础特效是可替换的表现边界，不是第二套规则实现。
+本文描述 Gate 4B-R2 的 Godot 4.7.2 .NET 桌面客户端边界。规则、费用、目标、响应与胜负仍完全由 C++ 引擎裁决；托管层只编排安全查询/规范命令，Godot 的 authored 默认 3D 与隐藏 legacy 2D presenter 都只把点击、拖拽和键盘输入转换成同一套 surface intent。相机相对手牌架、卡牌数值徽章、视觉目录、HUD 和基础特效都是可替换的表现边界，不是第二套规则实现。
 
 ## 分层
 
@@ -166,11 +166,11 @@ CastSpell 的显式顺序固定为“选择手牌法术 → 选择己方空策�
 
 产品启动省略 seed、随机决定先手并洗牌。测试路径可固定 seed、强制 Player0 且关闭洗牌。界面使用严格目录管理的原创临时卡图/头像、Godot/SVG 卡框图标和 DTO 派生的中文文本，不包含第二套规则或独立正式卡牌表现 JSON。
 
-## Gate 4B-R1 视觉验收边界
+## Gate 4B-R2 视觉验收边界
 
-Gate 4A full-match 仍使用严格 schema version 3 验证 signal 两局、`ActionKind` 0～10、surface/raycast、两帧公共投影、透视、actor 池和零隐私泄露。Gate 4B-R1 另有独立的 visual-suite schema version 3：两者版本号相同，但字段白名单和 validator 不同，不得混用。
+Gate 4A full-match 仍使用严格 schema version 3 验证 signal 两局、`ActionKind` 0～10、surface/raycast、两帧公共投影、透视、actor 池和零隐私泄露。Gate 4B-R2 另有独立的 visual-suite schema version 4；它与 full-match 的字段白名单和 validator 不同，不得混用。
 
-display-backed 视觉套件在 1280×720、1600×900、2560×1440 和 2560×1600 捕获产品菜单、对局设置、Covered、调度、普通行动、来源选择、格位/目标选择、响应、Resolving、结果和错误 11 种状态。1600×900 感知 golden 的归一化 MAE 必须不高于 0.025，边缘差必须不高于 0.08。600 帧稳态证据由 300 帧预热 + 300 帧测量组成，预热后 actor/material/texture 数不得增长。
+display-backed 视觉套件在 1280×720、1600×900、2560×1440 和 2560×1600 捕获原有 11 种产品状态，并新增单张/五张/十张手牌、悬停手牌和场上可读性，共 16 种状态。每个 capture 必须等待连续两个内容一致的 `FramePostDraw`，并记录桌面、双方主战者、手牌和 HUD 的像素锚点，以及费用、攻击、生命与倒计时的最终 GPU ROI。1600×900 感知 golden 只能显式更新并人工审阅。600 帧稳态证据由 300 帧预热 + 300 帧测量组成，预热后 actor/material/texture 数不得增长。
 
 报告同时记录 `adapter_name`、`adapter_type` 和 `timing_budget_applicable`。硬件适配器要求 p95 不高于 33.3 ms、单帧低于 100 ms；CPU 或明确的 Microsoft Basic Render Driver/llvmpipe/SwiftShader/software renderer 只不应用 GPU 时间预算，仍必须完成全部功能、截图结构、隐私哨兵、600 帧和资源零增长验证。34 项资产的路径、唯一性和哈希也是导出契约。自动化与导出验收状态以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准，不以本文替代测试报告。
 

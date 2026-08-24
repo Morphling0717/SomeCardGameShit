@@ -65,6 +65,9 @@ BOARD_STATES = {
     "result",
 }
 EXPECTED_PERFORMANCE = {
+    "adapter_name",
+    "adapter_type",
+    "timing_budget_applicable",
     "warmup_frames",
     "measured_frames",
     "p95_frame_ms",
@@ -76,6 +79,13 @@ EXPECTED_PERFORMANCE = {
     "texture_count_before",
     "texture_count_after",
 }
+
+SOFTWARE_ADAPTER_NAME_MARKERS = (
+    "microsoft basic render driver",
+    "llvmpipe",
+    "swiftshader",
+    "software renderer",
+)
 
 
 class VisualSuiteError(ValueError):
@@ -113,11 +123,11 @@ def validate(report_path: Path, *, expected_width: int | None = None,
     if not isinstance(report, dict) or set(report) != EXPECTED_TOP_LEVEL:
         raise VisualSuiteError(f"report fields must be exactly {sorted(EXPECTED_TOP_LEVEL)}")
     if (
-        report["schema_version"] != 2
+        report["schema_version"] != 3
         or report["gate"] != "4B-R1"
         or report["scenario"] != "visual-suite"
     ):
-        raise VisualSuiteError("report must identify Gate 4B-R1 visual-suite schema 2")
+        raise VisualSuiteError("report must identify Gate 4B-R1 visual-suite schema 3")
     asset_hash = report["asset_manifest_sha256"]
     if (
         not isinstance(asset_hash, str)
@@ -254,6 +264,27 @@ def validate(report_path: Path, *, expected_width: int | None = None,
         raise VisualSuiteError(
             f"performance fields must be exactly {sorted(EXPECTED_PERFORMANCE)}"
         )
+    adapter_name = performance["adapter_name"]
+    adapter_type = performance["adapter_type"]
+    timing_budget_applicable = performance["timing_budget_applicable"]
+    if not isinstance(adapter_name, str) or not adapter_name.strip():
+        raise VisualSuiteError("performance.adapter_name must be a non-empty string")
+    if not isinstance(adapter_type, str) or not adapter_type.strip():
+        raise VisualSuiteError("performance.adapter_type must be a non-empty string")
+    if not isinstance(timing_budget_applicable, bool):
+        raise VisualSuiteError("performance.timing_budget_applicable must be boolean")
+    software_adapter = (
+        adapter_type.strip().casefold() == "cpu"
+        or any(
+            marker in adapter_name.casefold()
+            for marker in SOFTWARE_ADAPTER_NAME_MARKERS
+        )
+    )
+    if not timing_budget_applicable and not software_adapter:
+        raise VisualSuiteError(
+            "performance.timing_budget_applicable may be false only for a CPU "
+            "or recognized software renderer"
+        )
     if performance["warmup_frames"] != 300 or performance["measured_frames"] != 300:
         raise VisualSuiteError("performance smoke must contain 300 warmup and 300 measured frames")
     for resource in ("actor", "material", "texture"):
@@ -265,7 +296,7 @@ def validate(report_path: Path, *, expected_width: int | None = None,
     maximum = _number(performance["max_frame_ms"], "max_frame_ms")
     if maximum < p95:
         raise VisualSuiteError("max_frame_ms cannot be lower than p95_frame_ms")
-    if enforce_budget and (p95 > 33.3 or maximum >= 100.0):
+    if enforce_budget and timing_budget_applicable and (p95 > 33.3 or maximum >= 100.0):
         raise VisualSuiteError(
             f"frame budget exceeded: p95={p95:.3f}ms, max={maximum:.3f}ms"
         )

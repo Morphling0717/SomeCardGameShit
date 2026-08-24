@@ -10,7 +10,10 @@ import sys
 import tempfile
 import unittest
 import zlib
+from contextlib import redirect_stderr, redirect_stdout
+from io import StringIO
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -26,8 +29,10 @@ from compare_visual_golden import (  # noqa: E402
 from validate_gate4b_visual_suite import (  # noqa: E402
     EXPECTED_STATES,
     VisualSuiteError,
+    main as validate_main,
     validate,
 )
+from update_gate4b_goldens import main as update_goldens_main  # noqa: E402
 
 
 def _chunk(kind: bytes, payload: bytes) -> bytes:
@@ -39,13 +44,26 @@ def _chunk(kind: bytes, payload: bytes) -> bytes:
     )
 
 
-def _write_png(path: Path, width: int, height: int, rgb: tuple[int, int, int]) -> None:
+def _write_png(
+    path: Path,
+    width: int,
+    height: int,
+    rgb: tuple[int, int, int],
+    *,
+    ancillary_bytes: int = 0,
+) -> None:
     rows = b"".join(b"\0" + bytes(rgb) * width for _ in range(height))
     header = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
+    fixture_padding = (
+        _chunk(b"tEXt", b"fixture-padding\0" + b"x" * ancillary_bytes)
+        if ancillary_bytes
+        else b""
+    )
     path.write_bytes(
         b"\x89PNG\r\n\x1a\n"
         + _chunk(b"IHDR", header)
         + _chunk(b"IDAT", zlib.compress(rows))
+        + fixture_padding
         + _chunk(b"IEND", b"")
     )
 
@@ -144,13 +162,19 @@ class VisualGoldenTests(unittest.TestCase):
 
 
 class VisualSuiteReportTests(unittest.TestCase):
-    def _write_report(self, directory: Path) -> Path:
+    def _write_report(self, directory: Path, *, structural_pngs: bool = False) -> Path:
         asset_hash = "a" * 64
         captures = []
         for index, state in enumerate(sorted(EXPECTED_STATES)):
             filename = f"{index:02d}-{state}.png"
             screenshot = directory / filename
-            _write_png(screenshot, 1600, 900, (index, index + 1, index + 2))
+            _write_png(
+                screenshot,
+                1600,
+                900,
+                (index, index + 1, index + 2),
+                ancillary_bytes=20 * 1024 if structural_pngs else 0,
+            )
             captures.append(
                 {
                     "state": state,
@@ -173,13 +197,16 @@ class VisualSuiteReportTests(unittest.TestCase):
                 }
             )
         report = {
-            "schema_version": 2,
+            "schema_version": 3,
             "gate": "4B-R1",
             "scenario": "visual-suite",
             "asset_manifest_sha256": asset_hash,
             "viewport": {"width": 1600, "height": 900},
             "captures": captures,
             "performance": {
+                "adapter_name": "Test Hardware Adapter",
+                "adapter_type": "discrete_gpu",
+                "timing_budget_applicable": True,
                 "warmup_frames": 300,
                 "measured_frames": 300,
                 "p95_frame_ms": 16.0,
@@ -208,6 +235,29 @@ class VisualSuiteReportTests(unittest.TestCase):
                     enforce_structure=False,
                 )["gate"],
             )
+
+    def test_explicit_golden_update_preserves_schema_three_metadata(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            report_path = self._write_report(directory, structural_pngs=True)
+            destination = directory / "goldens"
+            arguments = [
+                "update_gate4b_goldens.py",
+                "--report",
+                str(report_path),
+                "--destination",
+                str(destination),
+                "--accept",
+            ]
+            with patch.object(sys, "argv", arguments), redirect_stdout(StringIO()):
+                self.assertEqual(0, update_goldens_main())
+            metadata = json.loads(
+                (destination / "GOLDEN_METADATA.json").read_text(encoding="utf-8")
+            )
+            self.assertEqual(3, metadata["schema_version"])
+            self.assertEqual(sorted(EXPECTED_STATES), metadata["states"])
+            for state in EXPECTED_STATES:
+                self.assertTrue((destination / f"{state}.png").is_file())
 
     def test_report_rejects_black_bars_overlap_debug_ui_and_small_board(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -254,6 +304,121 @@ class VisualSuiteReportTests(unittest.TestCase):
             report_path.write_text(json.dumps(report), encoding="utf-8")
             with self.assertRaisesRegex(VisualSuiteError, "actor count grew"):
                 validate(report_path, enforce_structure=False)
+
+    def test_software_renderers_may_skip_only_the_timing_budget(self) -> None:
+        software_adapters = (
+            ("CPU rasterizer", "cpu"),
+            ("Microsoft Basic Render Driver", "other"),
+            ("llvmpipe (LLVM 19.1.0, 256 bits)", "virtual_gpu"),
+            ("Google SwiftShader", "other"),
+            ("Compatibility software renderer", "other"),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            for adapter_name, adapter_type in software_adapters:
+                with self.subTest(adapter_name=adapter_name, adapter_type=adapter_type):
+                    report_path = self._write_report(directory)
+                    report = json.loads(report_path.read_text(encoding="utf-8"))
+                    performance = report["performance"]
+                    performance["adapter_name"] = adapter_name
+                    performance["adapter_type"] = adapter_type
+                    performance["timing_budget_applicable"] = False
+                    performance["p95_frame_ms"] = 120.0
+                    performance["max_frame_ms"] = 180.0
+                    report_path.write_text(json.dumps(report), encoding="utf-8")
+                    validate(report_path, enforce_structure=False)
+
+            report_path = self._write_report(directory)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            performance = report["performance"]
+            performance["adapter_type"] = "cpu"
+            performance["timing_budget_applicable"] = False
+            performance["actor_count_after"] = 21
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(VisualSuiteError, "actor count grew"):
+                validate(report_path, enforce_structure=False)
+
+            report_path = self._write_report(directory)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            performance = report["performance"]
+            performance["adapter_type"] = "cpu"
+            performance["timing_budget_applicable"] = False
+            performance["warmup_frames"] = 299
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(VisualSuiteError, "300 warmup"):
+                validate(report_path, enforce_structure=False)
+
+    def test_hardware_adapter_cannot_opt_out_and_must_meet_timing_budget(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            report_path = self._write_report(directory)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            report["performance"]["timing_budget_applicable"] = False
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(VisualSuiteError, "may be false only"):
+                validate(report_path, enforce_structure=False)
+
+            report_path = self._write_report(directory)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            performance = report["performance"]
+            performance["p95_frame_ms"] = 34.0
+            performance["max_frame_ms"] = 60.0
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with self.assertRaisesRegex(VisualSuiteError, "frame budget exceeded"):
+                validate(report_path, enforce_structure=False)
+
+    def test_adapter_metadata_is_strictly_typed(self) -> None:
+        mutations = (
+            ("adapter_name", "", "adapter_name must be a non-empty string"),
+            ("adapter_type", "", "adapter_type must be a non-empty string"),
+            (
+                "timing_budget_applicable",
+                "false",
+                "timing_budget_applicable must be boolean",
+            ),
+        )
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            for field, value, message in mutations:
+                with self.subTest(field=field):
+                    report_path = self._write_report(directory)
+                    report = json.loads(report_path.read_text(encoding="utf-8"))
+                    report["performance"][field] = value
+                    report_path.write_text(json.dumps(report), encoding="utf-8")
+                    with self.assertRaisesRegex(VisualSuiteError, message):
+                        validate(report_path, enforce_structure=False)
+
+    def test_cli_skip_performance_budget_remains_an_explicit_override(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            report_path = self._write_report(directory)
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            performance = report["performance"]
+            performance["p95_frame_ms"] = 34.0
+            performance["max_frame_ms"] = 101.0
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+
+            base_args = [
+                "validate_gate4b_visual_suite.py",
+                "--report",
+                str(report_path),
+                "--skip-structure",
+            ]
+            with patch.object(sys, "argv", base_args), redirect_stderr(StringIO()):
+                self.assertEqual(1, validate_main())
+            with (
+                patch.object(sys, "argv", [*base_args, "--skip-performance-budget"]),
+                redirect_stdout(StringIO()),
+            ):
+                self.assertEqual(0, validate_main())
+
+            report["performance"]["timing_budget_applicable"] = False
+            report_path.write_text(json.dumps(report), encoding="utf-8")
+            with (
+                patch.object(sys, "argv", [*base_args, "--skip-performance-budget"]),
+                redirect_stderr(StringIO()),
+            ):
+                self.assertEqual(1, validate_main())
 
     def test_repo_registers_visual_pipeline_and_never_auto_updates_goldens(self) -> None:
         root = SCRIPTS.parent
@@ -311,8 +476,11 @@ class VisualSuiteReportTests(unittest.TestCase):
         self.assertIn("DisplayServer.VSyncMode.Disabled", producer)
         self.assertIn("warmupFrames = 300", producer)
         self.assertIn("measuredFrames = 300", producer)
-        self.assertIn('public int SchemaVersion { get; init; } = 2;', producer)
+        self.assertIn('public int SchemaVersion { get; init; } = 3;', producer)
         self.assertIn('public string Gate { get; init; } = "4B-R1";', producer)
+        self.assertIn("AdapterName", producer)
+        self.assertIn("AdapterType", producer)
+        self.assertIn("TimingBudgetApplicable", producer)
         self.assertIn("OpaqueFullHeightPanelCount", producer)
         self.assertIn("HudRegionsOverlapFree", producer)
         self.assertIn("BattlefieldWidthRatio", producer)

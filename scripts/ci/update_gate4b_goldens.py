@@ -45,7 +45,7 @@ def main() -> int:
         shutil.copyfile(source, target)
         print(f"updated {target}")
     metadata = {
-        "schema_version": 2,
+        "schema_version": 3,
         "gate": "4B-R1",
         "source_manifest": args.report.resolve().name,
         "asset_manifest_sha256": report["asset_manifest_sha256"],

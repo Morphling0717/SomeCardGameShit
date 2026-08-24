@@ -36,6 +36,14 @@ internal sealed class Gate4BVisualSuite
         "error",
     ];
 
+    private static readonly string[] SoftwareAdapterNameMarkers =
+    [
+        "Microsoft Basic Render Driver",
+        "llvmpipe",
+        "SwiftShader",
+        "software renderer",
+    ];
+
     private readonly Node root;
     private readonly string outputDirectory;
     private readonly string assetManifestSha256;
@@ -281,8 +289,13 @@ internal sealed class Gate4BVisualSuite
             (int)Math.Ceiling(frameTimes.Count * 0.95) - 1,
             0,
             frameTimes.Count - 1);
+        string adapterName = RenderingServer.GetVideoAdapterName();
+        RenderingDevice.DeviceType adapterType = RenderingServer.GetVideoAdapterType();
         performance = new Gate4BPerformanceEvidence
         {
+            AdapterName = adapterName,
+            AdapterType = adapterType.ToString(),
+            TimingBudgetApplicable = IsTimingBudgetApplicable(adapterName, adapterType),
             WarmupFrames = warmupFrames,
             MeasuredFrames = measuredFrames,
             P95FrameMilliseconds = frameTimes[p95Index],
@@ -302,6 +315,19 @@ internal sealed class Gate4BVisualSuite
                 $"materials {before.Materials}->{after.Materials}, " +
                 $"textures {before.Textures}->{after.Textures}.");
         }
+    }
+
+    private static bool IsTimingBudgetApplicable(
+        string adapterName,
+        RenderingDevice.DeviceType adapterType)
+    {
+        if (adapterType == RenderingDevice.DeviceType.Cpu)
+        {
+            return false;
+        }
+
+        return !SoftwareAdapterNameMarkers.Any(marker =>
+            adapterName.Contains(marker, StringComparison.OrdinalIgnoreCase));
     }
 
     internal void Complete()
@@ -639,7 +665,7 @@ internal sealed class Gate4BVisualSuite
 internal sealed record Gate4BVisualSuiteReport
 {
     [JsonPropertyName("schema_version")]
-    public int SchemaVersion { get; init; } = 2;
+    public int SchemaVersion { get; init; } = 3;
 
     [JsonPropertyName("gate")]
     public string Gate { get; init; } = "4B-R1";
@@ -725,6 +751,15 @@ internal sealed record Gate4BLayoutEvidence
 
 internal sealed record Gate4BPerformanceEvidence
 {
+    [JsonPropertyName("adapter_name")]
+    public required string AdapterName { get; init; }
+
+    [JsonPropertyName("adapter_type")]
+    public required string AdapterType { get; init; }
+
+    [JsonPropertyName("timing_budget_applicable")]
+    public required bool TimingBudgetApplicable { get; init; }
+
     [JsonPropertyName("warmup_frames")]
     public required int WarmupFrames { get; init; }
 

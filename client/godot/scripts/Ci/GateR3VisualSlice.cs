@@ -97,8 +97,47 @@ internal sealed class GateR3VisualSlice
         this.outputDirectory = Path.GetFullPath(outputDirectory);
         Directory.CreateDirectory(this.outputDirectory);
         previousVsyncMode = DisplayServer.WindowGetVsyncMode();
+        if (ResolveRequestedViewport(OS.GetCmdlineUserArgs()) is { } requestedViewport)
+        {
+            // Hosted Windows runners expose a small desktop even though they can
+            // render a larger borderless Compatibility window through ANGLE/WARP.
+            // Match the established Gate 4B visual-suite setup instead of trusting
+            // the engine-level --resolution hint, which the window manager may clamp.
+            DisplayServer.WindowSetFlag(DisplayServer.WindowFlags.Borderless, true);
+            DisplayServer.WindowSetPosition(Vector2I.Zero);
+            DisplayServer.WindowSetSize(requestedViewport);
+        }
         VerifyPrivacySentinelDetector();
         DisplayServer.WindowSetVsyncMode(DisplayServer.VSyncMode.Disabled);
+    }
+
+    private static Vector2I? ResolveRequestedViewport(IReadOnlyList<string> arguments)
+    {
+        const string prefix = "--ci-visual-viewport=";
+        string[] values = arguments
+            .Where(argument => argument.StartsWith(prefix, StringComparison.Ordinal))
+            .Select(argument => argument[prefix.Length..])
+            .ToArray();
+        if (values.Length == 0)
+        {
+            return null;
+        }
+        if (values.Length != 1)
+        {
+            throw new InvalidOperationException(
+                "--ci-visual-viewport may be specified only once.");
+        }
+
+        string[] dimensions = values[0].Split('x', StringSplitOptions.TrimEntries);
+        if (dimensions.Length != 2 ||
+            !int.TryParse(dimensions[0], out int width) ||
+            !int.TryParse(dimensions[1], out int height) ||
+            (width, height) != (1600, 900))
+        {
+            throw new InvalidOperationException(
+                "The R3 visual slice requires --ci-visual-viewport=1600x900.");
+        }
+        return new Vector2I(width, height);
     }
 
     internal async Task<string> RunAsync()

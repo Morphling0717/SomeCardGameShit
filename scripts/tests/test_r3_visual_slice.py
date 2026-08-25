@@ -439,6 +439,8 @@ class R3VisualSliceTests(unittest.TestCase):
         self.assertIn("ViewerReadRequestCount", match_screen)
         self.assertIn("WindowGetVsyncMode", collector)
         self.assertIn("WindowSetVsyncMode(previousVsyncMode)", collector)
+        self.assertIn("DisplayServer.WindowSetSize(requestedViewport)", collector)
+        self.assertIn("--ci-visual-viewport=1600x900", collector)
         self.assertIn("_r3VisualSliceCaptureComplete", bootstrap)
         self.assertNotIn("TacticalHudTheme.RestoreGate4BR2(this)", match_screen)
         self.assertIn("ExpectedFinalRevision = 2", collector)

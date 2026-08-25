@@ -114,16 +114,18 @@ Gate 4B-R1 的实现提交四项 CI 已绿；包含本文修改的最终文档�
 - [x] 1600×900 三态实拍来自同一真实 native session、两次真实调度和 revision 2 的 17 个合法行动；
 - [x] 报告固定 `pending_user_approval`，记录 `[0,1,0]` viewer 顺序、零提前读取、共享隐藏牌背、稳定手牌 Transform/FramePostDraw，并绑定 commit、双素材清单、地坪、GLB、shader 与 launcher 的 SHA-256；
 - [x] P0 revision-0 调度前向真实 `MatchScreen` 注入恶意私密 sentinel；独立 `privacy-resolving` / `privacy-covered` 证据图、节点清理检查和覆盖快照/查询/事件的 viewer read 总计数证明实际迁移零泄露，detector 自测不冒充真实取证；
-- [ ] 实现与最终文档尖端四项 CI 全绿，正式 Windows EXE/ZIP 往返候选实启和制品摘要已写入 `TEST_REPORT.md`；
+- [x] 被测实现尖端 `3d4012f` 的 run `32808917410` 四项 CI 全绿，正式 Windows 源码/EXE/ZIP launcher 候选实启和 11 项制品摘要已写入 `TEST_REPORT.md`；包含本文的最终尖端仍由交付前 commit checks 复验；
 - [ ] 用户双击导出包中的 `PLAY_R3_VISUAL_SLICE.cmd` 并明确批准这套构图、配色、手牌、主战者和 HUD；批准前不得推广到默认产品与完整状态。
 
-## 发布标签前仍未完成的三项硬门
+## 发布标签前仍未完成的四项硬门
+
+第一项是上方尚未勾选的 R3 用户实机批准；另外三项为：
 
 - [ ] 物理 Apple Silicon Mac 完成整局、退出和重开；
 - [ ] 未安装 Visual Studio 的 Windows x86-64 机器启动导出包并完成整局；
 - [ ] 两名真人完成一局并确认空间拾取/拖拽可理解、HUD 不误穿透、公共结算不泄露、每次实际换手完全遮挡。
 
-三项全部完成并把发现的问题纳入回归后，才允许创建 `v0.4-hotseat-alpha.1` 标签。
+上方 R3 用户批准与这里三项设备/真人验收全部完成，并把发现的问题纳入回归后，才允许创建 `v0.4-hotseat-alpha.1` 标签。
 
 ## Gate 4B-R1 之外
 

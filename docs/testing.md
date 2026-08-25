@@ -105,7 +105,7 @@ Windows MSVC 使用 `scripts/test.ps1` 或等价的 Release 配置。CI 在 GCC 
 
 Linux 两个 job 保持纯原生。Windows 与 macOS job 在原生安装审计之后追加 locked managed restore/build/test、等待冷资源扫描完成的 Godot `--import`、默认 3D 与 legacy 2D 源码 smoke、目标平台默认 3D 导出、导出包启动与 ZIP 往返审计。Windows 另跑四尺寸 display-backed Gate 4B-R2 visual suite、1600×900 golden 和 600 帧性能/资源验证；macOS 从已校验的官方 universal template 临时派生 arm64 release template，并要求最终 bundle 只有一套 arm64 托管数据且所有 Mach-O 均为 arm64-only。这不构成 Web 或 Linux 客户端支持声明。
 
-Gate 4B-R1 实现由 GitHub Actions run `32719076472` 验证，最终 R1 基线 `1370491` 又由 run `32732554577` 复验；这些历史 run 都不能证明 Gate 4B-R2。R2 实现尖端 `cca04b5` 已由 run `32766050188` 的四项完整矩阵验证，精确 job、测试数量、截图摘要和制品 digest 记录在 [`TEST_REPORT.md`](../TEST_REPORT.md)。包含报告的后续文档尖端仍必须在自身 commit 上复跑，不能沿用实现尖端 run 冒充通过。
+Gate 4B-R1 实现由 GitHub Actions run `32719076472` 验证，最终 R1 基线 `1370491` 又由 run `32732554577` 复验；这些历史 run 都不能证明 Gate 4B-R2。R2 实现尖端 `cca04b5` 已由 run `32766050188` 的四项完整矩阵验证。R3.1 被测实现尖端 `3d4012f` 又由 run `32808917410` 验证：四项 job 全绿，Windows 源码、正式 EXE 与 ZIP 内 launcher 候选实启，R2 四尺寸 schema 4/golden 回归不变。精确 job、测试数量、截图取证和制品 digest 记录在 [`TEST_REPORT.md`](../TEST_REPORT.md)。包含报告的后续文档尖端仍必须在自身 commit 上复跑，不能沿用实现尖端 run 冒充通过。
 
 ## 报告规则
 

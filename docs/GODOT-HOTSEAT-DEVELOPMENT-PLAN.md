@@ -1377,4 +1377,6 @@ Windows display-backed 切片固定 1600×900、seed `0xC0DEC0DE`、Player0 先�
 
 源码工程、正式 Windows EXE 和 ZIP 往返包都必须运行候选。导出目录附带 `PLAY_R3_VISUAL_SLICE.cmd`，用户双击后进入真实可继续操作的切片；CI 自动模式另加 `--r3-visual-slice-exit`。R3 schema 1 与 Gate 4B-R2 schema 4/golden 完全分离，自动化通过不等于视觉批准。只有用户明确接受后，才允许把 profile 推广到调度、响应、结算、结果、菜单和默认产品路径。
 
+被测实现尖端 `3d4012f` 已由 [GitHub Actions run `32808917410`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32808917410) 完成四项完整矩阵：Windows 源码、正式导出和 ZIP 内 launcher 三条候选路径均实启，R2 默认四尺寸/golden/性能与完整整局回归保持通过。11 项 artifact、五张 R3 证据图、viewer read 审计和内层试玩 ZIP 哈希记录在 `TEST_REPORT.md`。自动化交付已完成，用户主观批准仍未完成；批准前本节不得被解释为 R3 已成为默认产品画面。
+
 **历史决策与持续约束：Gate 0+1 先完成文档纠偏、规则回归和客户端查询接口，再进入 UI；后续也必须保持 Godot 只是表现层，不让 C# 逐步长成第二套规则引擎。**

@@ -2,7 +2,9 @@
 
 原创 1v1 数字卡牌游戏实验项目。C++20 规则引擎是唯一规则真值；正式客户端路线锁定为 **Godot 4.7.2 .NET** 的桌面单机热座版本。
 
-当前开发分支已完成 **Gate 4B-R2 战斗表现与第一次实机验收包** 的自动化交付，等待用户主观试玩反馈：默认客户端继续使用 authored 3D/2.5D 战场，并把己方手牌迁移到相机相对的前景手牌架，修复费用/攻击/生命/倒计时的真实 GPU 可读性，稳定战场 framing 与左右 HUD 安全区。视觉目录仍严格覆盖 29 个现有卡牌定义及卡背、菜单背景、未知卡通用正面和 2 张领袖头像，共 34 项带哈希的原创临时素材；本轮不新增音频、规则或商业美术。实现尖端 `cca04b5` 的四项 CI 与制品已经通过，准确命令、数量和 digest 只以 [`TEST_REPORT.md`](TEST_REPORT.md) 针对该实现尖端的实测记录为准。
+当前开发分支已完成 **Gate 4B-R3.1 无边界工业竞技场视觉切片** 的自动化与 Windows 候选包交付，等待用户主观批准。默认客户端仍保持已验收自动化的 Gate 4B-R2；只有双击候选包中的 `PLAY_R3_VISUAL_SLICE.cmd` 或显式传入 `--r3-visual-slice` 才进入 R3 候选。候选以连续工业地面、场外机械、浅凹槽格位、中性战术 HUD 和相机相对前景手牌替换 R2 的场地大框、半场色板与原型式构图，但不会改动规则、卡牌或 R2 golden。被测实现尖端 `3d4012f` 的 [CI run 32808917410](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32808917410) 已四项全绿；准确命令、取证、制品字节与 digest 见 [`TEST_REPORT.md`](TEST_REPORT.md)。
+
+R2 的 29 张临时卡图、卡背、菜单背景、未知卡通用正面和 2 张领袖头像仍是冻结的 34 项产品素材；R3.1 只新增 1 张独立候选地坪，并使用可由提交源码确定性重建的原创机械 GLB。R3 报告固定为 `pending_user_approval`；用户明确批准前，不会把候选推广为默认产品路径，也不会用三张视觉切片冒充完整对局表现已经迁移。
 
 纯托管 C# 边界继续消费 `scgs_v04`，`Scgs.Hotseat` 从同 revision 的规范合法行动派生统一 surface intent；Godot 的默认 3D 与 `--legacy-2d-board` 隐藏回归路径只能把点击/拖拽转换为同一 intent，不能复制规则。Gate 4A.1 的策略位法术语义保持不变：玩家必须选择具体空位，法术正面占位到自身链环结算，后排全满时不能施法。双人真人热座与物理目标机仍是发布标签前硬门。
 
@@ -80,7 +82,7 @@ cmake --build --preset asan
 ctest --preset asan
 ```
 
-`SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认 `ON`。为保持既有 CMake/CI 基线，这个历史命名的开关当前注册整组 Python 契约测试，包括 legacy overlay/protocol、原生/Godot 导出与 34 项视觉素材审计、子进程超时、Gate 3B/3C/4A 整局报告及 Gate 4B-R2 视觉报告/golden 契约；开启时配置阶段必须找到 Python 3.10+，不能静默少注册。设为 `OFF` 会跳过整组 Python 契约，不能用这种构建宣称完成客户端验收。CMake 会按版本与 SHA-256 固定获取 JSON 依赖，不要求系统全局安装。
+`SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认 `ON`。为保持既有 CMake/CI 基线，这个历史命名的开关当前注册整组 Python 契约测试，包括 legacy overlay/protocol、原生/Godot 导出、R2 34 项＋R3 候选 1 项视觉素材联合审计、子进程超时、Gate 3B/3C/4A 整局报告、Gate 4B-R2 视觉报告/golden 以及独立 R3.1 候选切片契约；开启时配置阶段必须找到 Python 3.10+，不能静默少注册。设为 `OFF` 会跳过整组 Python 契约，不能用这种构建宣称完成客户端验收。CMake 会按版本与 SHA-256 固定获取 JSON 依赖，不要求系统全局安装。
 
 Gate 2 还可安装到暂存目录以检查真正的消费产物：
 

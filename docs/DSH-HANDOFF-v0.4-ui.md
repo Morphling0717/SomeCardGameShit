@@ -1,4 +1,4 @@
-# 工程交接：Gate 4B-R2 战斗表现与第一次实机验收
+# 工程交接：Gate 4B-R3.1 无边界工业竞技场候选
 
 > 现行交接文档。旧 [`DSH-HANDOFF.md`](DSH-HANDOFF.md) 与 [`ygopro-integration.md`](ygopro-integration.md) 是历史归档，不是执行指令。
 
@@ -25,13 +25,17 @@
 - Gate 4B-R2 主要实现：`codex/godot-hotseat-gate4b-r2-battle-presentation@19159ee0613159e4761bbf2f9acea77efdd82874`
 - Gate 4B-R2 被测实现尖端：`cca04b5c9a0e4793c98d8f765527a7a1c51de804`
 - Gate 4B-R2 实现 CI：[run `32766050188`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32766050188)，四项 job 全绿；准确测试、视觉和制品摘要见 [`../TEST_REPORT.md`](../TEST_REPORT.md)
+- Gate 4B-R3.1 起始基线：`codex/godot-hotseat-gate4b-r2-battle-presentation@4dfc16db514d4a8d65afd5bea688e070da38df2f`
+- Gate 4B-R3.1 主要实现：`codex/godot-hotseat-gate4b-r3-visual-slice@22b1b7b2938bdb3984d69d8b49b6293efc904cf7`
+- Gate 4B-R3.1 被测实现尖端：`3d4012fe5d9dc8c93e2379d33618a0ee7554d829`
+- Gate 4B-R3.1 实现 CI：[run `32808917410`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32808917410)，四项 job 全绿；Windows 源码、正式 EXE 和 ZIP 内 launcher 候选实启以及 11 项制品摘要见 [`../TEST_REPORT.md`](../TEST_REPORT.md)
 - 规则真值：[`rules-v0.4.md`](rules-v0.4.md)，用户最新明确决定优先于旧文档歧义
 - 客户端架构：[`godot-client-architecture.md`](godot-client-architecture.md)
 - UI 状态：[`ui-state-map.md`](ui-state-map.md)
 - 验收清单：[`hotseat-acceptance.md`](hotseat-acceptance.md)
 - 真实构建/测试/CI：[`../TEST_REPORT.md`](../TEST_REPORT.md)
 
-Gate 4A 保留 Gate 3C 的完整对局、直接交互、公共投影、原生与导出基线，只把战场表现升级为默认 3D/2.5D，并保留隐藏 legacy 2D 回归。Gate 4A.1 进一步把法术发动改为占用玩家明确选择的己方空策略位，并从两种 presenter 中移除中央施放区。Gate 4B-R1 在这些基线上交付产品菜单、设置、现代玻璃 HUD、34 项临时视觉目录和严格视觉/隐私/性能自动化；Gate 4B-R2 把己方手牌迁移到相机相对前景架，修复真实费用/身材/倒计时徽章，稳定镜头、安全区、战场托座和 HUD 信息架构。11 个 `ActionKind` 与热座隐私状态机保持不变。本文描述源码职责和必须保持的约束；详细命令、数量、制品摘要和未完成边界只以 `TEST_REPORT.md` 为准。
+Gate 4A 保留 Gate 3C 的完整对局、直接交互、公共投影、原生与导出基线，只把战场表现升级为默认 3D/2.5D，并保留隐藏 legacy 2D 回归。Gate 4A.1 进一步把法术发动改为占用玩家明确选择的己方空策略位，并从两种 presenter 中移除中央施放区。Gate 4B-R1 在这些基线上交付产品菜单、设置、现代玻璃 HUD、34 项临时视觉目录和严格视觉/隐私/性能自动化；Gate 4B-R2 把己方手牌迁移到相机相对前景架，修复真实费用/身材/倒计时徽章，稳定镜头、安全区、战场托座和 HUD 信息架构。Gate 4B-R3.1 再以独立、未批准的 opt-in profile 验证无边界工业竞技场构图，不替换 R2 默认路径。11 个 `ActionKind` 与热座隐私状态机保持不变。本文描述源码职责和必须保持的约束；详细命令、数量、制品摘要和未完成边界只以 `TEST_REPORT.md` 为准。
 
 Gate 4A.1 修改 C++ `CastSpell` 规则与强类型 `Game::cast_spell` 签名；Gate 4B-R1/R2 只修改客户端表现与自动验收。后两轮不修改 legacy v1 wire 字节，不改变 `scgs_v04` ABI 1.0/schema 1/精确 14 导出，不提交原生 DLL/dylib，不创建 PR、不合并、不打标签。
 
@@ -198,6 +202,8 @@ Gate 4B-R2 导出制品使用 `SomeCardGameShit-gate4b-r2-windows-x86_64` 与 `S
 R2 的 34 项产品素材清单保持冻结；唯一新增候选地坪登记在独立 `assets/visual/arena/R3_ASSET_MANIFEST.json`，联合审计为 34＋1。Windows 候选 CI 分别运行源码工程、压缩前正式 EXE 与 ZIP 解包后的正式 EXE；最后一条必须实际调用包内 `PLAY_R3_VISUAL_SLICE.cmd`。用户试玩时必须完整解压 `SomeCardGameShit-gate4b-r3-visual-slice-windows-x86_64.zip` 并双击该脚本；直接运行 EXE 仍是 R2。
 
 R3 schema 1 的三张产品实拍之外还有 `privacy-resolving` / `privacy-covered` 两张真实注入证据。调度前恶意 sentinel 必须在节点、材质、碰撞、拖拽、动画、回调与 GPU 画面中被清除，两个隐私状态的 viewer read 计数不得增长。自动报告只能证明切片契约，不能替代本轮用户主观批准。
+
+被测实现尖端 `3d4012f` 的 run `32808917410` 已完整通过四项 CI。Windows 报告记录总 viewer-scoped 读取 14，`Resolving` 为 `3→3`、`Covered` 为 `5→5`；源码、正式导出 EXE 与 ZIP 内 `PLAY_R3_VISUAL_SLICE.cmd` 三条候选路径都生成并通过严格 1600×900 报告。可交付内层 ZIP 的 SHA-256 为 `df46901bb699daf0453cad1c4e35af69907ab0191af47c76875780ba3c40437f`。直接运行同包 EXE 仍是 R2；用户明确批准前不得更改该默认值。
 
 ## 8. 接手者必须完成的发布前硬门
 

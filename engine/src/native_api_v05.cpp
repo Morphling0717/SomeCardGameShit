@@ -508,7 +508,7 @@ std::uint32_t validate_request_shape(const RequestShape& request) noexcept {
         {RequestField::AdditionalCosts, request.additional_cost_cards.has_value()},
         {RequestField::UseAdvance, request.use_advance.has_value()},
     }};
-    for (const auto [field, present] : fields) {
+    for (const auto& [field, present] : fields) {
         if (present && !action_allows_field(action, field)) {
             return invalid_field_code(field);
         }

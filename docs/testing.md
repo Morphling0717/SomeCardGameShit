@@ -76,7 +76,7 @@ python -m unittest scripts.tests.test_validate_product_decks_v1
 
 ### Gate 5B 产品规则底座与生成目录契约
 
-`scgs_product_runtime_foundation` 对 34＋1 提交态产品目录只做结构／锁定状态审计，所有可执行行为则只使用 `scgs::v2::synthetic` 定义，不允许复用旧 `midrange`／`advance` 名称或数字 `CardId`。它至少覆盖冻结枚举值、混合五格、护符不可攻／进化／被攻击、独立场地、非破坏替换、显式离场原因、倒数原格预留、衍生物召唤、关键词层、屏障／必杀／主动攻击吸血、同一随从每回合只能攻击一次、选择阻断、错误选择无副作用、人工触发排序、响应语义帧暂停以及终局幂等清理。v04 的规则、压力和客户端 API 核心测试也使用独立 synthetic fixture；负向依赖检查防止它们重新引用旧产品卡名或数字卡号。
+`scgs_product_runtime_foundation` 对 34＋1 提交态产品目录只做结构／锁定状态审计，所有可执行行为则只使用 `scgs::v2::synthetic` 定义，不允许复用旧 `midrange`／`advance` 名称或数字 `CardId`。它至少覆盖冻结枚举值、混合五格、护符不可攻／进化／被攻击、独立场地、非破坏替换、显式离场原因、倒数原格预留、衍生物召唤、关键词层、屏障／必杀／主动攻击吸血、同一随从每回合只能攻击一次、选择阻断、错误选择无副作用、人工触发排序、响应语义帧暂停以及终局幂等清理。v04 的规则、压力和客户端 API 核心测试也已经迁移到独立 synthetic fixture；当前保证来自明确的 fixture 引用和对应行为测试，不宣称另有仓库级旧卡名／数字卡号负向扫描器。
 
 `scripts/design/generate_product_catalog_v2.py` 以 Gate 5A 锁定清单／Schema 和独立的 `runtime-foundation.lock.json`／Schema 为输入，确定性产生提交态 `engine/src/generated/product_catalog_v2.generated.cpp`。运行时基础清单精确约束两张模式牌的 mode ID／目标、八张战备的 typed conditions 与 AP-S04 的系列随从／护符额外代价。普通构建不得运行 Python 或改写源树；CTest 的 `scgs_product_catalog_generated_contract` 只用 `--check` 比较期望内容，生成物过期时必须失败并要求开发者显式再生成。
 
@@ -90,7 +90,7 @@ v05 与 v04 必须并行构建、安装和审计：每个动态库精确 14 个�
 
 schema 2 测试必须冻结 `CardKind` 0～4、`Zone` 0～8、`ActionKind` 0～13、Leader／Permanent 目标，以及 `mode_id`、`choice_id`、有序 `selected_option_ids`、`additional_cost_cards` 的可选省略和 shape 拒绝。配置、查询和命令都拒绝未知字段；非法组合覆盖整张 action-field 矩阵且必须无副作用。双 viewer 快照与事件验证五格 `main_board`、三格 `tactics`、可选 `field`、隐藏手牌／伏策、独立游标和实时 seed 全树扫描。`PendingChoiceView` 对选择者公开短生命周期 option ID，对另一 viewer 只公开等待状态；等待期间选择者枚举 `ResolveChoice` 与投降，对方仍能投降，每个枚举行动都必须能在同 revision 的新会话中提交。错误 viewer、revision、choice、option、目标、格位或额外代价都必须无副作用。
 
-`Scgs.Client.V05` 的托管测试同时覆盖全部 14 个签名、冻结枚举、SafeHandle、绝对路径 resolver、严格 JSON/UTF-8、native/engine 错误分层、会话 revision/游标和真实 v05 动态库。`Scgs.Hotseat` 的产品选择状态必须把四种 `PendingChoiceKind` 映射为 `ChooseMode`、`ChooseCards`、`OrderTriggers`、`ChooseAdditionalCost`，并拒绝非选择者、重复 option、越界数量和过期选择。本轮 Godot 产品入口仍只加载 v04，因此 v05 测试绿不等于产品牌组 UI 已接通。
+`Scgs.Client.V05` 的托管测试同时覆盖全部 14 个签名、冻结枚举、SafeHandle、绝对路径 resolver、严格 JSON/UTF-8、native/engine 错误分层、会话 revision/游标和真实 v05 动态库。`Scgs.Hotseat` 的产品选择投影必须把四种 `PendingChoiceKind` 映射为 `ChooseMode`、`ChooseCards`、`OrderTriggers`、`ChooseAdditionalCost`，并拒绝向对手泄露私密候选或接受非法候选边界；重复 option、越界选择和过期选择分别由托管请求验证与 native 契约拒绝。本轮 Godot 产品入口仍只加载 v04，因此 v05 测试绿不等于产品牌组 UI 已接通。
 
 ### Gate 6A AnimeV1 视觉样片契约
 

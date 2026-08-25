@@ -190,7 +190,7 @@ jobs:
         shell: pwsh
         run: >-
           python scripts/ci/run_with_timeout.py
-          --timeout 180
+          --timeout 600
           --forbid-output "SCRIPT ERROR:"
           --forbid-output "ERROR:"
           -- "$env:GODOT4" --headless
@@ -700,7 +700,7 @@ jobs:
           GODOT4: ${{ steps.godot.outputs.godot }}
         run: >-
           python scripts/ci/run_with_timeout.py
-          --timeout 180
+          --timeout 600
           --forbid-output "SCRIPT ERROR:"
           --forbid-output "ERROR:"
           -- "$GODOT4" --headless

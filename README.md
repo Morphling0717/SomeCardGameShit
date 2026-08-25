@@ -2,7 +2,9 @@
 
 原创 1v1 数字卡牌游戏实验项目。C++20 规则引擎是唯一规则真值；正式客户端路线锁定为 **Godot 4.7.2 .NET** 的桌面单机热座版本。
 
-当前开发分支已完成 **Gate 4B-R3.1 无边界工业竞技场视觉切片** 的自动化与 Windows 候选包交付，等待用户主观批准。默认客户端仍保持已验收自动化的 Gate 4B-R2；只有双击候选包中的 `PLAY_R3_VISUAL_SLICE.cmd` 或显式传入 `--r3-visual-slice` 才进入 R3 候选。候选以连续工业地面、场外机械、浅凹槽格位、中性战术 HUD 和相机相对前景手牌替换 R2 的场地大框、半场色板与原型式构图，但不会改动规则、卡牌或 R2 golden。被测实现尖端 `3d4012f` 的 [CI run 32808917410](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32808917410) 已四项全绿；准确命令、取证、制品字节与 digest 见 [`TEST_REPORT.md`](TEST_REPORT.md)。
+当前分支是 **Gate 5A 誓卫／契术双职业成品牌组设计锁定**：以 `locked_not_implemented` 清单冻结两副 30 张主牌、各四张公开战备、四张共享中立、职业规则、能力差距和平衡目标。本 Gate 只增加设计数据、Schema、文档与校验，不修改 C++、C#、Godot、C ABI、schema 1 或 legacy wire；这些新牌现在还不能在客户端中游玩，纸面平衡目标也不等于实战验证结果。
+
+运行时视觉基线仍是 **Gate 4B-R3.1 无边界工业竞技场候选切片**。默认客户端保持 Gate 4B-R2；只有双击候选包中的 `PLAY_R3_VISUAL_SLICE.cmd` 或显式传入 `--r3-visual-slice` 才进入 R3 候选。候选不会改动当前规则、旧测试牌组或 R2 golden。被测实现尖端 `3d4012f` 的 [CI run 32808917410](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32808917410) 已四项全绿；Gate 5A 自身的真实验证结果只以 [`TEST_REPORT.md`](TEST_REPORT.md) 为准。
 
 R2 的 29 张临时卡图、卡背、菜单背景、未知卡通用正面和 2 张领袖头像仍是冻结的 34 项产品素材；R3.1 只新增 1 张独立候选地坪，并使用可由提交源码确定性重建的原创机械 GLB。R3 报告固定为 `pending_user_approval`；用户明确批准前，不会把候选推广为默认产品路径，也不会用三张视觉切片冒充完整对局表现已经迁移。
 
@@ -15,11 +17,15 @@ R2 的 29 张临时卡图、卡背、菜单背景、未知卡通用正面和 2 �
 - Godot 客户端架构：[`docs/godot-client-architecture.md`](docs/godot-client-architecture.md)
 - UI 状态图与隐私：[`docs/ui-state-map.md`](docs/ui-state-map.md)
 - 架构：[`docs/architecture.md`](docs/architecture.md)
+- Gate 5A 牌组设计：[`docs/product-decks-v1-design.md`](docs/product-decks-v1-design.md)
+- Gate 5A 能力差距：[`docs/product-decks-v1-capability-gap.md`](docs/product-decks-v1-capability-gap.md)
+- Gate 5A 动漫美术圣经：[`docs/product-decks-v1-art-bible.md`](docs/product-decks-v1-art-bible.md)
+- Gate 5A 锁定清单：[`design/product-decks-v1/card-pool.lock.json`](design/product-decks-v1/card-pool.lock.json)
 - 实测记录：[`TEST_REPORT.md`](TEST_REPORT.md)
 
 ## 当前范围
 
-引擎包含两副 30 张固定测试牌组，支持：
+引擎目前仍包含旧 `midrange`／`advance` 两副 30 张固定测试牌组；它们只是现有规则覆盖和客户端回归基线，不是 Gate 5A 锁定的产品牌组。下一规则 Gate 会先把覆盖迁入独立合成 fixture，再彻底删除旧牌组键、旧定义和旧卡图，不能把旧内容作为隐藏牌组保留。当前运行时支持：
 
 - 25 点主战者生命、起手与调度、手牌上限、封存和疲劳；
 - 无上限 PP 容量、当前 PP、预支、燃耗、裂痕、修复和增长；
@@ -41,7 +47,7 @@ R2 的 29 张临时卡图、卡背、菜单背景、未知卡通用正面和 2 �
 
 C ABI 不暴露 C++ 类、STL、异常或跨 CRT 内存。动态载荷使用调用方所有的两段式缓冲区，native 错误与规则错误分离，事件继续采用 `viewer + after_sequence` 的非破坏读取。完整契约见 [`docs/native-api-v04.md`](docs/native-api-v04.md)。
 
-Alpha 只承诺现有两副固定牌组的闭环。主战技 UI、普通主动能力、人工同时触发排序和固定牌组未使用关键词延后；同一玩家的同时触发暂按确定性场地顺序处理。
+当前可运行 Alpha 只承诺旧两副固定测试牌组的闭环。Gate 5A 的誓卫／契术牌组会在后续规则 Gate 整体替换它们；在那之前，主战技 UI、普通主动能力、人工同时触发排序和旧固定牌组未使用关键词仍按现有限制处理，同一玩家的同时触发暂按确定性场地顺序结算。
 
 Gate 4B-R2 保留 Gate 3C/4A 的确定性 signal 整局、重开、投降、空间拾取与隐私契约，并保留 Gate 4A.1 “法术落到己方空策略位”的规则。默认 3D 使用 authored 战场、相机相对前景手牌架和共享 screen-reading HUD shader；`Covered` 仍是唯一必须完全不透明的交接状态。
 
@@ -82,7 +88,7 @@ cmake --build --preset asan
 ctest --preset asan
 ```
 
-`SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认 `ON`。为保持既有 CMake/CI 基线，这个历史命名的开关当前注册整组 Python 契约测试，包括 legacy overlay/protocol、原生/Godot 导出、R2 34 项＋R3 候选 1 项视觉素材联合审计、子进程超时、Gate 3B/3C/4A 整局报告、Gate 4B-R2 视觉报告/golden 以及独立 R3.1 候选切片契约；开启时配置阶段必须找到 Python 3.10+，不能静默少注册。设为 `OFF` 会跳过整组 Python 契约，不能用这种构建宣称完成客户端验收。CMake 会按版本与 SHA-256 固定获取 JSON 依赖，不要求系统全局安装。
+`SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认 `ON`。为保持既有 CMake/CI 基线，这个历史命名的开关当前注册整组 Python 契约测试，包括 legacy overlay/protocol、原生/Godot 导出、R2 34 项＋R3 候选 1 项视觉素材联合审计、子进程超时、Gate 3B/3C/4A 整局报告、Gate 4B-R2 视觉报告/golden、独立 R3.1 候选切片及 Gate 5A 产品牌组设计契约；开启时配置阶段必须找到 Python 3.10+，不能静默少注册。设为 `OFF` 会跳过整组 Python 契约，不能用这种构建宣称完成客户端验收。CMake 会按版本与 SHA-256 固定获取 JSON 依赖，不要求系统全局安装。
 
 Gate 2 还可安装到暂存目录以检查真正的消费产物：
 
@@ -117,6 +123,7 @@ Godot 编辑器和导出包必须使用同一提交构建、审计并暂存的�
 ```text
 engine/          C++20 权威规则引擎、客户端安全 API、C ABI 与测试
 client/          Scgs.Client、Scgs.Hotseat、Godot 桌面客户端；YGOPro2 内容仅为历史参考
+design/          尚未实现的产品卡池锁定清单、Schema 与跨字段设计契约
 docs/            规则、架构、路线图、协议和交接文档
 scripts/         构建与压力测试脚本
 tools/           legacy overlay/协议契约工具

@@ -59,9 +59,24 @@ Gate 4B-R2 冻结产品集仍要求 `CardVisualCatalog` 对 29 个 definition �
 
 性能 smoke 固定为 300 帧预热 + 300 帧测量；预热后 actor/material/texture 计数不得增长，无论渲染器类型都不能豁免。报告记录 `adapter_name`、`adapter_type`、`timing_budget_applicable`、p95 与 max。硬件适配器要求 p95 不高于 33.3 ms、max 低于 100 ms；只有 CPU 或名称明确为 Microsoft Basic Render Driver、llvmpipe、SwiftShader/software renderer 的设备可以 `timing_budget_applicable=false`。这仅不应用 GPU 时间阈值，仍要求 16 状态、功能/隐私、600 帧和资源零增长全部通过。
 
+### Gate 5A 产品牌组设计契约
+
+`design/product-decks-v1/card-pool.lock.json` 是尚未落地运行时的产品设计真值，必须通过 `card-pool.schema.json` 约束的结构和 `scripts/ci/validate_product_decks_v1.py` 的跨字段语义校验。清单状态只能是 `locked_not_implemented`，使用字符串设计编号，不能偷渡 C++ `CardId`、数字枚举或“已经可玩”的声明。
+
+设计契约至少拒绝以下漂移：两副主牌不是各 30 张／15 种、同名超过 3 张、职业混入错误、四种共享中立不齐、战备不是各四张唯一牌、曜誓伏策投入不是两张、渊契出现伏策、34 种可构筑定义或一个衍生物数量不符、引用悬空、构筑／战备出现 0 费、恢复当前 PP、额外战备次数、自身检索循环，以及无隙／负契时序、裂痕读取上限、混合五格、独立场地和关键词语义缺失。
+
+这项测试只证明锁定文件内部一致且没有破坏现有工程。T2 职业内行动概率、T6/T10 连动可见率、曜誓 2～4／渊契 5～8 的裂痕峰值、两职业预支／修复范围、48～52% 胜率和赢家自身 T10～12 中位数都标记为未实测设计目标；必须等下一 Gate 真实实现、互换先后手模拟和真人对局后才能填写实测结果。
+
+可独立运行：
+
+```bash
+python scripts/ci/validate_product_decks_v1.py
+python -m unittest scripts.tests.test_validate_product_decks_v1
+```
+
 ### legacy 兼容性
 
-`scgs_wire_frozen_golden` 固定验证 v1 消息长度、字节序、消息 ID 和金标字节。历史命名的 `SCGS_ENABLE_LEGACY_YGO2_TESTS` 当前控制整组 Python CTest：legacy overlay/协议、原生/Godot 制品与“R2 34 项＋R3 候选 1 项”联合视觉素材审计、子进程超时、Gate 3B/3C/4A full-match、Gate 4B-R2 visual-suite/golden 以及独立 R3.1 候选切片契约。它默认开启；开启时 CMake 必须找到 Python 3.10+，不能静默只注册部分测试。关闭会跳过整组 Python 契约，因此不能用于客户端 Gate 验收。
+`scgs_wire_frozen_golden` 固定验证 v1 消息长度、字节序、消息 ID 和金标字节。历史命名的 `SCGS_ENABLE_LEGACY_YGO2_TESTS` 当前控制整组 Python CTest：legacy overlay/协议、原生/Godot 制品与“R2 34 项＋R3 候选 1 项”联合视觉素材审计、子进程超时、Gate 3B/3C/4A full-match、Gate 4B-R2 visual-suite/golden、独立 R3.1 候选切片契约，以及不依赖运行时的 Gate 5A 产品牌组设计契约。它默认开启；开启时 CMake 必须找到 Python 3.10+，不能静默只注册部分测试。关闭会跳过整组 Python 契约，因此不能用于客户端 Gate 验收。
 
 ### Gate 4B-R3.1 候选切片契约
 

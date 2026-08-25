@@ -241,6 +241,12 @@ if(SCGS_ENABLE_LEGACY_YGO2_TESTS)
             scripts.tests.test_r3_visual_slice
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
+    add_test(
+        NAME scgs_product_decks_v1_design_contract
+        COMMAND ${Python3_EXECUTABLE} -m unittest
+            scripts.tests.test_validate_product_decks_v1
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
 endif()
 
 install(

@@ -1,0 +1,1453 @@
+{
+  "$schema": "./card-pool.schema.json",
+  "schema_version": "1.0.0",
+  "status": "locked_not_implemented",
+  "design_id_policy": {
+    "kind": "string_design_ids",
+    "runtime_numeric_ids_frozen": false,
+    "statement": "本清单只锁定字符串设计编号；本轮不冻结 C++ CardId、数字枚举或 wire 数值。"
+  },
+  "implementation_scope": {
+    "gate": "Gate 5A",
+    "design_only": true,
+    "runtime_changes": false,
+    "art_generated": false,
+    "balance_validation": "paper_targets_only_not_playtested",
+    "public_interfaces_changed": false,
+    "forbidden_design_patterns": {
+      "zero_cost_cards": "forbidden",
+      "infinite_search": "forbidden",
+      "self_loop": "forbidden",
+      "extra_standby_uses": "forbidden",
+      "current_pp_restoration": "forbidden"
+    }
+  },
+  "format": {
+    "leader_health": 25,
+    "main_deck_size": 30,
+    "starting_hand_size": 4,
+    "hand_limit": 9,
+    "main_board_capacity": 5,
+    "strategy_zone_capacity": 3,
+    "standby_size": 4,
+    "same_name_main_limit": 3,
+    "pp_capacity_cap": null,
+    "future_use_limit_per_turn": 1
+  },
+  "professions": [
+    {
+      "profession_id": "oathguard",
+      "name_zh_cn": "誓卫",
+      "series_id": "luminous_oath",
+      "series_name_zh_cn": "曜誓骑士团",
+      "identity": "预支后积极清偿，以零裂痕、修复归零、守护、突进和屏障获得收益。",
+      "primary_mechanics": ["预支", "修复", "修复归零", "无隙", "守护", "突进", "屏障"],
+      "evolution_charge_id": "oathguard_first_repair_to_zero",
+      "leader_id": "leader-aurelia"
+    },
+    {
+      "profession_id": "pactmage",
+      "name_zh_cn": "契术",
+      "series_id": "abyssal_pact",
+      "series_name_zh_cn": "渊契魔导院",
+      "identity": "主动预支和燃耗，以裂痕阈值、必杀、吸血和疾驰换取节奏。",
+      "primary_mechanics": ["预支", "燃耗", "动用未来", "负契", "必杀", "吸血", "疾驰"],
+      "evolution_charge_id": "pactmage_first_two_cracks_from_hand",
+      "leader_id": "leader-theraea"
+    }
+  ],
+  "leaders": [
+    {
+      "leader_id": "leader-aurelia",
+      "profession_id": "oathguard",
+      "name": "曜誓圣王女·奥蕾莉亚",
+      "gameplay_role": "visual_identity_only_no_active_or_passive_skill",
+      "visual_brief": "成年女性，金白长发，苍蓝眼睛；白金分层盔甲兼具王族礼服轮廓，肩后展开非宗教性的日轮披风，武器为细长誓约剑与可闭合的环形护手。站姿稳定、目光冷静，手势像是在接受并确认承诺，而非高声煽动。主光为晨曦金，轮廓光为苍蓝。禁止王冠堆砌、圣女模板化祈祷姿势或与现有动漫角色相似的发饰。"
+    },
+    {
+      "leader_id": "leader-theraea",
+      "profession_id": "pactmage",
+      "name": "渊契院长·瑟蕾娅",
+      "gameplay_role": "visual_identity_only_no_active_or_passive_skill",
+      "visual_brief": "成年女性，紫黑长发，绯紫眼睛；不对称魔导院制服由短披肩、长尾外套和细金属束带构成，身侧漂浮多本无文字契书，右手操纵一条紫红裂隙。表情危险、自信、完全清楚代价。逆光为洋红，脸部保留冷白书页反光。禁止女巫帽、照搬学院制服、恶魔角和性化暴露剪裁。"
+    }
+  ],
+  "rules": {
+    "card_types": [
+      {
+        "card_type": "follower",
+        "canonical_definition": "随从占用己方五个主战场格之一，可以攻击、进化并成为攻击目标。"
+      },
+      {
+        "card_type": "spell",
+        "canonical_definition": "法术在等待响应和结算时正面占用己方一个策略格，结算完成后进入墓地。"
+      },
+      {
+        "card_type": "amulet",
+        "canonical_definition": "护符与随从共享己方五个主战场格；不能攻击、进化、被攻击或计作随从，但能被效果破坏。"
+      },
+      {
+        "card_type": "trap",
+        "canonical_definition": "伏策面朝下占用己方一个策略格，并在卡牌写明的响应窗口发动。"
+      },
+      {
+        "card_type": "field",
+        "canonical_definition": "每名玩家拥有一个独立场地格，双方场地可以同时存在；新场地替换己方旧场地。"
+      }
+    ],
+    "keywords": [
+      {
+        "keyword": "ward",
+        "name_zh_cn": "守护",
+        "canonical_definition": "必须优先成为攻击目标。"
+      },
+      {
+        "keyword": "rush",
+        "name_zh_cn": "突进",
+        "canonical_definition": "登场回合只能攻击随从。"
+      },
+      {
+        "keyword": "storm",
+        "name_zh_cn": "疾驰",
+        "canonical_definition": "登场回合可攻击随从或主战者。"
+      },
+      {
+        "keyword": "barrier",
+        "name_zh_cn": "屏障",
+        "canonical_definition": "下一次正数伤害变为0并移除，不叠层。",
+        "stackable": false
+      },
+      {
+        "keyword": "bane",
+        "name_zh_cn": "必杀",
+        "canonical_definition": "战斗中实际造成伤害后破坏对方随从。",
+        "actual_damage_only": true
+      },
+      {
+        "keyword": "lifesteal",
+        "name_zh_cn": "吸血",
+        "canonical_definition": "仅主动攻击造成的实际伤害治疗主战者；防守反击和效果伤害不治疗。",
+        "active_attack_only": true,
+        "actual_damage_only": true,
+        "defensive_damage_heals": false
+      }
+    ],
+    "ability_words": [
+      {
+        "ability_id": "flawless",
+        "name_zh_cn": "无隙",
+        "canonical_definition": "该能力结算时自己的裂痕为0；费用和预支先结算，因此预支使用的卡通常不能获得无隙奖励。",
+        "check_timing": "after_payment_and_burn",
+        "scaling_cap": null
+      },
+      {
+        "ability_id": "debtbound",
+        "name_zh_cn": "负契",
+        "canonical_definition": "负契 X：该能力结算时自己的裂痕不少于X；所有按裂痕计算的伤害或身材最多读取5点。",
+        "check_timing": "after_payment_and_burn",
+        "scaling_cap": 5
+      }
+    ],
+    "evolution_charge": [
+      {
+        "charge_id": "oathguard_first_repair_to_zero",
+        "profession_id": "oathguard",
+        "after_evolution_unlock_only": true,
+        "limit_per_turn_cycle": 1,
+        "canonical_definition": "进化解锁后，每个回合周期第一次实际修复最后一道裂痕时获得1点进化能量。"
+      },
+      {
+        "charge_id": "pactmage_first_two_cracks_from_hand",
+        "profession_id": "pactmage",
+        "after_evolution_unlock_only": true,
+        "limit_per_turn_cycle": 1,
+        "canonical_definition": "进化解锁后，每个回合周期第一次由单次手牌行动产生至少2道裂痕时获得1点进化能量。"
+      }
+    ],
+    "timing_and_zone_semantics": {
+      "main_board_capacity": 5,
+      "main_board_types": ["follower", "amulet"],
+      "main_board_full_rejects_new_permanent": true,
+      "amulet_attackable": false,
+      "amulet_can_attack": false,
+      "amulet_can_evolve": false,
+      "amulet_counts_as_follower": false,
+      "amulet_destroyable_by_effect": true,
+      "countdown_step": "after_owner_turn_draw",
+      "countdown_zero_sequence": "leave_play_then_resolve_countdown_end",
+      "countdown_zero_move_reason": "countdown_expired",
+      "countdown_zero_counts_as_destroyed": true,
+      "early_destruction_counts_as_countdown_end": false,
+      "field_zone_capacity_per_player": 1,
+      "field_zones_coexist": true,
+      "field_occupies_main_board": false,
+      "field_replacement_destination": "graveyard",
+      "field_replacement_counts_as_destroyed": false,
+      "strategy_zone_capacity": 3,
+      "strategy_zone_types": ["trap", "pending_spell"],
+      "archive_triggers_last_words": false,
+      "ability_condition_check_timing": "after_payment_and_burn",
+      "repair_cards_can_use_advance_to_evade_debt": false
+    },
+    "history_semantics": {
+      "lo_s03": {
+        "card_id": "LO-S03",
+        "scope": "match",
+        "event": "owned_luminous_oath_amulet_left_on_countdown_zero",
+        "minimum_occurrences": 1
+      },
+      "ap_s03": {
+        "card_id": "AP-S03",
+        "scope": "current_owner_turn",
+        "event": "owned_abyssal_pact_amulet_destroyed_on_countdown_zero",
+        "minimum_occurrences": 1
+      }
+    }
+  },
+  "capability_catalog": [
+    { "capability_id": "base_follower_play", "default_status": "existing", "description": "支付费用并将随从放入指定主战场格。" },
+    { "capability_id": "base_spell_play", "default_status": "existing", "description": "支付费用、选择目标、开放响应并结算法术。" },
+    { "capability_id": "base_trap_play", "default_status": "existing", "description": "将伏策设置到指定策略格并在合法窗口响应。" },
+    { "capability_id": "advance_payment", "default_status": "existing", "description": "用预支补足手牌行动费用并产生裂痕。" },
+    { "capability_id": "advance_prohibition_per_card", "default_status": "new", "description": "单张卡牌可明确禁止预支。" },
+    { "capability_id": "burn_payment", "default_status": "existing", "description": "燃耗永久降低 PP 容量并产生裂痕。" },
+    { "capability_id": "repair_cracks", "default_status": "existing", "description": "修复至多指定数量裂痕。" },
+    { "capability_id": "draw_cards", "default_status": "existing", "description": "从牌组抽取指定数量卡牌。" },
+    { "capability_id": "heal_leader", "default_status": "existing", "description": "回复己方主战者生命。" },
+    { "capability_id": "damage_enemy_follower", "default_status": "existing", "description": "对指定敌方随从造成伤害。" },
+    { "capability_id": "printed_ward", "default_status": "existing", "description": "印刷守护与攻击目标限制。" },
+    { "capability_id": "printed_rush", "default_status": "existing", "description": "印刷突进。" },
+    { "capability_id": "printed_storm", "default_status": "existing", "description": "印刷疾驰。" },
+    { "capability_id": "printed_barrier", "default_status": "fix", "description": "屏障仅吸收下一次正数伤害并移除。" },
+    { "capability_id": "printed_bane", "default_status": "existing", "description": "必杀在战斗实际造成伤害后破坏对方随从。" },
+    { "capability_id": "lifesteal_active_attack_only", "default_status": "fix", "description": "吸血只治疗主动攻击造成的实际伤害，不含反击和效果伤害。" },
+    { "capability_id": "on_entry_trigger", "default_status": "existing", "description": "随从或永久物登场时触发。" },
+    { "capability_id": "on_evolve_trigger", "default_status": "existing", "description": "随从进化时触发。" },
+    { "capability_id": "on_last_words_trigger", "default_status": "existing", "description": "随从被破坏进入墓地时触发遗言，封存不触发。" },
+    { "capability_id": "countdown_permanent", "default_status": "fix", "description": "倒数永久物迁移到随从与护符共享的主战场。" },
+    { "capability_id": "countdown_after_draw", "default_status": "existing", "description": "拥有者回合抽牌后统一处理倒数。" },
+    { "capability_id": "countdown_end_trigger", "default_status": "existing", "description": "倒数归零后离场并结算倒数结束。" },
+    { "capability_id": "attack_declaration_trap", "default_status": "existing", "description": "敌方宣布攻击时开放伏策窗口。" },
+    { "capability_id": "cancel_attack", "default_status": "existing", "description": "取消待结算攻击。" },
+    { "capability_id": "on_time_or_advanced_branch", "default_status": "existing", "description": "区分按期与超前登场效果。" },
+    { "capability_id": "temporary_rush", "default_status": "existing", "description": "赋予本回合突进。" },
+    { "capability_id": "buff_follower_stats", "default_status": "existing", "description": "给予指定己方随从攻击与生命修正。" },
+    { "capability_id": "standby_deployment", "default_status": "existing", "description": "从公开战备以费用和条件部署随从。" },
+    { "capability_id": "archive_follower_deployment_cost", "default_status": "existing", "description": "封存一个己方随从作为部署额外代价。" },
+    { "capability_id": "profession_series_neutral_tags", "default_status": "new", "description": "职业、系列和中立构筑标签与效果过滤。" },
+    { "capability_id": "filtered_top_deck_search", "default_status": "new", "description": "查看牌组顶若干张并按类型和系列筛选展示。" },
+    { "capability_id": "randomized_deck_bottom", "default_status": "new", "description": "将未选牌随机置于牌组底。" },
+    { "capability_id": "hand_to_deck_bottom", "default_status": "new", "description": "选择手牌并置于牌组底。" },
+    { "capability_id": "discard_from_hand", "default_status": "new", "description": "选择并弃置手牌到墓地。" },
+    { "capability_id": "summon_token_original_slot", "default_status": "new", "description": "永久物离场后在其原格召唤指定衍生随从。" },
+    { "capability_id": "amulet_main_board", "default_status": "fix", "description": "护符与随从共享五格主战场但保留非随从语义。" },
+    { "capability_id": "field_zone", "default_status": "new", "description": "每名玩家独立的单格场地区域。" },
+    { "capability_id": "field_replacement_without_destroy", "default_status": "new", "description": "新场地将己方旧场地送墓但不视为破坏。" },
+    { "capability_id": "destroy_amulet_or_field", "default_status": "new", "description": "效果可选择并破坏敌方护符或场地。" },
+    { "capability_id": "permanent_targeting", "default_status": "fix", "description": "统一选择随从、护符或场地等永久物目标。" },
+    { "capability_id": "modal_choice", "default_status": "new", "description": "提交命令时选择卡牌写明的互斥模式。" },
+    { "capability_id": "resolution_condition", "default_status": "new", "description": "支付和燃耗后在能力结算时检查无隙、负契等条件。" },
+    { "capability_id": "repair_to_zero_trigger", "default_status": "new", "description": "识别实际修复最后一道裂痕并触发奖励。" },
+    { "capability_id": "actual_repair_amount", "default_status": "new", "description": "效果读取该次实际移除的裂痕数。" },
+    { "capability_id": "dynamic_crack_threshold", "default_status": "new", "description": "结算时按当前裂痕判断负契阈值。" },
+    { "capability_id": "crack_scaling_cap_five", "default_status": "new", "description": "按裂痕计算的伤害或身材最多读取5点。" },
+    { "capability_id": "future_use_trigger", "default_status": "new", "description": "识别预支或燃耗造成的动用未来事件。" },
+    { "capability_id": "once_per_owner_turn_trigger", "default_status": "new", "description": "永久物每个拥有者回合限触发一次。" },
+    { "capability_id": "turn_history", "default_status": "new", "description": "记录本回合修复、裂痕、屏障与倒数等事件。" },
+    { "capability_id": "match_history", "default_status": "new", "description": "记录整局累计的修复归零和倒数归零等事件。" },
+    { "capability_id": "temporary_attack_buff", "default_status": "new", "description": "只在本回合增加攻击。" },
+    { "capability_id": "permanent_stat_buff", "default_status": "new", "description": "永久增加随从攻击和生命。" },
+    { "capability_id": "permanent_keyword_grant", "default_status": "fix", "description": "永久赋予屏障等运行时关键词。" },
+    { "capability_id": "conditional_draw", "default_status": "new", "description": "根据结算时条件改变抽牌数量或决定是否抽牌。" },
+    { "capability_id": "conditional_heal", "default_status": "new", "description": "根据修复归零或实际修复量决定治疗。" },
+    { "capability_id": "conditional_damage", "default_status": "new", "description": "根据裂痕阈值改变伤害。" },
+    { "capability_id": "conditional_countdown_change", "default_status": "new", "description": "满足卡牌条件时额外减少倒数。" },
+    { "capability_id": "combat_kill_survive_trigger", "default_status": "new", "description": "随从战斗破坏敌方随从且自身存活后的触发。" },
+    { "capability_id": "target_friendly_archetype_follower", "default_status": "new", "description": "选择指定系列的己方随从。" },
+    { "capability_id": "optional_enemy_follower_target", "default_status": "new", "description": "登场效果允许不选择敌方随从目标。" },
+    { "capability_id": "standby_custom_condition", "default_status": "fix", "description": "逐张战备使用事件、资源与场面组合条件。" },
+    { "capability_id": "archive_follower_or_amulet_cost", "default_status": "fix", "description": "封存己方同系列随从或护符作为部署代价。" },
+    { "capability_id": "profession_evolution_charge", "default_status": "fix", "description": "实现誓卫与契术各自的进化充能条件。" },
+    { "capability_id": "no_retroactive_self_trigger", "default_status": "new", "description": "永久物不追溯触发其入场前由自身费用产生的事件。" },
+    { "capability_id": "board_card_count_comparison", "default_status": "new", "description": "比较双方五格主战场的随从与护符总数。" },
+    { "capability_id": "field_identity_check", "default_status": "new", "description": "检查己方场地是否为指定设计定义。" },
+    { "capability_id": "draw_then_bottom_if_draw_succeeds", "default_status": "new", "description": "只有成功抽牌后才要求将一张手牌置于牌组底。" },
+    { "capability_id": "leader_damage_prohibition", "default_status": "existing", "description": "随从伤害目标严格排除主战者。" }
+  ],
+  "cards": [
+    {
+      "design_id": "LO-01",
+      "name": "曜誓传令使·菲娅",
+      "availability": "main",
+      "profession_id": "oathguard",
+      "series_id": "luminous_oath",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": 1,
+      "stats": { "attack": 1, "health": 1 },
+      "countdown": null,
+      "keywords": [],
+      "can_advance": true,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "1PP随从1/1。登场：查看牌组顶4张，可展示其中1张非随从“曜誓”牌加入手牌，其余随机置于牌组底。",
+      "deployment": null,
+      "art_summary": "年轻传令使从悬浮的四枚日轮文牒中选出一枚，另一手握翼形信筒；晨风吹动短披风，突出“查看四张、传递承诺”。",
+      "capability_requirements": [
+        { "capability_id": "base_follower_play", "status": "existing", "note": "使用现有随从费用、身材与登场流程。" },
+        { "capability_id": "profession_series_neutral_tags", "status": "new", "note": "筛选非随从曜誓牌需要系列与类型标签。" },
+        { "capability_id": "filtered_top_deck_search", "status": "new", "note": "查看顶4并可选至多1张符合条件的牌。" },
+        { "capability_id": "randomized_deck_bottom", "status": "new", "note": "未选择的牌须随机置于牌组底。" }
+      ]
+    },
+    {
+      "design_id": "LO-02",
+      "name": "曜誓偿愿祭司·米蕾",
+      "availability": "main",
+      "profession_id": "oathguard",
+      "series_id": "luminous_oath",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": 2,
+      "stats": { "attack": 2, "health": 2 },
+      "countdown": null,
+      "keywords": [],
+      "can_advance": false,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "2PP随从2/2，不能预支。登场：修复1；若此次修复使裂痕归零，主战者回复2。进化时：修复1。",
+      "deployment": null,
+      "art_summary": "铂金祭司以双手将断裂的蓝色光环重新扣合，碎裂能量回流到同伴；温柔但专注，不使用现实宗教标志。",
+      "capability_requirements": [
+        { "capability_id": "base_follower_play", "status": "existing", "note": "基础随从登场。" },
+        { "capability_id": "advance_prohibition_per_card", "status": "new", "note": "本牌明确不能预支。" },
+        { "capability_id": "repair_cracks", "status": "existing", "note": "登场与进化各修复1。" },
+        { "capability_id": "on_evolve_trigger", "status": "existing", "note": "使用现有进化时机。" },
+        { "capability_id": "repair_to_zero_trigger", "status": "new", "note": "治疗只在此次修复使裂痕归零时触发。" },
+        { "capability_id": "conditional_heal", "status": "new", "note": "满足归零条件后治疗2。" }
+      ]
+    },
+    {
+      "design_id": "LO-03",
+      "name": "晨钟誓碑",
+      "availability": "main",
+      "profession_id": "oathguard",
+      "series_id": "luminous_oath",
+      "neutral": false,
+      "card_type": "amulet",
+      "play_cost_pp": 2,
+      "stats": null,
+      "countdown": 3,
+      "keywords": [],
+      "can_advance": false,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "2PP护符，倒数3，不能预支。登场：修复1。每个自己的回合限一次，裂痕因修复归零时倒数额外-1。倒数结束：在原格召唤3/3守护的“誓光守卫”。",
+      "deployment": null,
+      "art_summary": "清晨庭院中的高大环形钟碑，三层光刻度逐级亮起，底座预示守卫轮廓；画面主体是可留场的建筑物。",
+      "capability_requirements": [
+        { "capability_id": "amulet_main_board", "status": "fix", "note": "护符与随从共享五格主战场。" },
+        { "capability_id": "countdown_permanent", "status": "fix", "note": "现有倒数设施需迁移到护符语义。" },
+        { "capability_id": "countdown_after_draw", "status": "existing", "note": "倒数固定在拥有者抽牌后处理。" },
+        { "capability_id": "advance_prohibition_per_card", "status": "new", "note": "本牌明确不能预支。" },
+        { "capability_id": "repair_cracks", "status": "existing", "note": "登场修复1。" },
+        { "capability_id": "repair_to_zero_trigger", "status": "new", "note": "监听修复使裂痕归零。" },
+        { "capability_id": "once_per_owner_turn_trigger", "status": "new", "note": "额外倒数每个自己的回合限一次。" },
+        { "capability_id": "conditional_countdown_change", "status": "new", "note": "归零时倒数额外-1。" },
+        { "capability_id": "summon_token_original_slot", "status": "new", "note": "倒数结束后在原格召唤誓光守卫。" }
+      ]
+    },
+    {
+      "design_id": "LO-04",
+      "name": "曜誓盾侍·格兰",
+      "availability": "main",
+      "profession_id": "oathguard",
+      "series_id": "luminous_oath",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": 2,
+      "stats": { "attack": 2, "health": 2 },
+      "countdown": null,
+      "keywords": ["ward"],
+      "can_advance": true,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "2PP随从2/2，守护。登场—无隙：获得屏障。",
+      "deployment": null,
+      "art_summary": "少年盾侍半跪举起圆环塔盾，完整蓝金光膜贴盾展开；紧凑正面轮廓表现守护与屏障。",
+      "capability_requirements": [
+        { "capability_id": "base_follower_play", "status": "existing", "note": "基础随从登场。" },
+        { "capability_id": "printed_ward", "status": "existing", "note": "印刷守护。" },
+        { "capability_id": "resolution_condition", "status": "new", "note": "支付后检查无隙。" },
+        { "capability_id": "permanent_keyword_grant", "status": "fix", "note": "无隙时获得屏障。" },
+        { "capability_id": "printed_barrier", "status": "fix", "note": "运行时屏障须严格遵守正数伤害与不叠层语义。" }
+      ]
+    },
+    {
+      "design_id": "LO-05",
+      "name": "日轮突骑·希尔妲",
+      "availability": "main",
+      "profession_id": "oathguard",
+      "series_id": "luminous_oath",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": 3,
+      "stats": { "attack": 3, "health": 2 },
+      "countdown": null,
+      "keywords": ["rush"],
+      "can_advance": true,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "3PP随从3/2，突进。登场：若本回合实际修复过裂痕，获得+1/+1。",
+      "deployment": null,
+      "art_summary": "女骑手驾驭轻甲陆行兽从侧面切入，日轮枪尖越过修复完毕的光轨；姿态前冲，背景留出速度方向。",
+      "capability_requirements": [
+        { "capability_id": "base_follower_play", "status": "existing", "note": "基础随从登场。" },
+        { "capability_id": "printed_rush", "status": "existing", "note": "印刷突进。" },
+        { "capability_id": "turn_history", "status": "new", "note": "检查本回合是否实际修复过裂痕。" },
+        { "capability_id": "permanent_stat_buff", "status": "new", "note": "满足条件永久+1/+1。" }
+      ]
+    },
+    {
+      "design_id": "LO-06",
+      "name": "归誓圣仪",
+      "availability": "main",
+      "profession_id": "oathguard",
+      "series_id": "luminous_oath",
+      "neutral": false,
+      "card_type": "spell",
+      "play_cost_pp": 3,
+      "stats": null,
+      "countdown": null,
+      "keywords": [],
+      "can_advance": false,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "3PP法术，不能预支。修复2；若此次修复使裂痕归零，抽1张牌。",
+      "deployment": null,
+      "art_summary": "两段断开的誓约环在仪式台上归一，裂隙被金蓝光缝合并迸出一枚新文牒；无人物或只留手部剪影。",
+      "capability_requirements": [
+        { "capability_id": "base_spell_play", "status": "existing", "note": "基础法术结算。" },
+        { "capability_id": "advance_prohibition_per_card", "status": "new", "note": "本牌明确不能预支。" },
+        { "capability_id": "repair_cracks", "status": "existing", "note": "修复2。" },
+        { "capability_id": "repair_to_zero_trigger", "status": "new", "note": "检查此次修复是否归零。" },
+        { "capability_id": "conditional_draw", "status": "new", "note": "归零后抽1。" }
+      ]
+    },
+    {
+      "design_id": "LO-07",
+      "name": "曜誓·不破阵",
+      "availability": "main",
+      "profession_id": "oathguard",
+      "series_id": "luminous_oath",
+      "neutral": false,
+      "card_type": "trap",
+      "play_cost_pp": 2,
+      "stats": null,
+      "countdown": null,
+      "keywords": [],
+      "can_advance": false,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "2PP伏策，不能预支。敌方宣布攻击时：修复1；随后若无隙，取消该次攻击。",
+      "deployment": null,
+      "art_summary": "三名盾卫在攻击落下前闭合半透明盾墙，最后一道裂纹同步熄灭；表现“先修复、再取消”，不画已被击败的敌人。",
+      "capability_requirements": [
+        { "capability_id": "base_trap_play", "status": "existing", "note": "使用现有伏策设置与响应栈。" },
+        { "capability_id": "advance_prohibition_per_card", "status": "new", "note": "本牌明确不能预支。" },
+        { "capability_id": "attack_declaration_trap", "status": "existing", "note": "敌方攻击宣布时响应。" },
+        { "capability_id": "repair_cracks", "status": "existing", "note": "响应先修复1。" },
+        { "capability_id": "resolution_condition", "status": "new", "note": "修复后再检查无隙。" },
+        { "capability_id": "cancel_attack", "status": "existing", "note": "无隙时取消原攻击。" }
+      ]
+    },
+    {
+      "design_id": "LO-08",
+      "name": "曜誓破阵骑·莱昂",
+      "availability": "main",
+      "profession_id": "oathguard",
+      "series_id": "luminous_oath",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": 5,
+      "stats": { "attack": 4, "health": 4 },
+      "countdown": null,
+      "keywords": ["rush"],
+      "can_advance": true,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "5PP随从4/4，突进。每回合限一次，本牌战斗破坏敌方随从且存活后修复1；若裂痕因此归零，获得屏障。",
+      "deployment": null,
+      "art_summary": "重甲骑士刚击破敌阵仍站立，破损护甲被新生光膜覆盖；长枪与碎盾构成斜线，强调击杀后存活。",
+      "capability_requirements": [
+        { "capability_id": "base_follower_play", "status": "existing", "note": "基础随从登场。" },
+        { "capability_id": "printed_rush", "status": "existing", "note": "印刷突进。" },
+        { "capability_id": "combat_kill_survive_trigger", "status": "new", "note": "本牌击杀敌方随从且存活后触发。" },
+        { "capability_id": "once_per_owner_turn_trigger", "status": "new", "note": "修复触发每回合限一次。" },
+        { "capability_id": "repair_cracks", "status": "existing", "note": "触发时修复1。" },
+        { "capability_id": "repair_to_zero_trigger", "status": "new", "note": "检查该次修复是否归零。" },
+        { "capability_id": "permanent_keyword_grant", "status": "fix", "note": "归零后获得屏障。" }
+      ]
+    },
+    {
+      "design_id": "LO-09",
+      "name": "曜誓大司祭·伊莲",
+      "availability": "main",
+      "profession_id": "oathguard",
+      "series_id": "luminous_oath",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": 6,
+      "stats": { "attack": 4, "health": 6 },
+      "countdown": null,
+      "keywords": ["ward"],
+      "can_advance": false,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "6PP随从4/6，守护，不能预支。登场：修复2，主战者回复等同于实际修复量；若裂痕归零，获得屏障。",
+      "deployment": null,
+      "art_summary": "成熟大司祭在伤员前展开两层日轮结界，白金法杖把紫色裂痕转为治疗光；庄严、强壮而非脆弱。",
+      "capability_requirements": [
+        { "capability_id": "base_follower_play", "status": "existing", "note": "基础随从登场。" },
+        { "capability_id": "printed_ward", "status": "existing", "note": "印刷守护。" },
+        { "capability_id": "advance_prohibition_per_card", "status": "new", "note": "本牌明确不能预支。" },
+        { "capability_id": "repair_cracks", "status": "existing", "note": "登场修复2。" },
+        { "capability_id": "actual_repair_amount", "status": "new", "note": "治疗量等于实际修复量。" },
+        { "capability_id": "conditional_heal", "status": "new", "note": "按实际修复量治疗。" },
+        { "capability_id": "repair_to_zero_trigger", "status": "new", "note": "修复归零后获得屏障。" },
+        { "capability_id": "permanent_keyword_grant", "status": "fix", "note": "归零后获得屏障。" }
+      ]
+    },
+    {
+      "design_id": "LO-10",
+      "name": "日轮圣庭·索拉里斯",
+      "availability": "main",
+      "profession_id": "oathguard",
+      "series_id": "luminous_oath",
+      "neutral": false,
+      "card_type": "field",
+      "play_cost_pp": 3,
+      "stats": null,
+      "countdown": null,
+      "keywords": [],
+      "can_advance": true,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "3PP场地。每个自己的回合第一次实际修复裂痕后，选择一个己方“曜誓”随从+1/+1；若此时无隙，再使其获得屏障。",
+      "deployment": null,
+      "art_summary": "高耸白金圣庭围绕无文字日轮纹章展开，蓝色水道般的能量流向中央随从台；使用纵深建筑构图。",
+      "capability_requirements": [
+        { "capability_id": "field_zone", "status": "new", "note": "场地进入己方独立场地格。" },
+        { "capability_id": "field_replacement_without_destroy", "status": "new", "note": "新场地替换旧场地时不算破坏。" },
+        { "capability_id": "profession_series_neutral_tags", "status": "new", "note": "目标必须是曜誓随从。" },
+        { "capability_id": "once_per_owner_turn_trigger", "status": "new", "note": "每个自己的回合第一次实际修复后触发。" },
+        { "capability_id": "target_friendly_archetype_follower", "status": "new", "note": "选择一个己方曜誓随从。" },
+        { "capability_id": "permanent_stat_buff", "status": "new", "note": "目标永久+1/+1。" },
+        { "capability_id": "resolution_condition", "status": "new", "note": "增益后检查无隙。" },
+        { "capability_id": "permanent_keyword_grant", "status": "fix", "note": "无隙时赋予屏障。" }
+      ]
+    },
+    {
+      "design_id": "LO-11",
+      "name": "曜誓大团长·蕾奥妮",
+      "availability": "main",
+      "profession_id": "oathguard",
+      "series_id": "luminous_oath",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": 10,
+      "stats": { "attack": 8, "health": 8 },
+      "countdown": null,
+      "keywords": ["ward"],
+      "can_advance": true,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "10PP随从8/8，守护。登场：若按期打出且无隙，获得疾驰与屏障；否则获得突进。",
+      "deployment": null,
+      "art_summary": "金白长发的大团长骑乘装甲天马从闭合日轮中直冲前方，环盾与长剑同时可读；8/8 终结者但不与主战者奥蕾莉亚混同。",
+      "capability_requirements": [
+        { "capability_id": "base_follower_play", "status": "existing", "note": "基础随从登场。" },
+        { "capability_id": "printed_ward", "status": "existing", "note": "印刷守护。" },
+        { "capability_id": "on_time_or_advanced_branch", "status": "existing", "note": "区分按期与超前。" },
+        { "capability_id": "resolution_condition", "status": "new", "note": "支付后同时检查按期与无隙。" },
+        { "capability_id": "permanent_keyword_grant", "status": "fix", "note": "按分支赋予疾驰、屏障或突进。" },
+        { "capability_id": "printed_storm", "status": "existing", "note": "现有疾驰攻击限制可复用为运行时关键词。" },
+        { "capability_id": "temporary_rush", "status": "existing", "note": "失败分支获得突进。" }
+      ]
+    },
+    {
+      "design_id": "LO-S01",
+      "name": "曜誓援军长·凯因",
+      "availability": "standby",
+      "profession_id": "oathguard",
+      "series_id": "luminous_oath",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": null,
+      "stats": { "attack": 2, "health": 3 },
+      "countdown": null,
+      "keywords": ["ward"],
+      "can_advance": false,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "2/3守护。部署费2；条件为本回合实际修复过裂痕。登场—无隙：另一个己方随从+1/+1。",
+      "deployment": {
+        "pp_cost": 2,
+        "condition_text": "本回合实际修复过裂痕。",
+        "additional_cost_text": null,
+        "advance_allowed": false
+      },
+      "art_summary": "结实的援军长把备用圆盾递给另一名骑士，自己守在画面前景；突出公开增援与“另一个随从”受益。",
+      "capability_requirements": [
+        { "capability_id": "standby_deployment", "status": "existing", "note": "公开战备部署与费用流程可复用。" },
+        { "capability_id": "standby_custom_condition", "status": "fix", "note": "条件读取本回合实际修复历史。" },
+        { "capability_id": "printed_ward", "status": "existing", "note": "印刷守护。" },
+        { "capability_id": "resolution_condition", "status": "new", "note": "登场时检查无隙。" },
+        { "capability_id": "buff_follower_stats", "status": "existing", "note": "另一个己方随从+1/+1。" }
+      ]
+    },
+    {
+      "design_id": "LO-S02",
+      "name": "破晓处刑骑·维奥娜",
+      "availability": "standby",
+      "profession_id": "oathguard",
+      "series_id": "luminous_oath",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": null,
+      "stats": { "attack": 4, "health": 3 },
+      "countdown": null,
+      "keywords": ["rush"],
+      "can_advance": false,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "4/3突进。部署费3；条件为本回合己方“曜誓”随从获得过屏障。战斗破坏随从且存活后，每回合限一次修复1。",
+      "deployment": {
+        "pp_cost": 3,
+        "condition_text": "本回合己方“曜誓”随从获得过屏障。",
+        "additional_cost_text": null,
+        "advance_allowed": false
+      },
+      "art_summary": "黑白双层轻甲女骑士在破晓光线中完成精准横斩，身后屏障碎片汇成修复光；快速且克制。",
+      "capability_requirements": [
+        { "capability_id": "standby_deployment", "status": "existing", "note": "公开战备部署。" },
+        { "capability_id": "standby_custom_condition", "status": "fix", "note": "条件读取曜誓随从本回合获得屏障事件。" },
+        { "capability_id": "printed_rush", "status": "existing", "note": "印刷突进。" },
+        { "capability_id": "combat_kill_survive_trigger", "status": "new", "note": "战斗击杀且存活后触发。" },
+        { "capability_id": "once_per_owner_turn_trigger", "status": "new", "note": "修复每回合限一次。" },
+        { "capability_id": "repair_cracks", "status": "existing", "note": "触发修复1。" }
+      ]
+    },
+    {
+      "design_id": "LO-S03",
+      "name": "圣碑巨像·阿德拉斯",
+      "availability": "standby",
+      "profession_id": "oathguard",
+      "series_id": "luminous_oath",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": null,
+      "stats": { "attack": 5, "health": 7 },
+      "countdown": null,
+      "keywords": ["ward", "barrier"],
+      "can_advance": false,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "5/7守护、屏障。部署费4；条件为本局己方“曜誓”护符至少一次因倒数归零离场。",
+      "deployment": {
+        "pp_cost": 4,
+        "condition_text": "本局己方“曜誓”护符至少一次因倒数归零离场。",
+        "additional_cost_text": null,
+        "advance_allowed": false
+      },
+      "art_summary": "由多块晨钟石碑拼合的高大守卫巨像，胸口完整日轮、肩部覆盖蓝色屏障；比例巨大但轮廓简洁。",
+      "capability_requirements": [
+        { "capability_id": "standby_deployment", "status": "existing", "note": "公开战备部署。" },
+        { "capability_id": "standby_custom_condition", "status": "fix", "note": "条件读取整局曜誓护符倒数归零离场历史。" },
+        { "capability_id": "match_history", "status": "new", "note": "记录本局至少一次符合事件。" },
+        { "capability_id": "printed_ward", "status": "existing", "note": "印刷守护。" },
+        { "capability_id": "printed_barrier", "status": "fix", "note": "印刷屏障须使用正数伤害语义。" }
+      ]
+    },
+    {
+      "design_id": "LO-S04",
+      "name": "曜冠天马骑·塞蕾涅",
+      "availability": "standby",
+      "profession_id": "oathguard",
+      "series_id": "luminous_oath",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": null,
+      "stats": { "attack": 6, "health": 6 },
+      "countdown": null,
+      "keywords": ["storm"],
+      "can_advance": false,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "6/6疾驰。部署费9；条件为当前无裂痕且本局至少两次因修复使裂痕归零。",
+      "deployment": {
+        "pp_cost": 9,
+        "condition_text": "当前无裂痕且本局至少两次因修复使裂痕归零。",
+        "additional_cost_text": null,
+        "advance_allowed": false
+      },
+      "art_summary": "戴环形曜冠的天马骑士自云层俯冲，六翼不是羽毛而是白金光板；远处出现两枚已经闭合的裂痕圆环。",
+      "capability_requirements": [
+        { "capability_id": "standby_deployment", "status": "existing", "note": "公开战备部署。" },
+        { "capability_id": "standby_custom_condition", "status": "fix", "note": "条件组合当前零裂痕与整局归零次数。" },
+        { "capability_id": "match_history", "status": "new", "note": "累计修复使裂痕归零次数。" },
+        { "capability_id": "printed_storm", "status": "existing", "note": "印刷疾驰。" }
+      ]
+    },
+    {
+      "design_id": "AP-01",
+      "name": "渊契使魔·墨契",
+      "availability": "main",
+      "profession_id": "pactmage",
+      "series_id": "abyssal_pact",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": 1,
+      "stats": { "attack": 1, "health": 2 },
+      "countdown": null,
+      "keywords": [],
+      "can_advance": true,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "1PP随从1/2。遗言—负契2：抽1张牌。封存不触发遗言。",
+      "deployment": null,
+      "art_summary": "小型黑墨兽从展开的契书边缘爬出，身体像猫与书签的原创结合，尾巴分成两道发光契约线；可爱中带狡黠。",
+      "capability_requirements": [
+        { "capability_id": "base_follower_play", "status": "existing", "note": "基础随从登场。" },
+        { "capability_id": "on_last_words_trigger", "status": "existing", "note": "被破坏才触发，封存不触发。" },
+        { "capability_id": "dynamic_crack_threshold", "status": "new", "note": "遗言结算时检查负契2。" },
+        { "capability_id": "conditional_draw", "status": "new", "note": "满足负契2后抽1。" }
+      ]
+    },
+    {
+      "design_id": "AP-02",
+      "name": "借时优等生·伊蕾娜",
+      "availability": "main",
+      "profession_id": "pactmage",
+      "series_id": "abyssal_pact",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": 2,
+      "stats": { "attack": 2, "health": 2 },
+      "countdown": null,
+      "keywords": [],
+      "can_advance": true,
+      "burn_pp_capacity": 1,
+      "canonical_rules_text": "2PP随从2/2，燃耗1。登场：若己方场地为“渊契魔导院”，获得屏障。",
+      "deployment": null,
+      "art_summary": "短发学生借由悬浮刻度盘把未来一秒拉到掌心，校服外覆盖透明紫色屏障；姿态自信，不使用现实学校徽章。",
+      "capability_requirements": [
+        { "capability_id": "base_follower_play", "status": "existing", "note": "基础随从登场。" },
+        { "capability_id": "burn_payment", "status": "existing", "note": "燃耗1作为支付成本。" },
+        { "capability_id": "field_identity_check", "status": "new", "note": "检查己方场地是否为渊契魔导院·零时讲堂。" },
+        { "capability_id": "permanent_keyword_grant", "status": "fix", "note": "满足条件后获得屏障。" },
+        { "capability_id": "printed_barrier", "status": "fix", "note": "运行时屏障遵守正数伤害语义。" }
+      ]
+    },
+    {
+      "design_id": "AP-03",
+      "name": "契式·违约穿刺",
+      "availability": "main",
+      "profession_id": "pactmage",
+      "series_id": "abyssal_pact",
+      "neutral": false,
+      "card_type": "spell",
+      "play_cost_pp": 2,
+      "stats": null,
+      "countdown": null,
+      "keywords": [],
+      "can_advance": true,
+      "burn_pp_capacity": 1,
+      "canonical_rules_text": "2PP法术，燃耗1。对敌方随从造成3点伤害；负契4改为5点。",
+      "deployment": null,
+      "art_summary": "一支由红紫契约线折成的长枪穿透敌方护甲投影，身后四道裂隙逐级点亮；画面强调单体法术冲击。",
+      "capability_requirements": [
+        { "capability_id": "base_spell_play", "status": "existing", "note": "基础目标法术。" },
+        { "capability_id": "burn_payment", "status": "existing", "note": "燃耗1先于条件结算。" },
+        { "capability_id": "damage_enemy_follower", "status": "existing", "note": "对敌方随从造成伤害。" },
+        { "capability_id": "dynamic_crack_threshold", "status": "new", "note": "燃耗后检查负契4。" },
+        { "capability_id": "conditional_damage", "status": "new", "note": "伤害由3改为5。" },
+        { "capability_id": "leader_damage_prohibition", "status": "existing", "note": "目标严格限制为敌方随从。" }
+      ]
+    },
+    {
+      "design_id": "AP-04",
+      "name": "未偿禁书《第七码》",
+      "availability": "main",
+      "profession_id": "pactmage",
+      "series_id": "abyssal_pact",
+      "neutral": false,
+      "card_type": "amulet",
+      "play_cost_pp": 1,
+      "stats": null,
+      "countdown": 3,
+      "keywords": [],
+      "can_advance": true,
+      "burn_pp_capacity": 1,
+      "canonical_rules_text": "1PP护符，燃耗1，倒数3。已在场时，每个自己的回合第一次动用未来后倒数-1。倒数结束：抽1；负契4改为抽2。本牌不会追溯触发自身入场前的燃耗。",
+      "deployment": null,
+      "art_summary": "黑紫禁书被七枚不同形状的金属锁环悬在空中，第三层倒数刻度即将断开；封面无文字、无眼形图案。",
+      "capability_requirements": [
+        { "capability_id": "amulet_main_board", "status": "fix", "note": "护符进入五格主战场。" },
+        { "capability_id": "burn_payment", "status": "existing", "note": "入场支付燃耗1。" },
+        { "capability_id": "countdown_permanent", "status": "fix", "note": "现有倒数设施迁移为主战场护符。" },
+        { "capability_id": "countdown_after_draw", "status": "existing", "note": "基础倒数在抽牌后处理。" },
+        { "capability_id": "future_use_trigger", "status": "new", "note": "在场期间监听动用未来。" },
+        { "capability_id": "once_per_owner_turn_trigger", "status": "new", "note": "额外-1每个自己的回合限一次。" },
+        { "capability_id": "no_retroactive_self_trigger", "status": "new", "note": "不追溯自身入场前支付的燃耗。" },
+        { "capability_id": "dynamic_crack_threshold", "status": "new", "note": "倒数结束时检查负契4。" },
+        { "capability_id": "conditional_draw", "status": "new", "note": "抽牌数由1改为2。" }
+      ]
+    },
+    {
+      "design_id": "AP-05",
+      "name": "渊契魔导院·零时讲堂",
+      "availability": "main",
+      "profession_id": "pactmage",
+      "series_id": "abyssal_pact",
+      "neutral": false,
+      "card_type": "field",
+      "play_cost_pp": 3,
+      "stats": null,
+      "countdown": null,
+      "keywords": [],
+      "can_advance": true,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "3PP场地。打出时抽1，然后将1张手牌置于牌组底；每个自己的回合第一次动用未来后再执行一次。未成功抽牌时不强制置底。",
+      "deployment": null,
+      "art_summary": "巨大阶梯讲堂在零点冻结，书页从前排沿紫色时间轨道飞向后排；一张沉入画面最深处，表现抽一置底。",
+      "capability_requirements": [
+        { "capability_id": "field_zone", "status": "new", "note": "进入己方独立场地格。" },
+        { "capability_id": "field_replacement_without_destroy", "status": "new", "note": "替换旧场地不算破坏。" },
+        { "capability_id": "draw_cards", "status": "existing", "note": "打出与触发时抽1。" },
+        { "capability_id": "hand_to_deck_bottom", "status": "new", "note": "成功抽牌后选择1张手牌置底。" },
+        { "capability_id": "draw_then_bottom_if_draw_succeeds", "status": "new", "note": "抽牌失败时不要求置底。" },
+        { "capability_id": "future_use_trigger", "status": "new", "note": "监听每回合第一次动用未来。" },
+        { "capability_id": "once_per_owner_turn_trigger", "status": "new", "note": "重复执行每个自己的回合限一次。" }
+      ]
+    },
+    {
+      "design_id": "AP-06",
+      "name": "债印风纪官·赛菈",
+      "availability": "main",
+      "profession_id": "pactmage",
+      "series_id": "abyssal_pact",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": 3,
+      "stats": { "attack": 3, "health": 2 },
+      "countdown": null,
+      "keywords": ["bane"],
+      "can_advance": true,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "3PP随从3/2，必杀。登场—负契2：本回合获得突进。",
+      "deployment": null,
+      "art_summary": "高挑风纪官持细长契刃划出致命红线，制服胸前两枚债印发亮；前倾步伐表现临时突进，神态严厉。",
+      "capability_requirements": [
+        { "capability_id": "base_follower_play", "status": "existing", "note": "基础随从登场。" },
+        { "capability_id": "printed_bane", "status": "existing", "note": "印刷必杀。" },
+        { "capability_id": "dynamic_crack_threshold", "status": "new", "note": "支付后检查负契2。" },
+        { "capability_id": "temporary_rush", "status": "existing", "note": "满足条件后本回合获得突进。" }
+      ]
+    },
+    {
+      "design_id": "AP-07",
+      "name": "黑蔷薇校医·维奥拉",
+      "availability": "main",
+      "profession_id": "pactmage",
+      "series_id": "abyssal_pact",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": 4,
+      "stats": { "attack": 3, "health": 5 },
+      "countdown": null,
+      "keywords": ["lifesteal"],
+      "can_advance": true,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "4PP随从3/5，吸血。超前：本回合获得突进。",
+      "deployment": null,
+      "art_summary": "校医用黑蔷薇形注能器从敌人伤口抽取红光并回灌治疗瓶；保持非血腥，重心向前表示主动攻击吸血。",
+      "capability_requirements": [
+        { "capability_id": "base_follower_play", "status": "existing", "note": "基础随从登场。" },
+        { "capability_id": "lifesteal_active_attack_only", "status": "fix", "note": "只治疗主动攻击造成的实际伤害。" },
+        { "capability_id": "on_time_or_advanced_branch", "status": "existing", "note": "识别超前登场。" },
+        { "capability_id": "temporary_rush", "status": "existing", "note": "超前时本回合获得突进。" }
+      ]
+    },
+    {
+      "design_id": "AP-08",
+      "name": "契式·延期清算",
+      "availability": "main",
+      "profession_id": "pactmage",
+      "series_id": "abyssal_pact",
+      "neutral": false,
+      "card_type": "spell",
+      "play_cost_pp": 3,
+      "stats": null,
+      "countdown": null,
+      "keywords": [],
+      "can_advance": false,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "3PP法术，不能预支。选择：修复2；或使一个己方“渊契”随从永久+2/+2并获得屏障。",
+      "deployment": null,
+      "art_summary": "契约天平一侧缝合两道裂隙，另一侧为随从披上强化甲与屏障；清晰二分构图表现模式选择。",
+      "capability_requirements": [
+        { "capability_id": "base_spell_play", "status": "existing", "note": "基础法术结算。" },
+        { "capability_id": "advance_prohibition_per_card", "status": "new", "note": "本牌明确不能预支。" },
+        { "capability_id": "modal_choice", "status": "new", "note": "选择修复或强化两种互斥模式。" },
+        { "capability_id": "repair_cracks", "status": "existing", "note": "修复模式修复2。" },
+        { "capability_id": "target_friendly_archetype_follower", "status": "new", "note": "强化模式目标为己方渊契随从。" },
+        { "capability_id": "permanent_stat_buff", "status": "new", "note": "目标永久+2/+2。" },
+        { "capability_id": "permanent_keyword_grant", "status": "fix", "note": "目标获得屏障。" }
+      ]
+    },
+    {
+      "design_id": "AP-09",
+      "name": "带债讲师·雷维尔",
+      "availability": "main",
+      "profession_id": "pactmage",
+      "series_id": "abyssal_pact",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": 5,
+      "stats": { "attack": 4, "health": 5 },
+      "countdown": null,
+      "keywords": [],
+      "can_advance": true,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "5PP随从4/5。按期登场：修复1并获得屏障。超前登场：抽2弃1，并在本回合获得突进。",
+      "deployment": null,
+      "art_summary": "冷静讲师在讲台前同时展开“整齐结算”和“撕开未来”两组无字契页，后者伴随两页飞入、一页坠落。",
+      "capability_requirements": [
+        { "capability_id": "base_follower_play", "status": "existing", "note": "基础随从登场。" },
+        { "capability_id": "on_time_or_advanced_branch", "status": "existing", "note": "区分按期与超前登场。" },
+        { "capability_id": "repair_cracks", "status": "existing", "note": "按期修复1。" },
+        { "capability_id": "permanent_keyword_grant", "status": "fix", "note": "按期获得屏障。" },
+        { "capability_id": "draw_cards", "status": "existing", "note": "超前抽2。" },
+        { "capability_id": "discard_from_hand", "status": "new", "note": "超前抽牌后弃1。" },
+        { "capability_id": "temporary_rush", "status": "existing", "note": "超前本回合获得突进。" }
+      ]
+    },
+    {
+      "design_id": "AP-10",
+      "name": "债权吞噬兽·格里姆",
+      "availability": "main",
+      "profession_id": "pactmage",
+      "series_id": "abyssal_pact",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": 6,
+      "stats": { "attack": 4, "health": 6 },
+      "countdown": null,
+      "keywords": ["ward"],
+      "can_advance": true,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "6PP随从4/6，守护。登场：可以选择敌方随从，对其造成等同于裂痕数、最多5点的伤害。",
+      "deployment": null,
+      "art_summary": "厚重的契约兽吞入五束以内的紫红裂痕并从口部聚成攻击光球；有守护体量，但不采用传统恶龙剪影。",
+      "capability_requirements": [
+        { "capability_id": "base_follower_play", "status": "existing", "note": "基础随从登场。" },
+        { "capability_id": "printed_ward", "status": "existing", "note": "印刷守护。" },
+        { "capability_id": "optional_enemy_follower_target", "status": "new", "note": "登场目标可省略。" },
+        { "capability_id": "damage_enemy_follower", "status": "existing", "note": "对所选敌方随从造成伤害。" },
+        { "capability_id": "crack_scaling_cap_five", "status": "new", "note": "读取当前裂痕且最多5点。" }
+      ]
+    },
+    {
+      "design_id": "AP-11",
+      "name": "禁忌毕业生·诺克缇娅",
+      "availability": "main",
+      "profession_id": "pactmage",
+      "series_id": "abyssal_pact",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": 8,
+      "stats": { "attack": 6, "health": 6 },
+      "countdown": null,
+      "keywords": [],
+      "can_advance": true,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "8PP随从6/6。按期且负契4登场：本回合+2攻击并获得疾驰；否则获得突进。",
+      "deployment": null,
+      "art_summary": "毕业生撕开按期封印，从四道债印后高速冲出；黑紫学袍延伸为疾驰轨迹，攻击性强但不是主战者瑟蕾娅。",
+      "capability_requirements": [
+        { "capability_id": "base_follower_play", "status": "existing", "note": "基础随从登场。" },
+        { "capability_id": "on_time_or_advanced_branch", "status": "existing", "note": "按期是疾驰分支的必要条件。" },
+        { "capability_id": "dynamic_crack_threshold", "status": "new", "note": "按期登场后检查负契4。" },
+        { "capability_id": "temporary_attack_buff", "status": "new", "note": "成功分支本回合+2攻击。" },
+        { "capability_id": "permanent_keyword_grant", "status": "fix", "note": "成功分支获得疾驰，否则获得突进。" },
+        { "capability_id": "printed_storm", "status": "existing", "note": "现有疾驰攻击规则可复用为运行时关键词。" },
+        { "capability_id": "temporary_rush", "status": "existing", "note": "否则分支获得突进。" }
+      ]
+    },
+    {
+      "design_id": "AP-S01",
+      "name": "催债魔犬·奥尔特",
+      "availability": "standby",
+      "profession_id": "pactmage",
+      "series_id": "abyssal_pact",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": null,
+      "stats": { "attack": 2, "health": 1 },
+      "countdown": null,
+      "keywords": ["rush", "bane"],
+      "can_advance": false,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "2/1突进、必杀。部署费1；条件为本回合曾新增裂痕。",
+      "deployment": {
+        "pp_cost": 1,
+        "condition_text": "本回合曾新增裂痕。",
+        "additional_cost_text": null,
+        "advance_allowed": false
+      },
+      "art_summary": "瘦长装甲魔犬沿新生裂缝扑向前景，牙齿是金属契约扣而非骨骼；红线标出一次致命咬合。",
+      "capability_requirements": [
+        { "capability_id": "standby_deployment", "status": "existing", "note": "公开战备部署。" },
+        { "capability_id": "standby_custom_condition", "status": "fix", "note": "条件读取本回合新增裂痕事件。" },
+        { "capability_id": "turn_history", "status": "new", "note": "追踪本回合裂痕增加。" },
+        { "capability_id": "printed_rush", "status": "existing", "note": "印刷突进。" },
+        { "capability_id": "printed_bane", "status": "existing", "note": "印刷必杀。" }
+      ]
+    },
+    {
+      "design_id": "AP-S02",
+      "name": "封债医龙·塞拉菲姆",
+      "availability": "standby",
+      "profession_id": "pactmage",
+      "series_id": "abyssal_pact",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": null,
+      "stats": { "attack": 4, "health": 6 },
+      "countdown": null,
+      "keywords": ["ward", "barrier", "lifesteal"],
+      "can_advance": false,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "4/6守护、屏障、吸血。部署费4；条件为裂痕至少4且主战者生命不高于15。",
+      "deployment": {
+        "pp_cost": 4,
+        "condition_text": "裂痕至少4且主战者生命不高于15。",
+        "additional_cost_text": null,
+        "advance_allowed": false
+      },
+      "art_summary": "白骨色但非骸骨的医疗机械龙以盾翼覆盖伤者，紫色债务被吸入胸腔封瓶；同时可读守护、屏障和治疗。",
+      "capability_requirements": [
+        { "capability_id": "standby_deployment", "status": "existing", "note": "公开战备部署。" },
+        { "capability_id": "standby_custom_condition", "status": "fix", "note": "条件组合裂痕与主战者生命。" },
+        { "capability_id": "printed_ward", "status": "existing", "note": "印刷守护。" },
+        { "capability_id": "printed_barrier", "status": "fix", "note": "印刷屏障使用正数伤害语义。" },
+        { "capability_id": "lifesteal_active_attack_only", "status": "fix", "note": "吸血只治疗主动攻击的实际伤害。" }
+      ]
+    },
+    {
+      "design_id": "AP-S03",
+      "name": "禁书装订机·奥库塔",
+      "availability": "standby",
+      "profession_id": "pactmage",
+      "series_id": "abyssal_pact",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": null,
+      "stats": { "attack": 4, "health": 4 },
+      "countdown": null,
+      "keywords": [],
+      "can_advance": false,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "4/4。部署费2；条件为本回合己方“渊契”护符因倒数归零被破坏。登场：修复1。",
+      "deployment": {
+        "pp_cost": 2,
+        "condition_text": "本回合己方“渊契”护符因倒数归零被破坏。",
+        "additional_cost_text": null,
+        "advance_allowed": false
+      },
+      "art_summary": "多臂黄铜装订机把归零禁书拆页、压合并释放一束修复光；工业感来自精密机械，不复用科幻旧卡图。",
+      "capability_requirements": [
+        { "capability_id": "standby_deployment", "status": "existing", "note": "公开战备部署。" },
+        { "capability_id": "standby_custom_condition", "status": "fix", "note": "条件读取本回合渊契护符倒数归零离场事件。" },
+        { "capability_id": "turn_history", "status": "new", "note": "追踪本回合符合条件的护符事件。" },
+        { "capability_id": "repair_cracks", "status": "existing", "note": "登场修复1。" }
+      ]
+    },
+    {
+      "design_id": "AP-S04",
+      "name": "终期债主·阿巴顿",
+      "availability": "standby",
+      "profession_id": "pactmage",
+      "series_id": "abyssal_pact",
+      "neutral": false,
+      "card_type": "follower",
+      "play_cost_pp": null,
+      "stats": { "attack": 9, "health": 8 },
+      "countdown": null,
+      "keywords": ["storm"],
+      "can_advance": false,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "9/8疾驰。部署费6；条件为裂痕至少6且控制另一个“渊契”随从或护符；额外封存其中一张作为部署代价。",
+      "deployment": {
+        "pp_cost": 6,
+        "condition_text": "裂痕至少6且控制另一个“渊契”随从或护符。",
+        "additional_cost_text": "封存其中一张己方“渊契”随从或护符。",
+        "advance_allowed": false
+      },
+      "art_summary": "巨大人形债主从六层裂隙门后一步跨入，手中封存一个缩小的契约永久物剪影；9/8 疾驰以压迫透视表现。",
+      "capability_requirements": [
+        { "capability_id": "standby_deployment", "status": "existing", "note": "公开战备部署。" },
+        { "capability_id": "standby_custom_condition", "status": "fix", "note": "条件组合裂痕与另一个渊契永久物。" },
+        { "capability_id": "profession_series_neutral_tags", "status": "new", "note": "条件和代价限定渊契系列。" },
+        { "capability_id": "archive_follower_or_amulet_cost", "status": "fix", "note": "可封存随从或护符作为代价。" },
+        { "capability_id": "printed_storm", "status": "existing", "note": "印刷疾驰。" }
+      ]
+    },
+    {
+      "design_id": "NT-01",
+      "name": "边境游骑·埃尔",
+      "availability": "main",
+      "profession_id": "neutral",
+      "series_id": "neutral",
+      "neutral": true,
+      "card_type": "follower",
+      "play_cost_pp": 2,
+      "stats": { "attack": 2, "health": 2 },
+      "countdown": null,
+      "keywords": [],
+      "can_advance": true,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "2PP随从2/2。登场：若对方五格主战场卡牌数多于己方，本回合获得突进。",
+      "deployment": null,
+      "art_summary": "旅行游骑骑乘长耳荒原兽跨过两方边界，观察敌方更拥挤的阵线后拔出短枪；雾青与皮革色，不带职业纹章。",
+      "capability_requirements": [
+        { "capability_id": "base_follower_play", "status": "existing", "note": "基础随从登场。" },
+        { "capability_id": "profession_series_neutral_tags", "status": "new", "note": "中立构筑身份。" },
+        { "capability_id": "board_card_count_comparison", "status": "new", "note": "比较双方五格主战场卡牌总数。" },
+        { "capability_id": "temporary_rush", "status": "existing", "note": "满足条件后本回合获得突进。" }
+      ]
+    },
+    {
+      "design_id": "NT-02",
+      "name": "白垩城门卫",
+      "availability": "main",
+      "profession_id": "neutral",
+      "series_id": "neutral",
+      "neutral": true,
+      "card_type": "follower",
+      "play_cost_pp": 3,
+      "stats": { "attack": 2, "health": 4 },
+      "countdown": null,
+      "keywords": ["ward"],
+      "can_advance": true,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "3PP随从2/4，守护。",
+      "deployment": null,
+      "art_summary": "石灰白城门前的沉稳门卫持宽盾站立，盔甲朴素、轮廓厚实；背景用城墙刻痕而非曜誓日轮。",
+      "capability_requirements": [
+        { "capability_id": "base_follower_play", "status": "existing", "note": "基础随从登场。" },
+        { "capability_id": "profession_series_neutral_tags", "status": "new", "note": "中立构筑身份。" },
+        { "capability_id": "printed_ward", "status": "existing", "note": "印刷守护。" }
+      ]
+    },
+    {
+      "design_id": "NT-03",
+      "name": "旅途篝火",
+      "availability": "main",
+      "profession_id": "neutral",
+      "series_id": "neutral",
+      "neutral": true,
+      "card_type": "amulet",
+      "play_cost_pp": 2,
+      "stats": null,
+      "countdown": 1,
+      "keywords": [],
+      "can_advance": true,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "2PP护符，倒数1。倒数结束：抽1，主战者回复1；被提前破坏时不触发。",
+      "deployment": null,
+      "art_summary": "风雨边境中的小型篝火与围坐旅具，暖橙火星化作一张无字地图；一回合后给予补给的宁静节奏。",
+      "capability_requirements": [
+        { "capability_id": "profession_series_neutral_tags", "status": "new", "note": "中立构筑身份。" },
+        { "capability_id": "amulet_main_board", "status": "fix", "note": "护符进入五格主战场。" },
+        { "capability_id": "countdown_permanent", "status": "fix", "note": "倒数永久物迁移为护符。" },
+        { "capability_id": "countdown_after_draw", "status": "existing", "note": "倒数在拥有者抽牌后处理。" },
+        { "capability_id": "countdown_end_trigger", "status": "existing", "note": "只有自然倒数结束触发。" },
+        { "capability_id": "draw_cards", "status": "existing", "note": "倒数结束抽1。" },
+        { "capability_id": "heal_leader", "status": "existing", "note": "倒数结束回复1。" }
+      ]
+    },
+    {
+      "design_id": "NT-04",
+      "name": "界域裁定",
+      "availability": "main",
+      "profession_id": "neutral",
+      "series_id": "neutral",
+      "neutral": true,
+      "card_type": "spell",
+      "play_cost_pp": 4,
+      "stats": null,
+      "countdown": null,
+      "keywords": [],
+      "can_advance": true,
+      "burn_pp_capacity": 0,
+      "canonical_rules_text": "4PP法术。选择：对敌方随从造成4点伤害；或破坏一个敌方护符／场地。不能伤害主战者。",
+      "deployment": null,
+      "art_summary": "中立裁定者在一道竖直空间界线前作二选一手势：左侧击碎随从投影，右侧拆解护符与场地核心；不画主战者受伤。",
+      "capability_requirements": [
+        { "capability_id": "base_spell_play", "status": "existing", "note": "基础法术结算。" },
+        { "capability_id": "profession_series_neutral_tags", "status": "new", "note": "中立构筑身份。" },
+        { "capability_id": "modal_choice", "status": "new", "note": "选择伤害或破坏模式。" },
+        { "capability_id": "damage_enemy_follower", "status": "existing", "note": "伤害模式对敌方随从造成4。" },
+        { "capability_id": "destroy_amulet_or_field", "status": "new", "note": "破坏模式选择敌方护符或场地。" },
+        { "capability_id": "permanent_targeting", "status": "fix", "note": "查询和命令需表达不同永久物目标。" },
+        { "capability_id": "leader_damage_prohibition", "status": "existing", "note": "伤害模式不能选择主战者。" }
+      ]
+    }
+  ],
+  "tokens": [
+    {
+      "design_id": "LO-T01",
+      "name": "誓光守卫",
+      "source_card_id": "LO-03",
+      "profession_id": "oathguard",
+      "series_id": "luminous_oath",
+      "card_type": "follower",
+      "stats": { "attack": 3, "health": 3 },
+      "keywords": ["ward"],
+      "canonical_rules_text": "3/3守护。由“晨钟誓碑”的倒数结束能力在原格召唤。",
+      "art_summary": "从晨钟誓碑原格凝成的 3/3 守卫，身体由白金石块和蓝金光线组成，持无刃环盾；与巨像阿德拉斯在体量和头部轮廓上明显不同。",
+      "capability_requirements": [
+        { "capability_id": "summon_token_original_slot", "status": "new", "note": "由LO-03在其原格召唤。" },
+        { "capability_id": "printed_ward", "status": "existing", "note": "衍生物具有印刷守护。" },
+        { "capability_id": "profession_series_neutral_tags", "status": "new", "note": "衍生物保留曜誓系列标签。" }
+      ]
+    }
+  ],
+  "decks": [
+    {
+      "deck_id": "oathguard_luminous_oath_v1",
+      "name": "誓卫／曜誓骑士团",
+      "profession_id": "oathguard",
+      "series_id": "luminous_oath",
+      "leader_id": "leader-aurelia",
+      "main": [
+        { "design_id": "LO-01", "copies": 3 },
+        { "design_id": "LO-02", "copies": 3 },
+        { "design_id": "LO-03", "copies": 3 },
+        { "design_id": "LO-04", "copies": 2 },
+        { "design_id": "LO-05", "copies": 2 },
+        { "design_id": "LO-06", "copies": 2 },
+        { "design_id": "LO-07", "copies": 2 },
+        { "design_id": "LO-08", "copies": 2 },
+        { "design_id": "LO-09", "copies": 2 },
+        { "design_id": "LO-10", "copies": 2 },
+        { "design_id": "LO-11", "copies": 1 },
+        { "design_id": "NT-01", "copies": 2 },
+        { "design_id": "NT-02", "copies": 1 },
+        { "design_id": "NT-03", "copies": 1 },
+        { "design_id": "NT-04", "copies": 2 }
+      ],
+      "standby": [
+        { "design_id": "LO-S01", "copies": 1 },
+        { "design_id": "LO-S02", "copies": 1 },
+        { "design_id": "LO-S03", "copies": 1 },
+        { "design_id": "LO-S04", "copies": 1 }
+      ],
+      "curve": [
+        { "pp": 1, "copies": 3 },
+        { "pp": 2, "copies": 13 },
+        { "pp": 3, "copies": 7 },
+        { "pp": 4, "copies": 2 },
+        { "pp": 5, "copies": 2 },
+        { "pp": 6, "copies": 2 },
+        { "pp": 10, "copies": 1 }
+      ],
+      "gameplay_roles": {
+        "starters": ["LO-01", "LO-03", "LO-04", "NT-01"],
+        "connectors": ["LO-02", "LO-05", "LO-06", "LO-07", "LO-10"],
+        "payoffs": ["LO-04", "LO-08", "LO-10", "LO-S01", "LO-S02", "LO-S03"],
+        "recovery": ["LO-02", "LO-06", "LO-07", "LO-08", "LO-09", "NT-03"],
+        "finishers": ["LO-11", "LO-S04"]
+      },
+      "combo_lines": [
+        {
+          "name": "晨钟清偿线",
+          "cards": ["LO-03", "LO-02", "LO-05"],
+          "sequence": "先用晨钟誓碑建立倒数并修复，后续以米蕾完成归零，再让希尔妲读取本回合实际修复。",
+          "payoff": "加速誓碑倒数、治疗主战者并得到4/3突进。",
+          "counterplay": "对手可提前破坏誓碑，或让誓卫在修复前没有可修复裂痕以压低归零收益。"
+        },
+        {
+          "name": "圣庭屏障线",
+          "cards": ["LO-10", "LO-06", "LO-04"],
+          "sequence": "圣庭在场时用归誓圣仪实际修复并归零，选择曜誓盾侍获得+1/+1与屏障。",
+          "payoff": "同一修复动作同时换取抽牌、场面成长和防御层。",
+          "counterplay": "对手可先破坏场地、在修复前逼迫额外裂痕，或以小额伤害先剥离屏障。"
+        },
+        {
+          "name": "按期终结线",
+          "cards": ["LO-06", "LO-09", "LO-11"],
+          "sequence": "中期用不能预支的修复牌控制裂痕，确保10PP按期且无隙打出蕾奥妮。",
+          "payoff": "8/8守护以疾驰立即施压并带屏障。",
+          "counterplay": "对手可在终结回合前制造新的资源压力、保留守护随从或以永久物解答处理蕾奥妮。"
+        }
+      ],
+      "counterplay_windows": [
+        "曜誓为获得无隙必须先支付并清偿；对手可在修复链之间迫使其改变行动顺序。",
+        "晨钟誓碑、日轮圣庭均可被界域裁定破坏，且场地被替换不触发破坏收益。",
+        "屏障可被任意一次正数伤害消耗，随后再用高伤害或必杀处理随从。",
+        "曜誓·不破阵只在攻击宣布时生效，对手可先处理策略区或选择不攻击。"
+      ],
+      "expected_play_pattern": {
+        "future_uses_per_game": { "min": 2, "max": 3 },
+        "repairs_per_game": { "min": 4, "max": 7 },
+        "expected_terminal_cracks": { "min": 0, "max": 1 },
+        "description": "主动预支建立节奏，再以修复归零兑现无隙、屏障和按期终结收益。"
+      }
+    },
+    {
+      "deck_id": "pactmage_abyssal_pact_v1",
+      "name": "契术／渊契魔导院",
+      "profession_id": "pactmage",
+      "series_id": "abyssal_pact",
+      "leader_id": "leader-theraea",
+      "main": [
+        { "design_id": "AP-01", "copies": 3 },
+        { "design_id": "AP-02", "copies": 2 },
+        { "design_id": "AP-03", "copies": 2 },
+        { "design_id": "AP-04", "copies": 3 },
+        { "design_id": "AP-05", "copies": 2 },
+        { "design_id": "AP-06", "copies": 2 },
+        { "design_id": "AP-07", "copies": 2 },
+        { "design_id": "AP-08", "copies": 2 },
+        { "design_id": "AP-09", "copies": 2 },
+        { "design_id": "AP-10", "copies": 2 },
+        { "design_id": "AP-11", "copies": 2 },
+        { "design_id": "NT-01", "copies": 2 },
+        { "design_id": "NT-02", "copies": 2 },
+        { "design_id": "NT-03", "copies": 1 },
+        { "design_id": "NT-04", "copies": 1 }
+      ],
+      "standby": [
+        { "design_id": "AP-S01", "copies": 1 },
+        { "design_id": "AP-S02", "copies": 1 },
+        { "design_id": "AP-S03", "copies": 1 },
+        { "design_id": "AP-S04", "copies": 1 }
+      ],
+      "curve": [
+        { "pp": 1, "copies": 6 },
+        { "pp": 2, "copies": 7 },
+        { "pp": 3, "copies": 8 },
+        { "pp": 4, "copies": 3 },
+        { "pp": 5, "copies": 2 },
+        { "pp": 6, "copies": 2 },
+        { "pp": 8, "copies": 2 }
+      ],
+      "gameplay_roles": {
+        "starters": ["AP-01", "AP-04", "AP-02"],
+        "connectors": ["AP-03", "AP-05", "AP-06", "AP-08"],
+        "payoffs": ["AP-06", "AP-07", "AP-09", "AP-10", "AP-S01", "AP-S03"],
+        "recovery": ["AP-07", "AP-08", "AP-09", "AP-S02", "AP-S03", "NT-03"],
+        "finishers": ["AP-11", "AP-S04"]
+      },
+      "combo_lines": [
+        {
+          "name": "禁书零时线",
+          "cards": ["AP-04", "AP-05", "AP-09"],
+          "sequence": "先让未偿禁书在场，再建立零时讲堂；后续超前打出雷维尔，同时推进禁书倒数并触发讲堂换牌。",
+          "payoff": "一次动用未来同时获得突进、抽弃、场地换牌和护符加速。",
+          "counterplay": "对手可在动用未来前破坏禁书或讲堂，也可逼迫手牌接近上限来削弱连续抽牌。"
+        },
+        {
+          "name": "负契清场线",
+          "cards": ["AP-03", "AP-06", "AP-10"],
+          "sequence": "燃耗违约穿刺将裂痕推过阈值，以赛菈突进必杀交换，再让格里姆读取裂痕处理后续随从。",
+          "payoff": "将资源债务转化为连续随从解答和节奏。",
+          "counterplay": "对手可用屏障吸收第一段伤害、控制场面目标数量，或迫使契术先修复而跌出负契阈值。"
+        },
+        {
+          "name": "按期毕业线",
+          "cards": ["AP-04", "AP-08", "AP-11"],
+          "sequence": "以禁书持续产生价值并保留至少4裂痕，使用延期清算强化场面而不必修复，8PP按期打出诺克缇娅。",
+          "payoff": "8攻击疾驰配合既有场面完成终局压力。",
+          "counterplay": "对手可设置守护、逼迫契术选择修复模式，或在8PP前压低其生命迫使防守。"
+        }
+      ],
+      "counterplay_windows": [
+        "契术的燃耗和超前先产生裂痕，再检查负契；对手可围绕其高裂痕阶段施加生命压力。",
+        "未偿禁书与零时讲堂均为公开永久物，可在下一次动用未来前被界域裁定破坏。",
+        "渊契主牌没有伏策，主动回合外不以策略区响应保护展开。",
+        "疾驰终结要求诺克缇娅按期且负契4，超前无法绕过按期条件。"
+      ],
+      "expected_play_pattern": {
+        "future_uses_per_game": { "min": 3, "max": 5 },
+        "repairs_per_game": { "min": 1, "max": 3 },
+        "expected_terminal_cracks": { "min": 3, "max": 6 },
+        "description": "主动以预支和燃耗制造裂痕，围绕负契阈值、抽换资源、吸血续航和疾驰终结换取节奏。"
+      }
+    }
+  ],
+  "paper_balance_targets": {
+    "validation_state": "target_not_playtested",
+    "scope": "fixed_decks_both_first_player_orders",
+    "winner_own_turn_range": [10, 12],
+    "post_mulligan_t2_class_action_probability_min": 0.9,
+    "core_line_visibility_t6_range": [0.7, 0.8],
+    "core_line_visibility_t10_approx": 0.9,
+    "oathguard_future_uses_per_game": [2, 3],
+    "oathguard_repaired_cracks_per_game": [4, 7],
+    "oathguard_peak_cracks_per_game": [2, 4],
+    "pactmage_future_uses_per_game": [3, 5],
+    "pactmage_peak_cracks_per_game": [5, 8],
+    "pactmage_terminal_cracks": [3, 6],
+    "future_playable_acceptance": {
+      "win_rate_range": [0.48, 0.52],
+      "winner_turn_median_range": [10, 12],
+      "games_ending_before_t10_max": 0.1,
+      "games_ending_after_t15_max": 0.15
+    }
+  },
+  "art_direction": {
+    "style": "original_japanese_fantasy_anime",
+    "originality_constraint": "采用原创日式幻想动漫风，不得复制《Shadowverse》的角色、构图、卡框、Logo或素材。",
+    "oathguard_palette": "白金／苍蓝／日轮",
+    "pactmage_palette": "黑紫／绯红／裂隙",
+    "shared_card_back": "深靛底，中央纹章为金银双环围绕日轮，日轮被一条紫色裂隙贯穿，边缘使用原创细密誓约刻线；双方共享，不出现职业文字、角色、眼形、旋涡、千年神器式几何或游戏王卡背比例／线框细节。",
+    "generation_scope": "locked_direction_only_no_art_generated_in_gate_5a"
+  },
+  "visual_assets": [
+    { "asset_id": "visual-lo-01", "kind": "constructible_card", "subject_id": "LO-01", "name": "曜誓传令使·菲娅", "art_summary": "年轻传令使从悬浮的四枚日轮文牒中选出一枚，另一手握翼形信筒；晨风吹动短披风，突出“查看四张、传递承诺”。", "status": "planned_not_generated" },
+    { "asset_id": "visual-lo-02", "kind": "constructible_card", "subject_id": "LO-02", "name": "曜誓偿愿祭司·米蕾", "art_summary": "铂金祭司以双手将断裂的蓝色光环重新扣合，碎裂能量回流到同伴；温柔但专注，不使用现实宗教标志。", "status": "planned_not_generated" },
+    { "asset_id": "visual-lo-03", "kind": "constructible_card", "subject_id": "LO-03", "name": "晨钟誓碑", "art_summary": "清晨庭院中的高大环形钟碑，三层光刻度逐级亮起，底座预示守卫轮廓；画面主体是可留场的建筑物。", "status": "planned_not_generated" },
+    { "asset_id": "visual-lo-04", "kind": "constructible_card", "subject_id": "LO-04", "name": "曜誓盾侍·格兰", "art_summary": "少年盾侍半跪举起圆环塔盾，完整蓝金光膜贴盾展开；紧凑正面轮廓表现守护与屏障。", "status": "planned_not_generated" },
+    { "asset_id": "visual-lo-05", "kind": "constructible_card", "subject_id": "LO-05", "name": "日轮突骑·希尔妲", "art_summary": "女骑手驾驭轻甲陆行兽从侧面切入，日轮枪尖越过修复完毕的光轨；姿态前冲，背景留出速度方向。", "status": "planned_not_generated" },
+    { "asset_id": "visual-lo-06", "kind": "constructible_card", "subject_id": "LO-06", "name": "归誓圣仪", "art_summary": "两段断开的誓约环在仪式台上归一，裂隙被金蓝光缝合并迸出一枚新文牒；无人物或只留手部剪影。", "status": "planned_not_generated" },
+    { "asset_id": "visual-lo-07", "kind": "constructible_card", "subject_id": "LO-07", "name": "曜誓·不破阵", "art_summary": "三名盾卫在攻击落下前闭合半透明盾墙，最后一道裂纹同步熄灭；表现“先修复、再取消”，不画已被击败的敌人。", "status": "planned_not_generated" },
+    { "asset_id": "visual-lo-08", "kind": "constructible_card", "subject_id": "LO-08", "name": "曜誓破阵骑·莱昂", "art_summary": "重甲骑士刚击破敌阵仍站立，破损护甲被新生光膜覆盖；长枪与碎盾构成斜线，强调击杀后存活。", "status": "planned_not_generated" },
+    { "asset_id": "visual-lo-09", "kind": "constructible_card", "subject_id": "LO-09", "name": "曜誓大司祭·伊莲", "art_summary": "成熟大司祭在伤员前展开两层日轮结界，白金法杖把紫色裂痕转为治疗光；庄严、强壮而非脆弱。", "status": "planned_not_generated" },
+    { "asset_id": "visual-lo-10", "kind": "constructible_card", "subject_id": "LO-10", "name": "日轮圣庭·索拉里斯", "art_summary": "高耸白金圣庭围绕无文字日轮纹章展开，蓝色水道般的能量流向中央随从台；使用纵深建筑构图。", "status": "planned_not_generated" },
+    { "asset_id": "visual-lo-11", "kind": "constructible_card", "subject_id": "LO-11", "name": "曜誓大团长·蕾奥妮", "art_summary": "金白长发的大团长骑乘装甲天马从闭合日轮中直冲前方，环盾与长剑同时可读；8/8 终结者但不与主战者奥蕾莉亚混同。", "status": "planned_not_generated" },
+    { "asset_id": "visual-lo-s01", "kind": "constructible_card", "subject_id": "LO-S01", "name": "曜誓援军长·凯因", "art_summary": "结实的援军长把备用圆盾递给另一名骑士，自己守在画面前景；突出公开增援与“另一个随从”受益。", "status": "planned_not_generated" },
+    { "asset_id": "visual-lo-s02", "kind": "constructible_card", "subject_id": "LO-S02", "name": "破晓处刑骑·维奥娜", "art_summary": "黑白双层轻甲女骑士在破晓光线中完成精准横斩，身后屏障碎片汇成修复光；快速且克制。", "status": "planned_not_generated" },
+    { "asset_id": "visual-lo-s03", "kind": "constructible_card", "subject_id": "LO-S03", "name": "圣碑巨像·阿德拉斯", "art_summary": "由多块晨钟石碑拼合的高大守卫巨像，胸口完整日轮、肩部覆盖蓝色屏障；比例巨大但轮廓简洁。", "status": "planned_not_generated" },
+    { "asset_id": "visual-lo-s04", "kind": "constructible_card", "subject_id": "LO-S04", "name": "曜冠天马骑·塞蕾涅", "art_summary": "戴环形曜冠的天马骑士自云层俯冲，六翼不是羽毛而是白金光板；远处出现两枚已经闭合的裂痕圆环。", "status": "planned_not_generated" },
+    { "asset_id": "visual-ap-01", "kind": "constructible_card", "subject_id": "AP-01", "name": "渊契使魔·墨契", "art_summary": "小型黑墨兽从展开的契书边缘爬出，身体像猫与书签的原创结合，尾巴分成两道发光契约线；可爱中带狡黠。", "status": "planned_not_generated" },
+    { "asset_id": "visual-ap-02", "kind": "constructible_card", "subject_id": "AP-02", "name": "借时优等生·伊蕾娜", "art_summary": "短发学生借由悬浮刻度盘把未来一秒拉到掌心，校服外覆盖透明紫色屏障；姿态自信，不使用现实学校徽章。", "status": "planned_not_generated" },
+    { "asset_id": "visual-ap-03", "kind": "constructible_card", "subject_id": "AP-03", "name": "契式·违约穿刺", "art_summary": "一支由红紫契约线折成的长枪穿透敌方护甲投影，身后四道裂隙逐级点亮；画面强调单体法术冲击。", "status": "planned_not_generated" },
+    { "asset_id": "visual-ap-04", "kind": "constructible_card", "subject_id": "AP-04", "name": "未偿禁书《第七码》", "art_summary": "黑紫禁书被七枚不同形状的金属锁环悬在空中，第三层倒数刻度即将断开；封面无文字、无眼形图案。", "status": "planned_not_generated" },
+    { "asset_id": "visual-ap-05", "kind": "constructible_card", "subject_id": "AP-05", "name": "渊契魔导院·零时讲堂", "art_summary": "巨大阶梯讲堂在零点冻结，书页从前排沿紫色时间轨道飞向后排；一张沉入画面最深处，表现抽一置底。", "status": "planned_not_generated" },
+    { "asset_id": "visual-ap-06", "kind": "constructible_card", "subject_id": "AP-06", "name": "债印风纪官·赛菈", "art_summary": "高挑风纪官持细长契刃划出致命红线，制服胸前两枚债印发亮；前倾步伐表现临时突进，神态严厉。", "status": "planned_not_generated" },
+    { "asset_id": "visual-ap-07", "kind": "constructible_card", "subject_id": "AP-07", "name": "黑蔷薇校医·维奥拉", "art_summary": "校医用黑蔷薇形注能器从敌人伤口抽取红光并回灌治疗瓶；保持非血腥，重心向前表示主动攻击吸血。", "status": "planned_not_generated" },
+    { "asset_id": "visual-ap-08", "kind": "constructible_card", "subject_id": "AP-08", "name": "契式·延期清算", "art_summary": "契约天平一侧缝合两道裂隙，另一侧为随从披上强化甲与屏障；清晰二分构图表现模式选择。", "status": "planned_not_generated" },
+    { "asset_id": "visual-ap-09", "kind": "constructible_card", "subject_id": "AP-09", "name": "带债讲师·雷维尔", "art_summary": "冷静讲师在讲台前同时展开“整齐结算”和“撕开未来”两组无字契页，后者伴随两页飞入、一页坠落。", "status": "planned_not_generated" },
+    { "asset_id": "visual-ap-10", "kind": "constructible_card", "subject_id": "AP-10", "name": "债权吞噬兽·格里姆", "art_summary": "厚重的契约兽吞入五束以内的紫红裂痕并从口部聚成攻击光球；有守护体量，但不采用传统恶龙剪影。", "status": "planned_not_generated" },
+    { "asset_id": "visual-ap-11", "kind": "constructible_card", "subject_id": "AP-11", "name": "禁忌毕业生·诺克缇娅", "art_summary": "毕业生撕开按期封印，从四道债印后高速冲出；黑紫学袍延伸为疾驰轨迹，攻击性强但不是主战者瑟蕾娅。", "status": "planned_not_generated" },
+    { "asset_id": "visual-ap-s01", "kind": "constructible_card", "subject_id": "AP-S01", "name": "催债魔犬·奥尔特", "art_summary": "瘦长装甲魔犬沿新生裂缝扑向前景，牙齿是金属契约扣而非骨骼；红线标出一次致命咬合。", "status": "planned_not_generated" },
+    { "asset_id": "visual-ap-s02", "kind": "constructible_card", "subject_id": "AP-S02", "name": "封债医龙·塞拉菲姆", "art_summary": "白骨色但非骸骨的医疗机械龙以盾翼覆盖伤者，紫色债务被吸入胸腔封瓶；同时可读守护、屏障和治疗。", "status": "planned_not_generated" },
+    { "asset_id": "visual-ap-s03", "kind": "constructible_card", "subject_id": "AP-S03", "name": "禁书装订机·奥库塔", "art_summary": "多臂黄铜装订机把归零禁书拆页、压合并释放一束修复光；工业感来自精密机械，不复用科幻旧卡图。", "status": "planned_not_generated" },
+    { "asset_id": "visual-ap-s04", "kind": "constructible_card", "subject_id": "AP-S04", "name": "终期债主·阿巴顿", "art_summary": "巨大人形债主从六层裂隙门后一步跨入，手中封存一个缩小的契约永久物剪影；9/8 疾驰以压迫透视表现。", "status": "planned_not_generated" },
+    { "asset_id": "visual-nt-01", "kind": "constructible_card", "subject_id": "NT-01", "name": "边境游骑·埃尔", "art_summary": "旅行游骑骑乘长耳荒原兽跨过两方边界，观察敌方更拥挤的阵线后拔出短枪；雾青与皮革色，不带职业纹章。", "status": "planned_not_generated" },
+    { "asset_id": "visual-nt-02", "kind": "constructible_card", "subject_id": "NT-02", "name": "白垩城门卫", "art_summary": "石灰白城门前的沉稳门卫持宽盾站立，盔甲朴素、轮廓厚实；背景用城墙刻痕而非曜誓日轮。", "status": "planned_not_generated" },
+    { "asset_id": "visual-nt-03", "kind": "constructible_card", "subject_id": "NT-03", "name": "旅途篝火", "art_summary": "风雨边境中的小型篝火与围坐旅具，暖橙火星化作一张无字地图；一回合后给予补给的宁静节奏。", "status": "planned_not_generated" },
+    { "asset_id": "visual-nt-04", "kind": "constructible_card", "subject_id": "NT-04", "name": "界域裁定", "art_summary": "中立裁定者在一道竖直空间界线前作二选一手势：左侧击碎随从投影，右侧拆解护符与场地核心；不画主战者受伤。", "status": "planned_not_generated" },
+    { "asset_id": "visual-lo-t01", "kind": "token", "subject_id": "LO-T01", "name": "誓光守卫", "art_summary": "从晨钟誓碑原格凝成的 3/3 守卫，身体由白金石块和蓝金光线组成，持无刃环盾；与巨像阿德拉斯在体量和头部轮廓上明显不同。", "status": "planned_not_generated" },
+    { "asset_id": "visual-leader-aurelia", "kind": "leader", "subject_id": "leader-aurelia", "name": "曜誓圣王女·奥蕾莉亚", "art_summary": "成年女性，金白长发，苍蓝眼睛；白金分层盔甲兼具王族礼服轮廓，肩后展开非宗教性的日轮披风，武器为细长誓约剑与可闭合的环形护手。站姿稳定、目光冷静，手势像是在接受并确认承诺，而非高声煽动。主光为晨曦金，轮廓光为苍蓝。禁止王冠堆砌、圣女模板化祈祷姿势或与现有动漫角色相似的发饰。", "status": "planned_not_generated" },
+    { "asset_id": "visual-leader-theraea", "kind": "leader", "subject_id": "leader-theraea", "name": "渊契院长·瑟蕾娅", "art_summary": "成年女性，紫黑长发，绯紫眼睛；不对称魔导院制服由短披肩、长尾外套和细金属束带构成，身侧漂浮多本无文字契书，右手操纵一条紫红裂隙。表情危险、自信、完全清楚代价。逆光为洋红，脸部保留冷白书页反光。禁止女巫帽、照搬学院制服、恶魔角和性化暴露剪裁。", "status": "planned_not_generated" },
+    { "asset_id": "visual-shared-card-back", "kind": "shared_card_back", "subject_id": "shared-card-back-v1", "name": "统一卡背", "art_summary": "深靛底，中央纹章为金银双环围绕日轮，日轮被一条紫色裂隙贯穿，边缘使用原创细密誓约刻线；双方共享，不出现职业文字、角色、眼形、旋涡、千年神器式几何或游戏王卡背比例／线框细节。", "status": "planned_not_generated" }
+  ],
+  "legacy_product_migration": {
+    "future_gate_requirement": "delete_not_hide",
+    "old_product_decks": "delete_midrange_and_advance",
+    "old_definitions": "delete_after_fixture_migration",
+    "old_art": "delete",
+    "old_menu_keys": "delete",
+    "runtime_rule_tests": "migrate_to_independent_synthetic_fixtures",
+    "legacy_wire_golden": "preserve_via_protocol_fixture_not_old_decks"
+  }
+}

@@ -1,0 +1,894 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://somecardgameshit.invalid/schemas/product-decks-v1/card-pool.schema.json",
+  "title": "SomeCardGameShit product decks v1 locked design manifest",
+  "description": "Gate 5A design-only contract. Validation of this schema does not imply runtime implementation or playtest balance approval.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "status",
+    "design_id_policy",
+    "implementation_scope",
+    "format",
+    "professions",
+    "leaders",
+    "rules",
+    "capability_catalog",
+    "cards",
+    "tokens",
+    "decks",
+    "paper_balance_targets",
+    "art_direction",
+    "visual_assets",
+    "legacy_product_migration"
+  ],
+  "properties": {
+    "$schema": {
+      "type": "string",
+      "const": "./card-pool.schema.json"
+    },
+    "schema_version": {
+      "type": "string",
+      "const": "1.0.0"
+    },
+    "status": {
+      "type": "string",
+      "const": "locked_not_implemented"
+    },
+    "design_id_policy": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "runtime_numeric_ids_frozen", "statement"],
+      "properties": {
+        "kind": { "const": "string_design_ids" },
+        "runtime_numeric_ids_frozen": { "const": false },
+        "statement": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "implementation_scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "gate",
+        "design_only",
+        "runtime_changes",
+        "art_generated",
+        "balance_validation",
+        "public_interfaces_changed",
+        "forbidden_design_patterns"
+      ],
+      "properties": {
+        "gate": { "const": "Gate 5A" },
+        "design_only": { "const": true },
+        "runtime_changes": { "const": false },
+        "art_generated": { "const": false },
+        "balance_validation": { "const": "paper_targets_only_not_playtested" },
+        "public_interfaces_changed": { "const": false },
+        "forbidden_design_patterns": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "zero_cost_cards",
+            "infinite_search",
+            "self_loop",
+            "extra_standby_uses",
+            "current_pp_restoration"
+          ],
+          "properties": {
+            "zero_cost_cards": { "const": "forbidden" },
+            "infinite_search": { "const": "forbidden" },
+            "self_loop": { "const": "forbidden" },
+            "extra_standby_uses": { "const": "forbidden" },
+            "current_pp_restoration": { "const": "forbidden" }
+          }
+        }
+      }
+    },
+    "format": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "leader_health",
+        "main_deck_size",
+        "starting_hand_size",
+        "hand_limit",
+        "main_board_capacity",
+        "strategy_zone_capacity",
+        "standby_size",
+        "same_name_main_limit",
+        "pp_capacity_cap",
+        "future_use_limit_per_turn"
+      ],
+      "properties": {
+        "leader_health": { "const": 25 },
+        "main_deck_size": { "const": 30 },
+        "starting_hand_size": { "const": 4 },
+        "hand_limit": { "const": 9 },
+        "main_board_capacity": { "const": 5 },
+        "strategy_zone_capacity": { "const": 3 },
+        "standby_size": { "const": 4 },
+        "same_name_main_limit": { "const": 3 },
+        "pp_capacity_cap": { "type": "null" },
+        "future_use_limit_per_turn": { "const": 1 }
+      }
+    },
+    "professions": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/profession" }
+    },
+    "leaders": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/leader" }
+    },
+    "rules": { "$ref": "#/$defs/rules" },
+    "capability_catalog": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/capabilityCatalogEntry" }
+    },
+    "cards": {
+      "type": "array",
+      "minItems": 34,
+      "maxItems": 34,
+      "items": { "$ref": "#/$defs/card" }
+    },
+    "tokens": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 1,
+      "items": { "$ref": "#/$defs/token" }
+    },
+    "decks": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/deck" }
+    },
+    "paper_balance_targets": { "$ref": "#/$defs/balanceTargets" },
+    "art_direction": { "$ref": "#/$defs/artDirection" },
+    "visual_assets": {
+      "type": "array",
+      "minItems": 38,
+      "maxItems": 38,
+      "items": { "$ref": "#/$defs/visualAsset" }
+    },
+    "legacy_product_migration": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "future_gate_requirement",
+        "old_product_decks",
+        "old_definitions",
+        "old_art",
+        "old_menu_keys",
+        "runtime_rule_tests",
+        "legacy_wire_golden"
+      ],
+      "properties": {
+        "future_gate_requirement": { "const": "delete_not_hide" },
+        "old_product_decks": { "const": "delete_midrange_and_advance" },
+        "old_definitions": { "const": "delete_after_fixture_migration" },
+        "old_art": { "const": "delete" },
+        "old_menu_keys": { "const": "delete" },
+        "runtime_rule_tests": { "const": "migrate_to_independent_synthetic_fixtures" },
+        "legacy_wire_golden": { "const": "preserve_via_protocol_fixture_not_old_decks" }
+      }
+    }
+  },
+  "$defs": {
+    "nonEmptyString": {
+      "type": "string",
+      "minLength": 1
+    },
+    "slug": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9_]*$"
+    },
+    "professionId": {
+      "enum": ["oathguard", "pactmage", "neutral"]
+    },
+    "seriesId": {
+      "enum": ["luminous_oath", "abyssal_pact", "neutral"]
+    },
+    "cardType": {
+      "enum": ["follower", "spell", "amulet", "trap", "field"]
+    },
+    "keyword": {
+      "enum": ["ward", "rush", "storm", "barrier", "bane", "lifesteal"]
+    },
+    "capabilityStatus": {
+      "enum": ["existing", "fix", "new"]
+    },
+    "profession": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "profession_id",
+        "name_zh_cn",
+        "series_id",
+        "series_name_zh_cn",
+        "identity",
+        "primary_mechanics",
+        "evolution_charge_id",
+        "leader_id"
+      ],
+      "properties": {
+        "profession_id": { "enum": ["oathguard", "pactmage"] },
+        "name_zh_cn": { "$ref": "#/$defs/nonEmptyString" },
+        "series_id": { "enum": ["luminous_oath", "abyssal_pact"] },
+        "series_name_zh_cn": { "$ref": "#/$defs/nonEmptyString" },
+        "identity": { "$ref": "#/$defs/nonEmptyString" },
+        "primary_mechanics": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/nonEmptyString" },
+          "uniqueItems": true
+        },
+        "evolution_charge_id": { "enum": ["oathguard_first_repair_to_zero", "pactmage_first_two_cracks_from_hand"] },
+        "leader_id": { "enum": ["leader-aurelia", "leader-theraea"] }
+      }
+    },
+    "leader": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["leader_id", "profession_id", "name", "gameplay_role", "visual_brief"],
+      "properties": {
+        "leader_id": { "enum": ["leader-aurelia", "leader-theraea"] },
+        "profession_id": { "enum": ["oathguard", "pactmage"] },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "gameplay_role": { "const": "visual_identity_only_no_active_or_passive_skill" },
+        "visual_brief": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "card_types",
+        "keywords",
+        "ability_words",
+        "evolution_charge",
+        "timing_and_zone_semantics",
+        "history_semantics"
+      ],
+      "properties": {
+        "card_types": {
+          "type": "array",
+          "minItems": 5,
+          "maxItems": 5,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["card_type", "canonical_definition"],
+            "properties": {
+              "card_type": { "$ref": "#/$defs/cardType" },
+              "canonical_definition": { "$ref": "#/$defs/nonEmptyString" }
+            }
+          }
+        },
+        "keywords": {
+          "type": "array",
+          "minItems": 6,
+          "maxItems": 6,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["keyword", "name_zh_cn", "canonical_definition"],
+            "properties": {
+              "keyword": { "$ref": "#/$defs/keyword" },
+              "name_zh_cn": { "$ref": "#/$defs/nonEmptyString" },
+              "canonical_definition": { "$ref": "#/$defs/nonEmptyString" },
+              "active_attack_only": { "type": "boolean" },
+              "actual_damage_only": { "type": "boolean" },
+              "defensive_damage_heals": { "type": "boolean" },
+              "stackable": { "type": "boolean" }
+            }
+          }
+        },
+        "ability_words": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["ability_id", "name_zh_cn", "canonical_definition", "check_timing", "scaling_cap"],
+            "properties": {
+              "ability_id": { "enum": ["flawless", "debtbound"] },
+              "name_zh_cn": { "enum": ["无隙", "负契"] },
+              "canonical_definition": { "$ref": "#/$defs/nonEmptyString" },
+              "check_timing": { "const": "after_payment_and_burn" },
+              "scaling_cap": {
+                "anyOf": [
+                  { "type": "null" },
+                  { "const": 5 }
+                ]
+              }
+            }
+          }
+        },
+        "evolution_charge": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["charge_id", "profession_id", "after_evolution_unlock_only", "limit_per_turn_cycle", "canonical_definition"],
+            "properties": {
+              "charge_id": { "enum": ["oathguard_first_repair_to_zero", "pactmage_first_two_cracks_from_hand"] },
+              "profession_id": { "enum": ["oathguard", "pactmage"] },
+              "after_evolution_unlock_only": { "const": true },
+              "limit_per_turn_cycle": { "const": 1 },
+              "canonical_definition": { "$ref": "#/$defs/nonEmptyString" }
+            }
+          }
+        },
+        "timing_and_zone_semantics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "main_board_capacity",
+            "main_board_types",
+            "main_board_full_rejects_new_permanent",
+            "amulet_attackable",
+            "amulet_can_attack",
+            "amulet_can_evolve",
+            "amulet_counts_as_follower",
+            "amulet_destroyable_by_effect",
+            "countdown_step",
+            "countdown_zero_sequence",
+            "countdown_zero_move_reason",
+            "countdown_zero_counts_as_destroyed",
+            "early_destruction_counts_as_countdown_end",
+            "field_zone_capacity_per_player",
+            "field_zones_coexist",
+            "field_occupies_main_board",
+            "field_replacement_destination",
+            "field_replacement_counts_as_destroyed",
+            "strategy_zone_capacity",
+            "strategy_zone_types",
+            "archive_triggers_last_words",
+            "ability_condition_check_timing",
+            "repair_cards_can_use_advance_to_evade_debt"
+          ],
+          "properties": {
+            "main_board_capacity": { "const": 5 },
+            "main_board_types": {
+              "type": "array",
+              "prefixItems": [{ "const": "follower" }, { "const": "amulet" }],
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "main_board_full_rejects_new_permanent": { "const": true },
+            "amulet_attackable": { "const": false },
+            "amulet_can_attack": { "const": false },
+            "amulet_can_evolve": { "const": false },
+            "amulet_counts_as_follower": { "const": false },
+            "amulet_destroyable_by_effect": { "const": true },
+            "countdown_step": { "const": "after_owner_turn_draw" },
+            "countdown_zero_sequence": { "const": "leave_play_then_resolve_countdown_end" },
+            "countdown_zero_move_reason": { "const": "countdown_expired" },
+            "countdown_zero_counts_as_destroyed": { "const": true },
+            "early_destruction_counts_as_countdown_end": { "const": false },
+            "field_zone_capacity_per_player": { "const": 1 },
+            "field_zones_coexist": { "const": true },
+            "field_occupies_main_board": { "const": false },
+            "field_replacement_destination": { "const": "graveyard" },
+            "field_replacement_counts_as_destroyed": { "const": false },
+            "strategy_zone_capacity": { "const": 3 },
+            "strategy_zone_types": {
+              "type": "array",
+              "prefixItems": [{ "const": "trap" }, { "const": "pending_spell" }],
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "archive_triggers_last_words": { "const": false },
+            "ability_condition_check_timing": { "const": "after_payment_and_burn" },
+            "repair_cards_can_use_advance_to_evade_debt": { "const": false }
+          }
+        },
+        "history_semantics": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["lo_s03", "ap_s03"],
+          "properties": {
+            "lo_s03": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["card_id", "scope", "event", "minimum_occurrences"],
+              "properties": {
+                "card_id": { "const": "LO-S03" },
+                "scope": { "const": "match" },
+                "event": { "const": "owned_luminous_oath_amulet_left_on_countdown_zero" },
+                "minimum_occurrences": { "const": 1 }
+              }
+            },
+            "ap_s03": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["card_id", "scope", "event", "minimum_occurrences"],
+              "properties": {
+                "card_id": { "const": "AP-S03" },
+                "scope": { "const": "current_owner_turn" },
+                "event": { "const": "owned_abyssal_pact_amulet_destroyed_on_countdown_zero" },
+                "minimum_occurrences": { "const": 1 }
+              }
+            }
+          }
+        }
+      }
+    },
+    "capabilityCatalogEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability_id", "default_status", "description"],
+      "properties": {
+        "capability_id": { "$ref": "#/$defs/slug" },
+        "default_status": { "$ref": "#/$defs/capabilityStatus" },
+        "description": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["attack", "health"],
+      "properties": {
+        "attack": { "type": "integer", "minimum": 0 },
+        "health": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "deployment": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pp_cost", "condition_text", "additional_cost_text", "advance_allowed"],
+      "properties": {
+        "pp_cost": { "type": "integer", "minimum": 1 },
+        "condition_text": { "$ref": "#/$defs/nonEmptyString" },
+        "additional_cost_text": {
+          "anyOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/nonEmptyString" }
+          ]
+        },
+        "advance_allowed": { "const": false }
+      }
+    },
+    "capabilityRequirement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["capability_id", "status", "note"],
+      "properties": {
+        "capability_id": { "$ref": "#/$defs/slug" },
+        "status": { "$ref": "#/$defs/capabilityStatus" },
+        "note": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "card": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "design_id",
+        "name",
+        "availability",
+        "profession_id",
+        "series_id",
+        "neutral",
+        "card_type",
+        "play_cost_pp",
+        "stats",
+        "countdown",
+        "keywords",
+        "can_advance",
+        "burn_pp_capacity",
+        "canonical_rules_text",
+        "deployment",
+        "art_summary",
+        "capability_requirements"
+      ],
+      "properties": {
+        "design_id": {
+          "type": "string",
+          "pattern": "^(LO|AP)-S[0-9]{2}$|^(LO|AP|NT)-[0-9]{2}$"
+        },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "availability": { "enum": ["main", "standby"] },
+        "profession_id": { "$ref": "#/$defs/professionId" },
+        "series_id": { "$ref": "#/$defs/seriesId" },
+        "neutral": { "type": "boolean" },
+        "card_type": { "$ref": "#/$defs/cardType" },
+        "play_cost_pp": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "integer", "minimum": 1 }
+          ]
+        },
+        "stats": {
+          "anyOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/stats" }
+          ]
+        },
+        "countdown": {
+          "anyOf": [
+            { "type": "null" },
+            { "type": "integer", "minimum": 1 }
+          ]
+        },
+        "keywords": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/keyword" },
+          "uniqueItems": true
+        },
+        "can_advance": { "type": "boolean" },
+        "burn_pp_capacity": { "type": "integer", "minimum": 0 },
+        "canonical_rules_text": { "$ref": "#/$defs/nonEmptyString" },
+        "deployment": {
+          "anyOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/deployment" }
+          ]
+        },
+        "art_summary": { "$ref": "#/$defs/nonEmptyString" },
+        "capability_requirements": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/capabilityRequirement" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "availability": { "const": "main" } } },
+          "then": {
+            "properties": {
+              "play_cost_pp": { "type": "integer", "minimum": 1 },
+              "deployment": { "type": "null" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "availability": { "const": "standby" } } },
+          "then": {
+            "properties": {
+              "play_cost_pp": { "type": "null" },
+              "deployment": { "$ref": "#/$defs/deployment" },
+              "can_advance": { "const": false }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "card_type": { "const": "follower" } } },
+          "then": { "properties": { "stats": { "$ref": "#/$defs/stats" } } },
+          "else": { "properties": { "stats": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "card_type": { "const": "amulet" } } },
+          "then": { "properties": { "countdown": { "type": "integer", "minimum": 1 } } },
+          "else": { "properties": { "countdown": { "type": "null" } } }
+        },
+        {
+          "if": { "properties": { "neutral": { "const": true } } },
+          "then": {
+            "properties": {
+              "profession_id": { "const": "neutral" },
+              "series_id": { "const": "neutral" }
+            }
+          }
+        }
+      ]
+    },
+    "token": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "design_id",
+        "name",
+        "source_card_id",
+        "profession_id",
+        "series_id",
+        "card_type",
+        "stats",
+        "keywords",
+        "canonical_rules_text",
+        "art_summary",
+        "capability_requirements"
+      ],
+      "properties": {
+        "design_id": { "const": "LO-T01" },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "source_card_id": { "const": "LO-03" },
+        "profession_id": { "const": "oathguard" },
+        "series_id": { "const": "luminous_oath" },
+        "card_type": { "const": "follower" },
+        "stats": { "$ref": "#/$defs/stats" },
+        "keywords": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/keyword" },
+          "minItems": 1,
+          "uniqueItems": true
+        },
+        "canonical_rules_text": { "$ref": "#/$defs/nonEmptyString" },
+        "art_summary": { "$ref": "#/$defs/nonEmptyString" },
+        "capability_requirements": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/capabilityRequirement" }
+        }
+      }
+    },
+    "deckEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["design_id", "copies"],
+      "properties": {
+        "design_id": { "type": "string", "pattern": "^(LO|AP)-S[0-9]{2}$|^(LO|AP|NT)-[0-9]{2}$" },
+        "copies": { "type": "integer", "minimum": 1, "maximum": 3 }
+      }
+    },
+    "curveEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["pp", "copies"],
+      "properties": {
+        "pp": { "type": "integer", "minimum": 1 },
+        "copies": { "type": "integer", "minimum": 1 }
+      }
+    },
+    "idList": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "pattern": "^(LO|AP)-S[0-9]{2}$|^(LO|AP|NT)-[0-9]{2}$" },
+      "uniqueItems": true
+    },
+    "comboLine": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "cards", "sequence", "payoff", "counterplay"],
+      "properties": {
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "cards": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 3,
+          "items": { "type": "string", "pattern": "^(LO|AP|NT)-[0-9]{2}$" },
+          "uniqueItems": true
+        },
+        "sequence": { "$ref": "#/$defs/nonEmptyString" },
+        "payoff": { "$ref": "#/$defs/nonEmptyString" },
+        "counterplay": { "$ref": "#/$defs/nonEmptyString" }
+      }
+    },
+    "deck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deck_id",
+        "name",
+        "profession_id",
+        "series_id",
+        "leader_id",
+        "main",
+        "standby",
+        "curve",
+        "gameplay_roles",
+        "combo_lines",
+        "counterplay_windows",
+        "expected_play_pattern"
+      ],
+      "properties": {
+        "deck_id": { "enum": ["oathguard_luminous_oath_v1", "pactmage_abyssal_pact_v1"] },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "profession_id": { "enum": ["oathguard", "pactmage"] },
+        "series_id": { "enum": ["luminous_oath", "abyssal_pact"] },
+        "leader_id": { "enum": ["leader-aurelia", "leader-theraea"] },
+        "main": {
+          "type": "array",
+          "minItems": 15,
+          "maxItems": 15,
+          "items": { "$ref": "#/$defs/deckEntry" }
+        },
+        "standby": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "items": { "$ref": "#/$defs/deckEntry" }
+        },
+        "curve": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/curveEntry" }
+        },
+        "gameplay_roles": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["starters", "connectors", "payoffs", "recovery", "finishers"],
+          "properties": {
+            "starters": { "$ref": "#/$defs/idList" },
+            "connectors": { "$ref": "#/$defs/idList" },
+            "payoffs": { "$ref": "#/$defs/idList" },
+            "recovery": { "$ref": "#/$defs/idList" },
+            "finishers": { "$ref": "#/$defs/idList" }
+          }
+        },
+        "combo_lines": {
+          "type": "array",
+          "minItems": 2,
+          "items": { "$ref": "#/$defs/comboLine" }
+        },
+        "counterplay_windows": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/nonEmptyString" }
+        },
+        "expected_play_pattern": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["future_uses_per_game", "repairs_per_game", "expected_terminal_cracks", "description"],
+          "properties": {
+            "future_uses_per_game": {
+              "type": "object",
+              "required": ["min", "max"],
+              "additionalProperties": false,
+              "properties": {
+                "min": { "type": "integer", "minimum": 0 },
+                "max": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "repairs_per_game": {
+              "type": "object",
+              "required": ["min", "max"],
+              "additionalProperties": false,
+              "properties": {
+                "min": { "type": "integer", "minimum": 0 },
+                "max": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "expected_terminal_cracks": {
+              "type": "object",
+              "required": ["min", "max"],
+              "additionalProperties": false,
+              "properties": {
+                "min": { "type": "integer", "minimum": 0 },
+                "max": { "type": "integer", "minimum": 0 }
+              }
+            },
+            "description": { "$ref": "#/$defs/nonEmptyString" }
+          }
+        }
+      }
+    },
+    "balanceTargets": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "validation_state",
+        "scope",
+        "winner_own_turn_range",
+        "post_mulligan_t2_class_action_probability_min",
+        "core_line_visibility_t6_range",
+        "core_line_visibility_t10_approx",
+        "oathguard_future_uses_per_game",
+        "oathguard_repaired_cracks_per_game",
+        "oathguard_peak_cracks_per_game",
+        "pactmage_future_uses_per_game",
+        "pactmage_peak_cracks_per_game",
+        "pactmage_terminal_cracks",
+        "future_playable_acceptance"
+      ],
+      "properties": {
+        "validation_state": { "const": "target_not_playtested" },
+        "scope": { "const": "fixed_decks_both_first_player_orders" },
+        "winner_own_turn_range": {
+          "type": "array",
+          "prefixItems": [{ "const": 10 }, { "const": 12 }],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "post_mulligan_t2_class_action_probability_min": { "const": 0.9 },
+        "core_line_visibility_t6_range": {
+          "type": "array",
+          "prefixItems": [{ "const": 0.7 }, { "const": 0.8 }],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "core_line_visibility_t10_approx": { "const": 0.9 },
+        "oathguard_future_uses_per_game": {
+          "type": "array",
+          "prefixItems": [{ "const": 2 }, { "const": 3 }],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "oathguard_repaired_cracks_per_game": {
+          "type": "array",
+          "prefixItems": [{ "const": 4 }, { "const": 7 }],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "oathguard_peak_cracks_per_game": {
+          "type": "array",
+          "prefixItems": [{ "const": 2 }, { "const": 4 }],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "pactmage_future_uses_per_game": {
+          "type": "array",
+          "prefixItems": [{ "const": 3 }, { "const": 5 }],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "pactmage_peak_cracks_per_game": {
+          "type": "array",
+          "prefixItems": [{ "const": 5 }, { "const": 8 }],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "pactmage_terminal_cracks": {
+          "type": "array",
+          "prefixItems": [{ "const": 3 }, { "const": 6 }],
+          "minItems": 2,
+          "maxItems": 2
+        },
+        "future_playable_acceptance": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["win_rate_range", "winner_turn_median_range", "games_ending_before_t10_max", "games_ending_after_t15_max"],
+          "properties": {
+            "win_rate_range": {
+              "type": "array",
+              "prefixItems": [{ "const": 0.48 }, { "const": 0.52 }],
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "winner_turn_median_range": {
+              "type": "array",
+              "prefixItems": [{ "const": 10 }, { "const": 12 }],
+              "minItems": 2,
+              "maxItems": 2
+            },
+            "games_ending_before_t10_max": { "const": 0.1 },
+            "games_ending_after_t15_max": { "const": 0.15 }
+          }
+        }
+      }
+    },
+    "artDirection": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "style",
+        "originality_constraint",
+        "oathguard_palette",
+        "pactmage_palette",
+        "shared_card_back",
+        "generation_scope"
+      ],
+      "properties": {
+        "style": { "const": "original_japanese_fantasy_anime" },
+        "originality_constraint": { "$ref": "#/$defs/nonEmptyString" },
+        "oathguard_palette": { "const": "白金／苍蓝／日轮" },
+        "pactmage_palette": { "const": "黑紫／绯红／裂隙" },
+        "shared_card_back": { "const": "深靛底，中央纹章为金银双环围绕日轮，日轮被一条紫色裂隙贯穿，边缘使用原创细密誓约刻线；双方共享，不出现职业文字、角色、眼形、旋涡、千年神器式几何或游戏王卡背比例／线框细节。" },
+        "generation_scope": { "const": "locked_direction_only_no_art_generated_in_gate_5a" }
+      }
+    },
+    "visualAsset": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["asset_id", "kind", "subject_id", "name", "art_summary", "status"],
+      "properties": {
+        "asset_id": { "type": "string", "pattern": "^visual-[a-z0-9-]+$" },
+        "kind": { "enum": ["constructible_card", "token", "leader", "shared_card_back"] },
+        "subject_id": { "$ref": "#/$defs/nonEmptyString" },
+        "name": { "$ref": "#/$defs/nonEmptyString" },
+        "art_summary": { "$ref": "#/$defs/nonEmptyString" },
+        "status": { "const": "planned_not_generated" }
+      }
+    }
+  }
+}

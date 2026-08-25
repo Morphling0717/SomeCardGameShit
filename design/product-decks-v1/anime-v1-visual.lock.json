@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "gate": "Gate 6A",
+  "status": "slice_candidate_pending_user_approval",
+  "product_visual_profile": "AnimeV1",
+  "product_exclusivity": {
+    "target": "AnimeV1 is the only shipping product visual after Gate 6C",
+    "transition_default": "Gate 4B-R2 remains the temporary playable path until product integration",
+    "delete_after_cutover": [
+      "Gate 4B science-fiction card art",
+      "Gate 4B deck portraits and card back",
+      "Gate 4B-R3 industrial arena profile",
+      "black-blue glass product theme"
+    ]
+  },
+  "style_lock": {
+    "medium": "original ornate painterly Japanese-fantasy anime illustration",
+    "oathguard_palette": ["ivory", "platinum", "azure", "sun-gold"],
+    "pactmage_palette": ["black-violet", "ink-blue", "crimson", "rift-magenta"],
+    "neutral_ui_palette": ["moon-white", "deep-indigo", "antique-gold"],
+    "forbidden": [
+      "copied characters or compositions",
+      "artist or franchise imitation prompts",
+      "third-party card frames, logos, trademarks, UI, audio or wording",
+      "text, stats, logos, signatures or watermarks baked into illustration",
+      "industrial cyan, mud-yellow or large opaque black product panels"
+    ]
+  },
+  "subject_art": {
+    "expected_count": 38,
+    "items": [
+      {"visual_id":"VIS-01","design_id":"LO-01","name":"曜誓传令使·菲娅","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-02","design_id":"LO-02","name":"曜誓偿愿祭司·米蕾","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-03","design_id":"LO-03","name":"晨钟誓碑","kind":"constructible","status":"slice_candidate"},
+      {"visual_id":"VIS-04","design_id":"LO-04","name":"曜誓盾侍·格兰","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-05","design_id":"LO-05","name":"日轮突骑·希尔妲","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-06","design_id":"LO-06","name":"归誓圣仪","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-07","design_id":"LO-07","name":"曜誓·不破阵","kind":"constructible","status":"slice_candidate"},
+      {"visual_id":"VIS-08","design_id":"LO-08","name":"曜誓破阵骑·莱昂","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-09","design_id":"LO-09","name":"曜誓大司祭·伊莲","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-10","design_id":"LO-10","name":"日轮圣庭·索拉里斯","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-11","design_id":"LO-11","name":"曜誓大团长·蕾奥妮","kind":"constructible","status":"slice_candidate"},
+      {"visual_id":"VIS-12","design_id":"LO-S01","name":"曜誓援军长·凯因","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-13","design_id":"LO-S02","name":"破晓处刑骑·维奥娜","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-14","design_id":"LO-S03","name":"圣碑巨像·阿德拉斯","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-15","design_id":"LO-S04","name":"曜冠天马骑·塞蕾涅","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-16","design_id":"AP-01","name":"渊契使魔·墨契","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-17","design_id":"AP-02","name":"借时优等生·伊蕾娜","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-18","design_id":"AP-03","name":"契式·违约穿刺","kind":"constructible","status":"slice_candidate"},
+      {"visual_id":"VIS-19","design_id":"AP-04","name":"未偿禁书《第七码》","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-20","design_id":"AP-05","name":"渊契魔导院·零时讲堂","kind":"constructible","status":"slice_candidate"},
+      {"visual_id":"VIS-21","design_id":"AP-06","name":"债印风纪官·赛菈","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-22","design_id":"AP-07","name":"黑蔷薇校医·维奥拉","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-23","design_id":"AP-08","name":"契式·延期清算","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-24","design_id":"AP-09","name":"带债讲师·雷维尔","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-25","design_id":"AP-10","name":"债权吞噬兽·格里姆","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-26","design_id":"AP-11","name":"禁忌毕业生·诺克缇娅","kind":"constructible","status":"slice_candidate"},
+      {"visual_id":"VIS-27","design_id":"AP-S01","name":"催债魔犬·奥尔特","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-28","design_id":"AP-S02","name":"封债医龙·塞拉菲姆","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-29","design_id":"AP-S03","name":"禁书装订机·奥库塔","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-30","design_id":"AP-S04","name":"终期债主·阿巴顿","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-31","design_id":"NT-01","name":"边境游骑·埃尔","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-32","design_id":"NT-02","name":"白垩城门卫","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-33","design_id":"NT-03","name":"旅途篝火","kind":"constructible","status":"planned"},
+      {"visual_id":"VIS-34","design_id":"NT-04","name":"界域裁定","kind":"constructible","status":"slice_candidate"},
+      {"visual_id":"VIS-35","design_id":"LO-T01","name":"誓光守卫","kind":"token","status":"planned"},
+      {"visual_id":"VIS-36","design_id":"leader-aurelia","name":"曜誓圣王女·奥蕾莉亚","kind":"leader","status":"slice_candidate"},
+      {"visual_id":"VIS-37","design_id":"leader-theraea","name":"渊契院长·瑟蕾娅","kind":"leader","status":"slice_candidate"},
+      {"visual_id":"VIS-38","design_id":"shared-card-back-v1","name":"统一卡背","kind":"card_back","status":"slice_candidate"}
+    ]
+  },
+  "ace_evolution_variants": [
+    {"design_id":"LO-11","status":"slice_candidate","reuse_policy":"all other followers reuse base illustration"},
+    {"design_id":"AP-11","status":"slice_candidate","reuse_policy":"all other followers reuse base illustration"}
+  ],
+  "product_components": [
+    {"id":"brand","status":"planned","requirements":["development codename remains small", "no commercial logo in Gate 6A"]},
+    {"id":"menu","status":"slice_candidate","requirements":["wordless key art", "deck setup", "settings and legal footer"]},
+    {"id":"arena","status":"slice_candidate","requirements":["open fantasy arena", "no perimeter table frame", "2.5D fixed camera"]},
+    {"id":"card_frames","status":"slice_candidate","requirements":["five distinct card kinds", "two factions plus neutral", "programmatic text and badges"]},
+    {"id":"icons","status":"slice_candidate","requirements":["cost", "attack", "health", "countdown", "keywords", "zones"]},
+    {"id":"hud","status":"slice_candidate","requirements":["leader layers", "life", "PP", "rift", "evolution", "phase"]},
+    {"id":"overlays","status":"slice_candidate","requirements":["mulligan", "reaction", "pending choice", "Covered", "Resolving", "result", "error"]},
+    {"id":"vfx","status":"planned","requirements":["entry", "attack", "damage", "heal", "barrier", "countdown", "graveyard", "evolution"]},
+    {"id":"fonts","status":"planned","requirements":["licensed zh-CN readable family", "digits legible at 1280x720"]},
+    {"id":"fallbacks","status":"slice_candidate","requirements":["identity-free card front", "shared hidden back", "unknown leader"]},
+    {"id":"shaders","status":"slice_candidate","requirements":["Compatibility renderer", "cross-platform", "no private identity in parameters"]}
+  ],
+  "slice_contract": {
+    "uses_native_session": false,
+    "does_not_claim_product_decks_playable": true,
+    "states": ["menu", "setup", "action", "hand-hover", "mixed-permanents-field", "reaction", "covered", "result"],
+    "raster_count": 14,
+    "approval_required_before_batch_generation": true
+  }
+}

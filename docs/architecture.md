@@ -5,43 +5,38 @@
 项目采用“规则真值、客户端契约、表现层”分层：
 
 ```text
-卡牌定义 + Game 状态机（C++20，唯一规则真值）
-                         │
-             共享 validate_* 合法性逻辑
-                         │
-     ┌───────────────────┴───────────────────┐
-     │                                       │
-观看者安全查询                         统一 GameCommand
-MatchView / LegalAction / Preview       expected_revision
-     │                                       │
-     └────────── GameEventView ──────────────┘
-                    │
-       scgs_v04 C11 + UTF-8 JSON（Gate 2）
-                    │
-       Scgs.Client 纯托管边界（Gate 3A）
-                     │
-      Scgs.Hotseat 热座与 surface intent 编排（Gate 4B-R2）
-                     │
-     Godot 4.7.2 .NET 产品表现边界（Gate 4B-R2）
-          ┌──────────┴──────────┐
- authored 默认 3D/2.5D   隐藏 legacy 2D
- CardVisual/Portrait 目录   同源功能回归
- Camera-relative Hand Rig / HUD / 安全 FX
+冻结 v0.4 卡牌 + Game                 Gate 5A 产品目录（34＋1 全部锁定）
+          │                                          │
+共享 validate_* + 安全客户端 API       ProductBoard + ResolutionQueue synthetic 底座
+          │                                          │
+scgs_v04 / schema 1                    FoundationSession + schema-2 验证骨架
+冻结旧对局、精确 14 导出                scgs_v05 / schema 2、精确 14 导出
+          │                                          │
+Scgs.Client v04                         Scgs.Client.V05
+          └──────────────────┬───────────────────────┘
+                     Scgs.Hotseat 编排
+                             │
+             Godot 4.7.2 .NET 产品表现边界
+                  ┌──────────┴──────────┐
+         过渡期 R2/R3 3D/2.5D   AnimeV1 独立审批样片
+         当前旧对局与历史回归       无 native、八种状态
 ```
 
 客户端不能直接读取 `PlayerState`、自行扣费或复算目标。它只能读取安全快照和查询结果，提交带 revision 的命令，再按观看者读取脱敏事件。legacy YGOPro2/Unity 代码不在现行调用链中。
 
 ## 原生 ABI 边界
 
-`scgs_v04` 是纯 C11 动态库接口。公开头只出现明确宽度整数、UTF-8 字节缓冲区和进程内不复用的 64 位 token handle；Windows 固定 `__cdecl`，任何异常都在导出边界转换为 native 状态码。复杂 DTO 不镜像成易碎的 C struct，而是写入调用方所有的两段式 JSON 缓冲区。
+`scgs_v04` 与 `scgs_v05` 都是纯 C11 动态库接口。公开头只出现明确宽度整数、UTF-8 字节缓冲区和进程内不复用的 64 位 token handle；Windows 固定 `__cdecl`，任何异常都在导出边界转换为 native 状态码。复杂 DTO 不镜像成易碎的 C struct，而是写入调用方所有的两段式 JSON 缓冲区。
 
-ABI version、JSON schema version 与项目包版本相互独立。native/transport 错误和规则 `ErrorCode` 分离；规则枚举由显式映射冻结，不依赖 C++ enum 的底层值。动态库不返回需要跨 CRT 释放的内存，同一 handle 第一版只承诺顺序调用。详见 [`native-api-v04.md`](native-api-v04.md)。
+ABI version、JSON schema version 与项目包版本相互独立。v04 固定 ABI 1.0／schema 1；v05 固定 ABI 2.0／schema 2，二者分别安装、加载和审计，各自只导出同构的 14 个 `scgs_v0x_*` 符号，v05 不从自己的库泄露 v04 符号。native/transport 错误和规则 `ErrorCode` 分离；规则枚举由显式映射冻结，不依赖 C++ enum 的底层值。动态库不返回需要跨 CRT 释放的内存，同一 handle 第一版只承诺顺序调用。详见 [`native-api-v04.md`](native-api-v04.md) 与 [`native-api-v05.md`](native-api-v05.md)。
 
-Native 适配层只序列化 Gate 1 的安全 DTO，并且只经 `make_view`、查询、统一命令和 `read_events` 访问对局；它不得先读取 `PlayerState` 或原始事件再做删字段式脱敏。
+冻结 v04 Native 适配层只序列化 Gate 1 的安全 DTO，并且只经 `make_view`、查询、统一命令和 `read_events` 访问对局；它不得先读取 `PlayerState` 或原始事件再做删字段式脱敏。v05 本轮尚无完整产品 `Game`，其临时 `FoundationSession` 直接从 `ProductBoard` 构造 schema-2 观看者安全 DTO，并由独立隐私测试约束；Gate 5C 接入完整产品查询 API 后必须收敛到与 v04 相同的“安全 API 在先”边界。
 
 ## C# 与 Godot 边界
 
-`Scgs.Client` 是不依赖 Godot 的纯托管层，同时生成 `net8.0` 与 `net10.0`。它以 `LibraryImport` + `cdecl` 绑定全部 14 个 ABI 导出，用 `SafeHandle` 管理 64 位 token，并统一处理绝对路径加载、两段式缓冲区、严格 UTF-8、schema 1 JSON 和 native/engine 错误分层。`Scgs.Hotseat` 同样生成两个 TFM，只依赖 `IScgsGameSession`，负责同 revision 合法候选、上下文选择步骤、规范命令冻结、双 viewer 事件游标和操作者路由。Godot 工程目标为 `net8.0`；`BootstrapController` 是组合根，场景代码不直接调用 P/Invoke 或复算规则。
+`Scgs.Client` 是不依赖 Godot 的纯托管层，同时生成 `net8.0` 与 `net10.0`。现有命名空间绑定 v04；并行的 `Scgs.Client.V05` 使用独立 `LibraryImport`、SafeHandle、强类型 schema 2 DTO 和错误边界，两版通过同一 resolver 内按库名隔离的绝对路径绑定，不能让任一会话误加载另一版动态库。两版都统一处理两段式缓冲区、严格 UTF-8、native/engine 错误分层和每名 viewer 独立事件游标。
+
+`Scgs.Hotseat` 同样生成两个 TFM。现有 v04 控制器继续负责同 revision 合法候选、规范命令冻结与操作者路由；产品选择状态另行表达 `ChooseMode`、`ChooseCards`、`OrderTriggers` 和 `ChooseAdditionalCost`。它只消费观看者安全的 `PendingChoiceView` 和短生命周期 opaque option ID，不能保存隐藏候选或自行判断卡牌效果。Godot 工程目标为 `net8.0`；`BootstrapController` 是组合根，场景代码不直接调用 P/Invoke 或复算规则。本轮 Godot 正式入口仍组合 v04，待 Gate 5C 完成产品整局后再切换。
 
 所有 native 调用在 Godot 主线程顺序执行。动态库只从显式绝对路径加载：编辑器使用 `client/godot/native/<target>` 暂存目录，Windows 导出将 DLL 放在 EXE 同目录，macOS 导出将 dylib 放在 `.app/Contents/Frameworks`。详细约束见 [`godot-client-architecture.md`](godot-client-architecture.md)。
 
@@ -65,7 +60,35 @@ authored 3D 场景把空间战场、相机相对的 `BattlefieldHandRig` 与 `Ca
 
 Gate 4A full-match 继续使用 schema version 3 验证两局功能/surface/隐私；Gate 4B-R2 visual suite 升级为独立 schema version 4，验证四尺寸 16 种视觉状态、连续两个稳定 `FramePostDraw`、关键画面锚点、费用/身材/倒计时 GPU ROI、1600×900 golden、34 项资产和 600 帧资源/性能证据。两者是两套独立白名单与 validator。软件渲染只能豁免 GPU 时间阈值，不豁免功能、隐私、像素结构或资源零增长。
 
-## 规则域
+## Gate 5B 产品运行时底座
+
+Gate 5B 在 `scgs::v2` 命名空间建立与冻结 v0.4 `Game` 并行的产品域，避免为加入护符、场地和私密选择而破坏 v04。`CardDefinition` 已具备字符串 `design_id`、职业／系列／中立标签、五种 `CardKind`、基础数值、分层关键词及通用模式／条件／效果类型；提交态 `product_catalog_v2.generated.cpp` 由 Gate 5A 权威设计清单与 `runtime-foundation.lock.json` 的结构化运行时形状共同确定性生成。当前产品目录只生成 AP-08／NT-04 的模式 ID 与目标形状、八张战备的 typed conditions 和 AP-S04 的精确额外代价筛选，逐卡 effect graph 仍为空。普通 CMake 构建直接编译生成物，不需要 Python；测试阶段的 `--check` 会重新计算并拒绝过期或手改的生成物。
+
+每个生成定义都显式携带 `CardImplementationStatus` 与 `effects_compiled`。当前 34＋1 产品定义均为 `LockedNotImplemented/false`：可以用于 schema-2 安全视图和区域底座验证，但合法行动枚举与支付验证必须拒绝。只有 synthetic fixture 标为可执行；Gate 5C 完整编译某张牌的效果图后，才允许把该定义切换为产品可执行状态。这道闸门防止“目录里有卡名和模式”被误报为“牌已经能玩”。
+
+`ProductBoard` 是区域与战斗不变量内核，而不是另一套 UI 规则：
+
+- 五个 `MainBoard` 格允许随从和护符混合占用；护符不能攻击、进化或成为攻击目标；
+- 每方独立 `Field` 格不占五格，新场地以 `FieldReplaced` 送墓且不标记为破坏；
+- 所有移动以 `MoveReason` 记录，封存、弃牌、手满、额外代价、倒数结束、场地替换和终局清理不能混用“破坏”语义；
+- 分层关键词把印刷、永久、回合内和已消耗状态分开，屏障消费不会误删其他来源，主动攻击吸血与防守反击分开；
+- 护符倒数结束可用 resolution frame 预留原格，离场与衍生物召唤之间不能被其他永久物抢位。
+
+`ResolutionQueue` 允许 effect frame 因模式、卡牌、触发排序或额外代价选择暂停。存在 `PendingChoice` 时，只允许选择者提交 `ResolveChoice`，双方仍可投降；非法、重复、越界或错误所有者选择不改变 revision。终局会幂等清空 pending choice 和剩余 frame，后续不能继续弹出选择或执行效果。`TriggerOrderPlanner` 先固定当前回合玩家组、再固定非当前玩家组；单一或完全等价的触发按印刷顺序自动排列，非等价多触发则生成该玩家私有的有序选择。
+
+这一层当前只实现可复用基础语义和 synthetic fixture，并生成 34＋1 张牌的身份、基础数值、模式、目标形状、战备条件与额外代价筛选；所有产品定义仍显式锁为不可执行。它还不是完整的产品 `Game` 或逐卡效果解释器。过滤检索、置底、弃牌、模式、监听器、历史条件、职业充能、战备条件等字段已经有版本化表达边界，但每张锁定卡的完整执行和两副 30 张固定牌整局必须在 Gate 5C 完成后才能称为可玩。
+
+`scgs_v05` 是 schema 2 的独立运输边界。它冻结 `CardKind` 0～4、`Zone` 0～8、原 `ActionKind` 0～10 并追加 11～13；`GameCommand`／`ActionQuery` 增加 `mode_id`、`choice_id`、有序 `selected_option_ids` 和 `additional_cost_cards`。`PlayerView` 公开五格混合主战场、三格策略区和独立可选场地。`PendingChoiceView` 只向选择者提供 opaque option ID 与私密候选，另一 viewer 只知道对方正在选择；实时快照和普通事件禁止包含产品 seed。本轮 deterministic foundation session 验证 14 导出运输骨架、生命周期、revision、双 viewer 脱敏和一条真实卡牌选择／恢复路径；目标／格位／组件目前为空，支付是零值 fixture，响应上下文固定为无响应。未实现的产品出牌动作受控返回规则错误，因此这不是完整运输语义或产品牌可玩声明。
+
+## Gate 6A AnimeV1 视觉样片边界
+
+AnimeV1 是全产品唯一长期视觉目标，不是可与科幻 R2/R3 并存的玩家皮肤。`design/product-decks-v1/anime-v1-visual.lock.json` 锁定未来 38 项主体美术和品牌、菜单、竞技场、卡框、图标、HUD、弹层、VFX、字体、fallback 与 shader 的迁移清单；Gate 6A 先提交 14 项原创候选素材用于用户审批。逐项 prompt、生成方式、SHA-256 和修改记录写在样片 provenance 与资产 manifest 中。
+
+独立 `--anime-style-slice` 入口不创建 session、不加载 native，也不读取旧或新牌组状态。它只以静态安全数据绘制菜单、牌组设置、普通对局、手牌悬停、五类混合永久物、响应、`Covered` 和结果八态，验证固定斜视 2.5D 构图、相机相对扇形手牌、开放式幻想竞技场、五个主战场格、三个策略格与独立场地格。交互模式包含主战者呼吸／视差／入场、受击脉冲和胜负状态；自动截图模式会关闭这些时间相关动效，从而让同输入的像素证据可复现。样片通过不能证明 Gate 5C 产品牌可玩；用户明确批准后，Gate 6C 才能把动漫菜单、竞技场、卡牌、HUD、全部弹层和 VFX 设为唯一默认，并删除旧科幻产品 profile。
+
+隐藏牌仍只允许统一卡背，任何身份纹理不得写入隐藏 actor、metadata、tooltip 或材质。样片纹理使用桌面 VRAM 压缩、高质量和 mipmap；审计把源文件、估算驻留显存、清单哈希与跨清单路径唯一性分开记录。最终商业发布仍需逐图人工检查人物手脸、构图、缩略可读性、文字／水印和潜在 IP 近似。
+
+## 冻结 v0.4 规则域
 
 ### `CardDefinition` 与 `CardInstance`
 
@@ -77,7 +100,7 @@ Gate 4A full-match 继续使用 schema version 3 验证两局功能/surface/隐�
 
 ### `Game`
 
-`Game` 是唯一状态变更入口。产品默认随机先手；测试可强制 `Player0` 或 `Player1`，并可提供 seed。实际 seed 和先手写入开局事件与安全快照。本阶段只保证同一工具链下同 seed 可复现，不承诺 `std::shuffle` 跨标准库产生相同排列。
+冻结 v0.4 的 `Game` 是旧对局的唯一状态变更入口。产品默认随机先手；测试可强制 `Player0` 或 `Player1`，并可提供 seed。v04 仍按冻结 schema 1 把实际 seed 和先手写入开局事件与安全快照；v05 schema 2 明确禁止实时输出 seed，只允许测试配置和赛后报告持有。本阶段都只保证同一工具链下同 seed 可复现，不承诺 `std::shuffle` 跨标准库产生相同排列。
 
 ## 客户端安全契约
 
@@ -89,7 +112,7 @@ Gate 4A full-match 继续使用 schema version 3 验证两局功能/surface/隐�
 - 对方手牌只包含数量；
 - 对方背面伏策不包含 definition ID 或 instance ID；
 - 战备、单位、墓地和封存区公开；
-- 快照包含单调递增的 `revision`、实际 seed 与先手。
+- 快照包含单调递增的 `revision`；冻结 v04 还包含实际 seed 与先手，v05 只公开先手而隐藏 seed。
 
 快照是最终状态真值；事件只用于日志和表现。
 

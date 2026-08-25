@@ -158,17 +158,14 @@ Json parse_payload(const char* data, const std::uint64_t byte_count) {
     if (!valid_utf8(bytes)) {
         fail(SCGS_V04_INVALID_UTF8, "The JSON payload is not valid UTF-8.");
     }
-    try {
-        Json payload = Json::parse(bytes.begin(), bytes.end());
-        if (!payload.is_object()) {
-            fail(SCGS_V04_SCHEMA_MISMATCH, "The JSON root must be an object.");
-        }
-        return payload;
-    } catch (const NativeFailure&) {
-        throw;
-    } catch (const nlohmann::json::parse_error&) {
+    Json payload = Json::parse(bytes.begin(), bytes.end(), nullptr, false);
+    if (payload.is_discarded()) {
         fail(SCGS_V04_INVALID_JSON, "The JSON payload is malformed.");
     }
+    if (!payload.is_object()) {
+        fail(SCGS_V04_SCHEMA_MISMATCH, "The JSON root must be an object.");
+    }
+    return payload;
 }
 
 const Json& require_field(const Json& object, const char* name) {

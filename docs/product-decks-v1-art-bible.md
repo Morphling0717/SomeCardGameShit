@@ -1,9 +1,9 @@
 # Gate 5A：誓卫／契术动漫视觉圣经
 
-> 状态：`locked_not_implemented`
+> 状态：`gate6a_sample_pending_user_approval`
 >
-> 本文锁定后续视觉方向和 38 项资产范围。Gate 5A **不生成、不下载、不提交**任何新美术；
-> 下列内容不是现有游戏截图或已完成资产。
+> 本文在 Gate 5A 锁定后续视觉方向和 38 项主体资产范围；Gate 6A 已据此生成 14 项待用户批准的 AnimeV1 样片。
+> 样片不是完整 38 项交付，也不代表新牌组已可玩。
 
 ## 1. 原创与 clean-room 原则
 
@@ -170,4 +170,6 @@
 6. 无字检查：插画内没有乱码、伪文字、费用、身材、Logo、水印或签名；
 7. 导出许可证与 `ASSET_NOTICES` 完整。
 
-Gate 5A 只通过文档和机器清单锁定这些要求；它不声称任何一项视觉资产已经生成或验收。
+Gate 5A 只通过文档和机器清单锁定这些要求；Gate 6A 当前提交两名主战者母图、七张代表卡、两张王牌进化异画、统一卡背、菜单主视觉与开放式竞技场共 14 项**候选样片**。逐项文件、哈希和用途见 `client/godot/assets/visual/anime_v1/slice/ASSET_MANIFEST.json`，完整 prompt 与生成记录见同目录 `PROVENANCE.md`，全产品迁移锁见 `design/product-decks-v1/anime-v1-visual.lock.json`。
+
+自动审计已覆盖文件结构、透明通道、导入压缩、mipmap、清单哈希和显存预算；人物手脸、服饰、构图、缩略可读性、无字／水印和潜在 IP 近似仍处于人工审批阶段。用户明确批准样片前，不批量生成其余主体美术，也不把 AnimeV1 切为默认产品入口；批准后整个游戏统一迁移到 AnimeV1，旧科幻产品 profile 不作为玩家可选皮肤保留。

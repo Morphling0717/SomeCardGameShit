@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "scgs/game.hpp"
+#include "v04_synthetic_fixture.hpp"
 #include "scgs/protocol.hpp"
 
 #include <algorithm>
@@ -43,7 +44,7 @@ GameConfig deterministic_test_config() {
 }
 
 Game scenario_game(const Scenario& scenario, GameConfig config = deterministic_test_config()) {
-    Game game(make_v04_catalog(), make_midrange_deck(), make_advance_deck(), config);
+    Game game(test_fixture::make_catalog(), test_fixture::make_alpha_deck(), test_fixture::make_beta_deck(), config);
     const Status status = game.load_scenario(scenario);
     if (!status) {
         throw std::runtime_error("failed to load test scenario: " + status.message);
@@ -52,7 +53,7 @@ Game scenario_game(const Scenario& scenario, GameConfig config = deterministic_t
 }
 
 Game scenario_game_with_catalog(CardCatalog catalog, const Scenario& scenario) {
-    Game game(std::move(catalog), make_midrange_deck(), make_advance_deck(), deterministic_test_config());
+    Game game(std::move(catalog), test_fixture::make_alpha_deck(), test_fixture::make_beta_deck(), deterministic_test_config());
     const Status status = game.load_scenario(scenario);
     if (!status) {
         throw std::runtime_error("failed to load custom test scenario: " + status.message);
@@ -72,7 +73,7 @@ Scenario base_scenario(const PlayerId active = PlayerId::Player0) {
         player.own_turn_number = 5;
         // Enough deck filler to keep turn-flow tests away from fatigue.
         for (int i = 0; i < 20; ++i) {
-            player.deck.push_back(cards::midrange::kGuardSentry);
+            player.deck.push_back(test_fixture::kSmallWardUnit);
         }
     }
     return scenario;
@@ -140,9 +141,9 @@ void test_pp_capacity_growth_and_refill(TestContext& context) {
 
 void test_end_turn_cleanup_order(TestContext& context) {
     Scenario scenario = base_scenario();
-    scenario.players[0].units = {cards::midrange::kEliteCommander};
+    scenario.players[0].units = {test_fixture::kVanillaFiveUnit};
     Game game = scenario_game(scenario);
-    const InstanceId unit = *game.find_on_field(PlayerId::Player0, cards::midrange::kEliteCommander);
+    const InstanceId unit = *game.find_on_field(PlayerId::Player0, test_fixture::kVanillaFiveUnit);
     EXPECT(context, game.evolve(PlayerId::Player0, unit));
     EXPECT(context, game.instance(unit).temporary_rush);
     (void)game.drain_events();
@@ -172,9 +173,9 @@ void test_end_turn_cleanup_order(TestContext& context) {
 // ---------------------------------------------------------------------------
 void test_advance_payment_and_limits(TestContext& context) {
     Scenario scenario = base_scenario();
-    scenario.players[0].hand = {cards::advance::kDebtLord}; // 8PP 8/6
+    scenario.players[0].hand = {test_fixture::kVanillaEightUnit}; // 8PP 8/6
     Game game = scenario_game(scenario);
-    const InstanceId debt_lord = *game.find_in_hand(PlayerId::Player0, cards::advance::kDebtLord);
+    const InstanceId debt_lord = *game.find_in_hand(PlayerId::Player0, test_fixture::kVanillaEightUnit);
 
     // Without advance: refused.
     EXPECT_CODE(context, game.play_unit(PlayerId::Player0, debt_lord), ErrorCode::InsufficientPP);
@@ -184,15 +185,15 @@ void test_advance_payment_and_limits(TestContext& context) {
     EXPECT(context, state.current_pp == 0);
     EXPECT(context, state.pp_capacity == 2);
     EXPECT(context, state.cracks == 3);
-    EXPECT(context, game.find_on_field(PlayerId::Player0, cards::advance::kDebtLord).has_value());
+    EXPECT(context, game.find_on_field(PlayerId::Player0, test_fixture::kVanillaEightUnit).has_value());
 
     // Once per turn (rules-v0.4 §10.1): a second capacity payment is refused.
     Scenario scenario2 = base_scenario();
-    scenario2.players[0].hand = {cards::advance::kDebtLord, cards::advance::kBurnBlast};
+    scenario2.players[0].hand = {test_fixture::kVanillaEightUnit, test_fixture::kBurnTwoDamageFiveSpell};
     Game game2 = scenario_game(scenario2);
-    const InstanceId debt2 = *game2.find_in_hand(PlayerId::Player0, cards::advance::kDebtLord);
+    const InstanceId debt2 = *game2.find_in_hand(PlayerId::Player0, test_fixture::kVanillaEightUnit);
     EXPECT(context, game2.play_unit(PlayerId::Player0, debt2, std::nullopt, std::nullopt, true));
-    const InstanceId blast = *game2.find_in_hand(PlayerId::Player0, cards::advance::kBurnBlast);
+    const InstanceId blast = *game2.find_in_hand(PlayerId::Player0, test_fixture::kBurnTwoDamageFiveSpell);
     // Burn counts as 动用未来 too; current PP 0 so the burn spell cannot even pay.
     EXPECT_CODE(context, game2.cast_spell(PlayerId::Player0, blast, 0), ErrorCode::InsufficientPP);
 
@@ -200,9 +201,9 @@ void test_advance_payment_and_limits(TestContext& context) {
     Scenario scenario3 = base_scenario();
     scenario3.players[0].current_pp = 1;
     scenario3.players[0].pp_capacity = 1;
-    scenario3.players[0].hand = {cards::advance::kDebtLord};
+    scenario3.players[0].hand = {test_fixture::kVanillaEightUnit};
     Game game3 = scenario_game(scenario3);
-    const InstanceId debt3 = *game3.find_in_hand(PlayerId::Player0, cards::advance::kDebtLord);
+    const InstanceId debt3 = *game3.find_in_hand(PlayerId::Player0, test_fixture::kVanillaEightUnit);
     EXPECT_CODE(context, game3.play_unit(PlayerId::Player0, debt3, std::nullopt, std::nullopt, true),
                 ErrorCode::AdvanceWouldExceedCap);
 
@@ -211,9 +212,9 @@ void test_advance_payment_and_limits(TestContext& context) {
     Scenario scenario4 = base_scenario();
     scenario4.players[0].current_pp = 8;
     scenario4.players[0].pp_capacity = 8;
-    scenario4.players[0].hand = {cards::advance::kDebtLord};
+    scenario4.players[0].hand = {test_fixture::kVanillaEightUnit};
     Game game4 = scenario_game(scenario4);
-    const InstanceId debt4 = *game4.find_in_hand(PlayerId::Player0, cards::advance::kDebtLord);
+    const InstanceId debt4 = *game4.find_in_hand(PlayerId::Player0, test_fixture::kVanillaEightUnit);
     EXPECT(context, game4.play_unit(PlayerId::Player0, debt4, std::nullopt, std::nullopt, true));
     EXPECT(context, game4.player(PlayerId::Player0).current_pp == 0);
     EXPECT(context, game4.player(PlayerId::Player0).pp_capacity == 8);
@@ -234,10 +235,10 @@ void test_burn_cost_and_combined_advance(TestContext& context) {
     Scenario scenario = base_scenario();
     scenario.players[0].current_pp = 6;
     scenario.players[0].pp_capacity = 6;
-    scenario.players[1].units = {cards::midrange::kGuardSentry};
-    scenario.players[0].hand = {cards::advance::kBurnBlast}; // 1PP + burn2
+    scenario.players[1].units = {test_fixture::kSmallWardUnit};
+    scenario.players[0].hand = {test_fixture::kBurnTwoDamageFiveSpell}; // 1PP + burn2
     Game game = scenario_game(scenario);
-    const InstanceId blast = *game.find_in_hand(PlayerId::Player0, cards::advance::kBurnBlast);
+    const InstanceId blast = *game.find_in_hand(PlayerId::Player0, test_fixture::kBurnTwoDamageFiveSpell);
     EXPECT(context, game.cast_spell(PlayerId::Player0, blast, 0, first_enemy_unit_target(game, PlayerId::Player0)));
     const PlayerState& state = game.player(PlayerId::Player0);
     EXPECT(context, state.current_pp == 5);
@@ -249,17 +250,17 @@ void test_burn_cost_and_combined_advance(TestContext& context) {
     Scenario scenario2 = base_scenario();
     scenario2.players[0].current_pp = 3;
     scenario2.players[0].pp_capacity = 6;
-    scenario2.players[1].units = {cards::midrange::kIronShieldBearer, cards::midrange::kIronShieldBearer}; // 2/5 ×2
-    scenario2.players[0].hand = {cards::advance::kBurnBlast, cards::advance::kAdvanceStrike};
+    scenario2.players[1].units = {test_fixture::kLargeWardUnit, test_fixture::kLargeWardUnit}; // 2/5 ×2
+    scenario2.players[0].hand = {test_fixture::kBurnTwoDamageFiveSpell, test_fixture::kBurnOneDamageFourSpell};
     Game game2 = scenario_game(scenario2);
     // 燃耗爆破 is 1PP+burn2; with 3 current PP it pays normally (burn only).
-    const InstanceId blast2 = *game2.find_in_hand(PlayerId::Player0, cards::advance::kBurnBlast);
+    const InstanceId blast2 = *game2.find_in_hand(PlayerId::Player0, test_fixture::kBurnTwoDamageFiveSpell);
     EXPECT(context, game2.cast_spell(PlayerId::Player0, blast2, 0, first_enemy_unit_target(game2, PlayerId::Player0)));
     EXPECT(context, game2.player(PlayerId::Player0).current_pp == 2);
     EXPECT(context, game2.player(PlayerId::Player0).pp_capacity == 4);
     EXPECT(context, game2.player(PlayerId::Player0).cracks == 2);
     // 超前打击 is 2PP+burn1 but 动用未来 was already used this turn → refused.
-    const InstanceId strike = *game2.find_in_hand(PlayerId::Player0, cards::advance::kAdvanceStrike);
+    const InstanceId strike = *game2.find_in_hand(PlayerId::Player0, test_fixture::kBurnOneDamageFourSpell);
     EXPECT_CODE(context, game2.cast_spell(PlayerId::Player0, strike, 0, first_enemy_unit_target(game2, PlayerId::Player0)),
                 ErrorCode::AdvanceAlreadyUsed);
 
@@ -272,13 +273,13 @@ void test_burn_cost_and_combined_advance(TestContext& context) {
 // ---------------------------------------------------------------------------
 void test_cracks_persistence_and_read(TestContext& context) {
     Scenario scenario = base_scenario();
-    scenario.players[0].hand = {cards::advance::kDebtLord, cards::advance::kCrackFeeder};
+    scenario.players[0].hand = {test_fixture::kVanillaEightUnit, test_fixture::kCrackDamageUnit};
     scenario.players[0].current_pp = 5;
     scenario.players[0].pp_capacity = 5;
-    scenario.players[1].units = {cards::midrange::kIronShieldBearer}; // 2/5
+    scenario.players[1].units = {test_fixture::kLargeWardUnit}; // 2/5
     Game game = scenario_game(scenario);
 
-    const InstanceId debt = *game.find_in_hand(PlayerId::Player0, cards::advance::kDebtLord);
+    const InstanceId debt = *game.find_in_hand(PlayerId::Player0, test_fixture::kVanillaEightUnit);
     EXPECT(context, game.play_unit(PlayerId::Player0, debt, std::nullopt, std::nullopt, true));
     EXPECT(context, game.player(PlayerId::Player0).cracks == 3);
 
@@ -288,7 +289,7 @@ void test_cracks_persistence_and_read(TestContext& context) {
     EXPECT(context, game.player(PlayerId::Player0).cracks == 3);
 
     // 裂痕感知者 reads cracks: deals min(cracks,3) to the enemy unit.
-    const InstanceId feeder = *game.find_in_hand(PlayerId::Player0, cards::advance::kCrackFeeder);
+    const InstanceId feeder = *game.find_in_hand(PlayerId::Player0, test_fixture::kCrackDamageUnit);
     const auto enemy = first_enemy_unit_target(game, PlayerId::Player0);
     EXPECT(context, game.play_unit(PlayerId::Player0, feeder, std::nullopt, enemy));
     const CardInstance& shield = game.instance(enemy->unit);
@@ -301,13 +302,13 @@ void test_cracks_persistence_and_read(TestContext& context) {
 // ---------------------------------------------------------------------------
 void test_repair_restores_capacity(TestContext& context) {
     Scenario scenario = base_scenario();
-    scenario.players[0].hand = {cards::advance::kRepairTechnician};
+    scenario.players[0].hand = {test_fixture::kRepairTwoUnit};
     scenario.players[0].current_pp = 4;
     scenario.players[0].pp_capacity = 4;
     scenario.players[0].cracks = 5;
     Game game = scenario_game(scenario);
 
-    const InstanceId tech = *game.find_in_hand(PlayerId::Player0, cards::advance::kRepairTechnician);
+    const InstanceId tech = *game.find_in_hand(PlayerId::Player0, test_fixture::kRepairTwoUnit);
     EXPECT(context, game.play_unit(PlayerId::Player0, tech));
     // Repair 2 removes at most 2 cracks and restores 2 capacity.
     EXPECT(context, game.player(PlayerId::Player0).cracks == 3);
@@ -317,11 +318,11 @@ void test_repair_restores_capacity(TestContext& context) {
 
     // No cracks → repair does nothing (rules-v0.4 §15: repair is not ramp).
     Scenario scenario2 = base_scenario();
-    scenario2.players[0].hand = {cards::advance::kRepairTechnician};
+    scenario2.players[0].hand = {test_fixture::kRepairTwoUnit};
     scenario2.players[0].current_pp = 4;
     scenario2.players[0].pp_capacity = 4;
     Game game2 = scenario_game(scenario2);
-    const InstanceId tech2 = *game2.find_in_hand(PlayerId::Player0, cards::advance::kRepairTechnician);
+    const InstanceId tech2 = *game2.find_in_hand(PlayerId::Player0, test_fixture::kRepairTwoUnit);
     EXPECT(context, game2.play_unit(PlayerId::Player0, tech2));
     EXPECT(context, game2.player(PlayerId::Player0).pp_capacity == 4);
     expect_valid_state(context, game);
@@ -333,12 +334,12 @@ void test_repair_restores_capacity(TestContext& context) {
 // ---------------------------------------------------------------------------
 void test_growth_adds_capacity(TestContext& context) {
     Scenario scenario = base_scenario();
-    scenario.players[0].hand = {cards::advance::kGrowthFacility}; // 2PP relic
+    scenario.players[0].hand = {test_fixture::kCapacityCountdownRelic}; // 2PP relic
     scenario.players[0].current_pp = 4;
     scenario.players[0].pp_capacity = 4;
     Game game = scenario_game(scenario);
 
-    const InstanceId facility = *game.find_in_hand(PlayerId::Player0, cards::advance::kGrowthFacility);
+    const InstanceId facility = *game.find_in_hand(PlayerId::Player0, test_fixture::kCapacityCountdownRelic);
     EXPECT(context, game.play_tactic(PlayerId::Player0, facility, 0));
     // Countdown 2: tick on each own turn start.
     EXPECT(context, game.end_turn(PlayerId::Player0));
@@ -359,11 +360,11 @@ void test_current_pp_above_capacity(TestContext& context) {
     Scenario scenario = base_scenario();
     scenario.players[0].current_pp = 6;
     scenario.players[0].pp_capacity = 6;
-    scenario.players[1].units = {cards::midrange::kGuardSentry};
-    scenario.players[0].hand = {cards::advance::kBurnBlast, cards::midrange::kPioneerScout};
+    scenario.players[1].units = {test_fixture::kSmallWardUnit};
+    scenario.players[0].hand = {test_fixture::kBurnTwoDamageFiveSpell, test_fixture::kEntryDrawUnit};
     Game game = scenario_game(scenario);
 
-    const InstanceId blast = *game.find_in_hand(PlayerId::Player0, cards::advance::kBurnBlast);
+    const InstanceId blast = *game.find_in_hand(PlayerId::Player0, test_fixture::kBurnTwoDamageFiveSpell);
     EXPECT(context, game.cast_spell(PlayerId::Player0, blast, 0, first_enemy_unit_target(game, PlayerId::Player0)));
     // 6/6 → 5 current / 4 capacity: current PP legally exceeds capacity.
     EXPECT(context, game.player(PlayerId::Player0).current_pp == 5);
@@ -371,7 +372,7 @@ void test_current_pp_above_capacity(TestContext& context) {
     EXPECT(context, game.player(PlayerId::Player0).current_pp > game.player(PlayerId::Player0).pp_capacity);
 
     // The remaining PP is still spendable this turn.
-    const InstanceId scout = *game.find_in_hand(PlayerId::Player0, cards::midrange::kPioneerScout);
+    const InstanceId scout = *game.find_in_hand(PlayerId::Player0, test_fixture::kEntryDrawUnit);
     EXPECT(context, game.play_unit(PlayerId::Player0, scout));
     EXPECT(context, game.player(PlayerId::Player0).current_pp == 4);
 
@@ -392,12 +393,12 @@ void test_advanced_on_time_status(TestContext& context) {
     Scenario scenario = base_scenario();
     scenario.players[0].current_pp = 3;
     scenario.players[0].pp_capacity = 3;
-    scenario.players[0].hand = {cards::advance::kAdvanceWarrior};
-    scenario.players[1].units = {cards::midrange::kGuardSentry};
+    scenario.players[0].hand = {test_fixture::kAdvancedRushUnit};
+    scenario.players[1].units = {test_fixture::kSmallWardUnit};
     Game game = scenario_game(scenario);
-    const InstanceId warrior = *game.find_in_hand(PlayerId::Player0, cards::advance::kAdvanceWarrior);
+    const InstanceId warrior = *game.find_in_hand(PlayerId::Player0, test_fixture::kAdvancedRushUnit);
     EXPECT(context, game.play_unit(PlayerId::Player0, warrior, std::nullopt, std::nullopt, true));
-    const InstanceId warrior_unit = *game.find_on_field(PlayerId::Player0, cards::advance::kAdvanceWarrior);
+    const InstanceId warrior_unit = *game.find_on_field(PlayerId::Player0, test_fixture::kAdvancedRushUnit);
     const auto enemy = first_enemy_unit_target(game, PlayerId::Player0);
     // Rush lets it attack the enemy unit on its entry turn, but not the leader.
     EXPECT(context, game.attack(PlayerId::Player0, warrior_unit, *enemy));
@@ -407,11 +408,11 @@ void test_advanced_on_time_status(TestContext& context) {
 
     // 按期精英 (3PP, OnPlayIfNotAdvanced: draw 1): played on time it draws.
     Scenario scenario2 = base_scenario();
-    scenario2.players[0].hand = {cards::advance::kOnTimeElite};
-    scenario2.players[0].deck = {cards::midrange::kGuardSentry};
+    scenario2.players[0].hand = {test_fixture::kOnTimeDrawUnit};
+    scenario2.players[0].deck = {test_fixture::kSmallWardUnit};
     Game game2 = scenario_game(scenario2);
     const int hand_before = static_cast<int>(game2.player(PlayerId::Player0).hand.size());
-    const InstanceId elite = *game2.find_in_hand(PlayerId::Player0, cards::advance::kOnTimeElite);
+    const InstanceId elite = *game2.find_in_hand(PlayerId::Player0, test_fixture::kOnTimeDrawUnit);
     EXPECT(context, game2.play_unit(PlayerId::Player0, elite));
     EXPECT(context, static_cast<int>(game2.player(PlayerId::Player0).hand.size()) == hand_before); // played one, drew one
 
@@ -419,9 +420,9 @@ void test_advanced_on_time_status(TestContext& context) {
     Scenario scenario3 = base_scenario();
     scenario3.players[0].current_pp = 1;
     scenario3.players[0].pp_capacity = 3;
-    scenario3.players[0].hand = {cards::advance::kOnTimeElite};
+    scenario3.players[0].hand = {test_fixture::kOnTimeDrawUnit};
     Game game3 = scenario_game(scenario3);
-    const InstanceId elite3 = *game3.find_in_hand(PlayerId::Player0, cards::advance::kOnTimeElite);
+    const InstanceId elite3 = *game3.find_in_hand(PlayerId::Player0, test_fixture::kOnTimeDrawUnit);
     EXPECT(context, game3.play_unit(PlayerId::Player0, elite3, std::nullopt, std::nullopt, true));
     EXPECT(context, game3.player(PlayerId::Player0).hand.empty());
 
@@ -437,9 +438,9 @@ void test_evolution_unlock_and_cost(TestContext& context) {
     Scenario scenario = base_scenario();
     scenario.players[0].own_turn_number = 4; // first player, not yet unlocked
     scenario.players[0].evolution_points = 0;
-    scenario.players[0].units = {cards::midrange::kEliteCommander};
+    scenario.players[0].units = {test_fixture::kVanillaFiveUnit};
     Game game = scenario_game(scenario);
-    const InstanceId commander = *game.find_on_field(PlayerId::Player0, cards::midrange::kEliteCommander);
+    const InstanceId commander = *game.find_on_field(PlayerId::Player0, test_fixture::kVanillaFiveUnit);
     EXPECT_CODE(context, game.evolve(PlayerId::Player0, commander), ErrorCode::EvolutionLocked);
 
     // Unlock at own turn 5 grants 2 energy to the first player.
@@ -449,7 +450,7 @@ void test_evolution_unlock_and_cost(TestContext& context) {
     EXPECT(context, state.own_turn_number == 5);
     EXPECT(context, state.evolution_points == 2);
 
-    const InstanceId ready = *game.find_on_field(PlayerId::Player0, cards::midrange::kEliteCommander);
+    const InstanceId ready = *game.find_on_field(PlayerId::Player0, test_fixture::kVanillaFiveUnit);
     // Costs 2 energy, once per turn.
     EXPECT(context, game.evolve(PlayerId::Player0, ready));
     EXPECT(context, game.player(PlayerId::Player0).evolution_points == 0);
@@ -459,12 +460,12 @@ void test_evolution_unlock_and_cost(TestContext& context) {
     Scenario scenario2 = base_scenario(PlayerId::Player0);
     scenario2.players[1].own_turn_number = 3;
     scenario2.players[1].evolution_points = 0;
-    scenario2.players[1].units = {cards::advance::kOnTimeElite};
+    scenario2.players[1].units = {test_fixture::kOnTimeDrawUnit};
     Game game2 = scenario_game(scenario2);
     EXPECT(context, game2.end_turn(PlayerId::Player0));
     EXPECT(context, game2.player(PlayerId::Player1).own_turn_number == 4);
     EXPECT(context, game2.player(PlayerId::Player1).evolution_points == 3);
-    const InstanceId unit2 = *game2.find_on_field(PlayerId::Player1, cards::advance::kOnTimeElite);
+    const InstanceId unit2 = *game2.find_on_field(PlayerId::Player1, test_fixture::kOnTimeDrawUnit);
     EXPECT(context, game2.evolve(PlayerId::Player1, unit2));
     EXPECT(context, game2.player(PlayerId::Player1).evolution_points == 1);
 
@@ -478,9 +479,9 @@ void test_evolution_unlock_and_cost(TestContext& context) {
 void test_evolution_states_and_trigger(TestContext& context) {
     // 精锐统帅 (5/5, no evolved stats): default +2/+2, no trigger.
     Scenario scenario = base_scenario();
-    scenario.players[0].units = {cards::midrange::kEliteCommander};
+    scenario.players[0].units = {test_fixture::kVanillaFiveUnit};
     Game game = scenario_game(scenario);
-    const InstanceId plain = *game.find_on_field(PlayerId::Player0, cards::midrange::kEliteCommander);
+    const InstanceId plain = *game.find_on_field(PlayerId::Player0, test_fixture::kVanillaFiveUnit);
     EXPECT(context, game.evolve(PlayerId::Player0, plain));
     EXPECT(context, game.instance(plain).current_attack == 7);
     EXPECT(context, game.instance(plain).maximum_health == 7);
@@ -489,10 +490,10 @@ void test_evolution_states_and_trigger(TestContext& context) {
 
     // 战场指挥者 (3/3 → 5/5, OnEvolution: Draw 1).
     Scenario scenario2 = base_scenario();
-    scenario2.players[0].units = {cards::midrange::kFieldCommander};
-    scenario2.players[0].deck = {cards::midrange::kGuardSentry};
+    scenario2.players[0].units = {test_fixture::kEvolutionDrawUnit};
+    scenario2.players[0].deck = {test_fixture::kSmallWardUnit};
     Game game2 = scenario_game(scenario2);
-    const InstanceId commander = *game2.find_on_field(PlayerId::Player0, cards::midrange::kFieldCommander);
+    const InstanceId commander = *game2.find_on_field(PlayerId::Player0, test_fixture::kEvolutionDrawUnit);
     const int hand_before = static_cast<int>(game2.player(PlayerId::Player0).hand.size());
     EXPECT(context, game2.evolve(PlayerId::Player0, commander));
     EXPECT(context, game2.instance(commander).current_attack == 5);
@@ -512,23 +513,23 @@ void test_charge_conditions(TestContext& context) {
     Scenario scenario = base_scenario();
     scenario.players[0].evolution_points = 1;
     scenario.players[0].units = {
-        cards::midrange::kGuardSentry,  // 1/3 guard
-        cards::midrange::kGuardSentry,  // 1/3 guard
-        cards::midrange::kPioneerScout, // 1/2
+        test_fixture::kSmallWardUnit,  // 1/3 guard
+        test_fixture::kSmallWardUnit,  // 1/3 guard
+        test_fixture::kEntryDrawUnit, // 1/2
     };
     scenario.players[1].units = {
-        cards::midrange::kAssaultVanguard, // 3/1 attacker
-        cards::midrange::kAssaultVanguard, // 3/1 attacker
+        test_fixture::kRushComponentUnit, // 3/1 attacker
+        test_fixture::kRushComponentUnit, // 3/1 attacker
     };
     Game game = scenario_game(scenario);
 
     EXPECT(context, game.end_turn(PlayerId::Player0));
     // Player 1 attacks both p0 guards with its 3/1 vanguards: each sentry dies.
-    const InstanceId sentry_a = *game.find_on_field(PlayerId::Player0, cards::midrange::kGuardSentry);
+    const InstanceId sentry_a = *game.find_on_field(PlayerId::Player0, test_fixture::kSmallWardUnit);
     const auto attacker_1 = first_enemy_unit_target(game, PlayerId::Player0);
     EXPECT(context, game.attack(PlayerId::Player1, attacker_1->unit, Target::unit_target(PlayerId::Player0, sentry_a)));
     EXPECT(context, game.player(PlayerId::Player0).evolution_points == 1); // 1st death, no grant yet
-    const InstanceId sentry_b = *game.find_on_field(PlayerId::Player0, cards::midrange::kGuardSentry);
+    const InstanceId sentry_b = *game.find_on_field(PlayerId::Player0, test_fixture::kSmallWardUnit);
     const auto attacker_2 = first_enemy_unit_target(game, PlayerId::Player0);
     EXPECT(context, game.attack(PlayerId::Player1, attacker_2->unit, Target::unit_target(PlayerId::Player0, sentry_b)));
     // 2nd friendly death in the cycle → +1 energy.
@@ -536,17 +537,17 @@ void test_charge_conditions(TestContext& context) {
 
     // Advance deck: SpellsNoUnitsThisTurn — ≥2 spells and no unit played at own
     // end of turn grants 1 energy.
-    Game fresh(make_v04_catalog(), make_advance_deck(), make_midrange_deck());
+    Game fresh(test_fixture::make_catalog(), test_fixture::make_beta_deck(), test_fixture::make_alpha_deck());
     Scenario s2 = base_scenario();
     s2.players[0].evolution_points = 0;
-    s2.players[1].units = {cards::midrange::kGuardSentry, cards::midrange::kGuardSentry};
-    s2.players[0].hand = {cards::midrange::kPrecisionStrike, cards::midrange::kPrecisionStrike};
+    s2.players[1].units = {test_fixture::kSmallWardUnit, test_fixture::kSmallWardUnit};
+    s2.players[0].hand = {test_fixture::kDamageThreeSpell, test_fixture::kDamageThreeSpell};
     const Status load = fresh.load_scenario(s2);
     EXPECT(context, load);
     const auto t1 = first_enemy_unit_target(fresh, PlayerId::Player0);
-    const InstanceId s_a = *fresh.find_in_hand(PlayerId::Player0, cards::midrange::kPrecisionStrike);
+    const InstanceId s_a = *fresh.find_in_hand(PlayerId::Player0, test_fixture::kDamageThreeSpell);
     EXPECT(context, fresh.cast_spell(PlayerId::Player0, s_a, 0, t1));
-    const InstanceId s_b = *fresh.find_in_hand(PlayerId::Player0, cards::midrange::kPrecisionStrike);
+    const InstanceId s_b = *fresh.find_in_hand(PlayerId::Player0, test_fixture::kDamageThreeSpell);
     const auto t2 = first_enemy_unit_target(fresh, PlayerId::Player0);
     EXPECT(context, fresh.cast_spell(PlayerId::Player0, s_b, 0, t2));
     EXPECT(context, fresh.player(PlayerId::Player0).evolution_points == 0); // before end of turn
@@ -563,17 +564,17 @@ void test_charge_requires_evolution_unlock(TestContext& context) {
     deaths.players[0].own_turn_number = 2;
     deaths.players[0].evolution_points = 0;
     deaths.players[0].units = {
-        cards::midrange::kGuardSentry,
-        cards::midrange::kGuardSentry,
+        test_fixture::kSmallWardUnit,
+        test_fixture::kSmallWardUnit,
     };
     deaths.players[1].units = {
-        cards::midrange::kAssaultVanguard,
-        cards::midrange::kAssaultVanguard,
+        test_fixture::kRushComponentUnit,
+        test_fixture::kRushComponentUnit,
     };
     Game death_game = scenario_game(deaths);
     for (int i = 0; i < 2; ++i) {
-        const InstanceId guard = *death_game.find_on_field(PlayerId::Player0, cards::midrange::kGuardSentry);
-        const InstanceId attacker = *death_game.find_on_field(PlayerId::Player1, cards::midrange::kAssaultVanguard);
+        const InstanceId guard = *death_game.find_on_field(PlayerId::Player0, test_fixture::kSmallWardUnit);
+        const InstanceId attacker = *death_game.find_on_field(PlayerId::Player1, test_fixture::kRushComponentUnit);
         EXPECT(context, death_game.attack(
             PlayerId::Player1, attacker, Target::unit_target(PlayerId::Player0, guard)));
     }
@@ -584,17 +585,17 @@ void test_charge_requires_evolution_unlock(TestContext& context) {
     spells.players[0].own_turn_number = 2;
     spells.players[0].evolution_points = 0;
     spells.players[0].hand = {
-        cards::midrange::kPrecisionStrike,
-        cards::midrange::kPrecisionStrike,
+        test_fixture::kDamageThreeSpell,
+        test_fixture::kDamageThreeSpell,
     };
     spells.players[1].units = {
-        cards::midrange::kGuardSentry,
-        cards::midrange::kGuardSentry,
+        test_fixture::kSmallWardUnit,
+        test_fixture::kSmallWardUnit,
     };
-    Game spell_game(make_v04_catalog(), make_advance_deck(), make_midrange_deck(), deterministic_test_config());
+    Game spell_game(test_fixture::make_catalog(), test_fixture::make_beta_deck(), test_fixture::make_alpha_deck(), deterministic_test_config());
     EXPECT(context, spell_game.load_scenario(spells));
     for (int i = 0; i < 2; ++i) {
-        const InstanceId spell = *spell_game.find_in_hand(PlayerId::Player0, cards::midrange::kPrecisionStrike);
+        const InstanceId spell = *spell_game.find_in_hand(PlayerId::Player0, test_fixture::kDamageThreeSpell);
         const auto target = first_enemy_unit_target(spell_game, PlayerId::Player0);
         EXPECT(context, spell_game.cast_spell(PlayerId::Player0, spell, 0, target));
     }
@@ -605,17 +606,17 @@ void test_charge_requires_evolution_unlock(TestContext& context) {
     Scenario capped = base_scenario(PlayerId::Player1);
     capped.players[0].evolution_points = 4;
     capped.players[0].units = {
-        cards::midrange::kGuardSentry,
-        cards::midrange::kGuardSentry,
+        test_fixture::kSmallWardUnit,
+        test_fixture::kSmallWardUnit,
     };
     capped.players[1].units = {
-        cards::midrange::kAssaultVanguard,
-        cards::midrange::kAssaultVanguard,
+        test_fixture::kRushComponentUnit,
+        test_fixture::kRushComponentUnit,
     };
     Game capped_game = scenario_game(capped);
     for (int i = 0; i < 2; ++i) {
-        const InstanceId guard = *capped_game.find_on_field(PlayerId::Player0, cards::midrange::kGuardSentry);
-        const InstanceId attacker = *capped_game.find_on_field(PlayerId::Player1, cards::midrange::kAssaultVanguard);
+        const InstanceId guard = *capped_game.find_on_field(PlayerId::Player0, test_fixture::kSmallWardUnit);
+        const InstanceId attacker = *capped_game.find_on_field(PlayerId::Player1, test_fixture::kRushComponentUnit);
         EXPECT(context, capped_game.attack(
             PlayerId::Player1, attacker, Target::unit_target(PlayerId::Player0, guard)));
     }
@@ -632,45 +633,45 @@ void test_deployment_flow_and_limits(TestContext& context) {
     Scenario scenario = base_scenario();
     scenario.players[0].current_pp = 5;
     scenario.players[0].pp_capacity = 5;
-    scenario.players[0].standby = {cards::midrange::kSiegeTitan, cards::midrange::kGuardAce};
-    scenario.players[0].units = {cards::midrange::kGuardSentry};
+    scenario.players[0].standby = {test_fixture::kUnitCountStandby, test_fixture::kArchiveCostStandby};
+    scenario.players[0].units = {test_fixture::kSmallWardUnit};
     Game game = scenario_game(scenario);
 
-    const InstanceId titan = *game.find_in_standby(PlayerId::Player0, cards::midrange::kSiegeTitan);
+    const InstanceId titan = *game.find_in_standby(PlayerId::Player0, test_fixture::kUnitCountStandby);
     // Condition not met (needs ≥2 friendly units).
     EXPECT_CODE(context, game.deploy(PlayerId::Player0, titan), ErrorCode::DeployConditionNotMet);
 
     Scenario scenario2 = base_scenario();
     scenario2.players[0].current_pp = 5;
     scenario2.players[0].pp_capacity = 5;
-    scenario2.players[0].standby = {cards::midrange::kSiegeTitan, cards::midrange::kGuardAce};
-    scenario2.players[0].units = {cards::midrange::kGuardSentry, cards::midrange::kPioneerScout};
+    scenario2.players[0].standby = {test_fixture::kUnitCountStandby, test_fixture::kArchiveCostStandby};
+    scenario2.players[0].units = {test_fixture::kSmallWardUnit, test_fixture::kEntryDrawUnit};
     Game game2 = scenario_game(scenario2);
-    const InstanceId titan2 = *game2.find_in_standby(PlayerId::Player0, cards::midrange::kSiegeTitan);
+    const InstanceId titan2 = *game2.find_in_standby(PlayerId::Player0, test_fixture::kUnitCountStandby);
     EXPECT(context, game2.deploy(PlayerId::Player0, titan2));
     EXPECT(context, game2.player(PlayerId::Player0).current_pp == 2);
-    EXPECT(context, game2.find_on_field(PlayerId::Player0, cards::midrange::kSiegeTitan).has_value());
+    EXPECT(context, game2.find_on_field(PlayerId::Player0, test_fixture::kUnitCountStandby).has_value());
     // Once per turn (rules-v0.4 §25).
-    const InstanceId ace = *game2.find_in_standby(PlayerId::Player0, cards::midrange::kGuardAce);
+    const InstanceId ace = *game2.find_in_standby(PlayerId::Player0, test_fixture::kArchiveCostStandby);
     EXPECT_CODE(context, game2.deploy(PlayerId::Player0, ace), ErrorCode::DeployAlreadyUsed);
 
     // A deployed unit leaving the field goes to the archive (rules-v0.4 §5).
     Scenario scenario4 = base_scenario();
     scenario4.players[0].current_pp = 5;
     scenario4.players[0].pp_capacity = 5;
-    scenario4.players[0].standby = {cards::midrange::kSiegeTitan};
-    scenario4.players[0].units = {cards::midrange::kPioneerScout, cards::midrange::kPioneerScout}; // no guard
-    scenario4.players[1].units = {cards::advance::kDebtLord}; // 8/6 attacker
+    scenario4.players[0].standby = {test_fixture::kUnitCountStandby};
+    scenario4.players[0].units = {test_fixture::kEntryDrawUnit, test_fixture::kEntryDrawUnit}; // no guard
+    scenario4.players[1].units = {test_fixture::kVanillaEightUnit}; // 8/6 attacker
     Game game4 = scenario_game(scenario4);
-    const InstanceId titan4 = *game4.find_in_standby(PlayerId::Player0, cards::midrange::kSiegeTitan);
+    const InstanceId titan4 = *game4.find_in_standby(PlayerId::Player0, test_fixture::kUnitCountStandby);
     EXPECT(context, game4.deploy(PlayerId::Player0, titan4));
-    const InstanceId titan_unit4 = *game4.find_on_field(PlayerId::Player0, cards::midrange::kSiegeTitan);
+    const InstanceId titan_unit4 = *game4.find_on_field(PlayerId::Player0, test_fixture::kUnitCountStandby);
     EXPECT(context, game4.end_turn(PlayerId::Player0));
     const auto enemy_attacker = first_enemy_unit_target(game4, PlayerId::Player0); // p1's unit
     EXPECT(context, game4.attack(PlayerId::Player1, enemy_attacker->unit,
                                  Target::unit_target(PlayerId::Player0, titan_unit4)));
     // 8 damage kills the 5/5 titan → archived, not graveyard.
-    EXPECT(context, game4.find_on_field(PlayerId::Player0, cards::midrange::kSiegeTitan) == std::nullopt);
+    EXPECT(context, game4.find_on_field(PlayerId::Player0, test_fixture::kUnitCountStandby) == std::nullopt);
     EXPECT(context, game4.player(PlayerId::Player0).graveyard.size() == 0);
     EXPECT(context, !game4.player(PlayerId::Player0).archive.empty());
 
@@ -681,11 +682,11 @@ void test_deployment_flow_and_limits(TestContext& context) {
 
 void test_deploy_into_archived_donor_slot(TestContext& context) {
     Scenario scenario = base_scenario();
-    scenario.players[0].standby = {cards::midrange::kGuardAce};
-    scenario.players[0].units = {cards::midrange::kAssaultVanguard};
+    scenario.players[0].standby = {test_fixture::kArchiveCostStandby};
+    scenario.players[0].units = {test_fixture::kRushComponentUnit};
     Game game = scenario_game(scenario);
-    const InstanceId ace = *game.find_in_standby(PlayerId::Player0, cards::midrange::kGuardAce);
-    const InstanceId donor = *game.find_on_field(PlayerId::Player0, cards::midrange::kAssaultVanguard);
+    const InstanceId ace = *game.find_in_standby(PlayerId::Player0, test_fixture::kArchiveCostStandby);
+    const InstanceId donor = *game.find_on_field(PlayerId::Player0, test_fixture::kRushComponentUnit);
 
     EXPECT(context, game.deploy(PlayerId::Player0, ace, 0, donor));
     EXPECT(context, game.player(PlayerId::Player0).units[0] == ace);
@@ -703,15 +704,15 @@ void test_component_grant_and_no_retransfer(TestContext& context) {
     Scenario scenario = base_scenario();
     scenario.players[0].current_pp = 6;
     scenario.players[0].pp_capacity = 6;
-    scenario.players[0].standby = {cards::midrange::kGuardAce};
-    scenario.players[0].units = {cards::midrange::kAssaultVanguard}; // has component
-    scenario.players[1].units = {cards::midrange::kGuardSentry};
+    scenario.players[0].standby = {test_fixture::kArchiveCostStandby};
+    scenario.players[0].units = {test_fixture::kRushComponentUnit}; // has component
+    scenario.players[1].units = {test_fixture::kSmallWardUnit};
     Game game = scenario_game(scenario);
 
-    const InstanceId ace = *game.find_in_standby(PlayerId::Player0, cards::midrange::kGuardAce);
-    const InstanceId donor = *game.find_on_field(PlayerId::Player0, cards::midrange::kAssaultVanguard);
+    const InstanceId ace = *game.find_in_standby(PlayerId::Player0, test_fixture::kArchiveCostStandby);
+    const InstanceId donor = *game.find_on_field(PlayerId::Player0, test_fixture::kRushComponentUnit);
     EXPECT(context, game.deploy(PlayerId::Player0, ace, std::nullopt, donor));
-    const InstanceId ace_unit = *game.find_on_field(PlayerId::Player0, cards::midrange::kGuardAce);
+    const InstanceId ace_unit = *game.find_on_field(PlayerId::Player0, test_fixture::kArchiveCostStandby);
     EXPECT(context, game.instance(ace_unit).granted_component.has_component);
     EXPECT(context, game.instance(ace_unit).granted_component.granted_kind == EffectKind::GrantRush);
     // The component lets the deployed ace attack enemy units on its entry turn.
@@ -726,14 +727,14 @@ void test_component_grant_and_no_retransfer(TestContext& context) {
     Scenario scenario3 = base_scenario();
     scenario3.players[0].current_pp = 6;
     scenario3.players[0].pp_capacity = 6;
-    scenario3.players[0].standby = {cards::midrange::kGuardAce};
-    scenario3.players[0].units = {cards::midrange::kAssaultVanguard};
-    scenario3.players[1].units = {cards::advance::kDebtLord}; // 8/6 attacker
+    scenario3.players[0].standby = {test_fixture::kArchiveCostStandby};
+    scenario3.players[0].units = {test_fixture::kRushComponentUnit};
+    scenario3.players[1].units = {test_fixture::kVanillaEightUnit}; // 8/6 attacker
     Game game3 = scenario_game(scenario3);
-    const InstanceId ace3 = *game3.find_in_standby(PlayerId::Player0, cards::midrange::kGuardAce);
-    const InstanceId donor3 = *game3.find_on_field(PlayerId::Player0, cards::midrange::kAssaultVanguard);
+    const InstanceId ace3 = *game3.find_in_standby(PlayerId::Player0, test_fixture::kArchiveCostStandby);
+    const InstanceId donor3 = *game3.find_on_field(PlayerId::Player0, test_fixture::kRushComponentUnit);
     EXPECT(context, game3.deploy(PlayerId::Player0, ace3, std::nullopt, donor3));
-    const InstanceId ace_unit3 = *game3.find_on_field(PlayerId::Player0, cards::midrange::kGuardAce);
+    const InstanceId ace_unit3 = *game3.find_on_field(PlayerId::Player0, test_fixture::kArchiveCostStandby);
     EXPECT(context, game3.end_turn(PlayerId::Player0));
     const auto enemy3 = first_enemy_unit_target(game3, PlayerId::Player0); // p1's 8/6 attacker
     EXPECT(context, game3.attack(PlayerId::Player1, enemy3->unit,
@@ -754,12 +755,12 @@ void test_response_stack_lifo(TestContext& context) {
     Scenario scenario = base_scenario();
     scenario.players[0].current_pp = 6;
     scenario.players[0].pp_capacity = 6;
-    scenario.players[0].units = {cards::midrange::kEliteCommander}; // 5/5
-    scenario.players[1].units = {cards::midrange::kGuardSentry};    // 1/3
-    scenario.players[1].tactics = {cards::midrange::kInterceptTrap};
+    scenario.players[0].units = {test_fixture::kVanillaFiveUnit}; // 5/5
+    scenario.players[1].units = {test_fixture::kSmallWardUnit};    // 1/3
+    scenario.players[1].tactics = {test_fixture::kCancelAttackTrap};
     Game game = scenario_game(scenario);
 
-    const InstanceId attacker = *game.find_on_field(PlayerId::Player0, cards::midrange::kEliteCommander);
+    const InstanceId attacker = *game.find_on_field(PlayerId::Player0, test_fixture::kVanillaFiveUnit);
     const auto target = first_enemy_unit_target(game, PlayerId::Player0);
     EXPECT(context, game.attack(PlayerId::Player0, attacker, *target));
     // A response window is open for player 1.
@@ -779,11 +780,11 @@ void test_response_stack_lifo(TestContext& context) {
 
     // A spell use also opens a window; no matching trap → resolves immediately.
     Scenario scenario2 = base_scenario();
-    scenario2.players[0].hand = {cards::midrange::kPrecisionStrike};
-    scenario2.players[1].units = {cards::midrange::kGuardSentry};
-    scenario2.players[1].tactics = {cards::midrange::kInterceptTrap}; // not matching
+    scenario2.players[0].hand = {test_fixture::kDamageThreeSpell};
+    scenario2.players[1].units = {test_fixture::kSmallWardUnit};
+    scenario2.players[1].tactics = {test_fixture::kCancelAttackTrap}; // not matching
     Game game2 = scenario_game(scenario2);
-    const InstanceId strike = *game2.find_in_hand(PlayerId::Player0, cards::midrange::kPrecisionStrike);
+    const InstanceId strike = *game2.find_in_hand(PlayerId::Player0, test_fixture::kDamageThreeSpell);
     const auto enemy2 = first_enemy_unit_target(game2, PlayerId::Player0);
     (void)game2.drain_events();
     EXPECT(context, game2.cast_spell(PlayerId::Player0, strike, 0, enemy2));
@@ -813,7 +814,7 @@ void test_response_stack_lifo(TestContext& context) {
 void test_spell_response_three_level_lifo_and_counter_pass(TestContext& context) {
     constexpr CardId kTestSpell = 9001;
     constexpr CardId kTestSpellTrap = 9002;
-    CardCatalog catalog = make_v04_catalog();
+    CardCatalog catalog = test_fixture::make_catalog();
 
     CardDefinition spell;
     spell.id = kTestSpell;
@@ -908,7 +909,7 @@ void test_response_target_invalidation_continues_effects(TestContext& context) {
     constexpr CardId kMultiEffectSpell = 9011;
     constexpr CardId kInvalidateTrap = 9012;
     constexpr CardId kConditionalSpell = 9013;
-    CardCatalog catalog = make_v04_catalog();
+    CardCatalog catalog = test_fixture::make_catalog();
 
     CardDefinition spell;
     spell.id = kMultiEffectSpell;
@@ -950,11 +951,11 @@ void test_response_target_invalidation_continues_effects(TestContext& context) {
     Scenario scenario = base_scenario();
     scenario.players[0].leader_health = 10;
     scenario.players[0].hand = {kMultiEffectSpell};
-    scenario.players[1].units = {cards::midrange::kGuardSentry};
+    scenario.players[1].units = {test_fixture::kSmallWardUnit};
     scenario.players[1].tactics = {kInvalidateTrap};
     Game game = scenario_game_with_catalog(std::move(catalog), scenario);
     const InstanceId spell_id = *game.find_in_hand(PlayerId::Player0, kMultiEffectSpell);
-    const InstanceId target_id = *game.find_on_field(PlayerId::Player1, cards::midrange::kGuardSentry);
+    const InstanceId target_id = *game.find_on_field(PlayerId::Player1, test_fixture::kSmallWardUnit);
     const InstanceId trap_id = *game.player(PlayerId::Player1).tactics[0];
     const int paid_from = game.player(PlayerId::Player0).current_pp;
     EXPECT(context, game.cast_spell(
@@ -980,19 +981,19 @@ void test_trap_entry_pending_damage(TestContext& context) {
     // p0 plays 先驱侦察兵 (OnEntry draw) while p1 has 反制伏策 → the window
     // opens before the entry effect; the trap damages the entering unit.
     Scenario scenario = base_scenario();
-    scenario.players[0].hand = {cards::midrange::kPioneerScout};
-    scenario.players[0].deck = {cards::midrange::kGuardSentry};
-    scenario.players[1].tactics = {cards::midrange::kCounterTrap};
+    scenario.players[0].hand = {test_fixture::kEntryDrawUnit};
+    scenario.players[0].deck = {test_fixture::kSmallWardUnit};
+    scenario.players[1].tactics = {test_fixture::kEntryDamageTrap};
     Game game = scenario_game(scenario);
 
-    const InstanceId scout = *game.find_in_hand(PlayerId::Player0, cards::midrange::kPioneerScout);
+    const InstanceId scout = *game.find_in_hand(PlayerId::Player0, test_fixture::kEntryDrawUnit);
     EXPECT(context, game.play_unit(PlayerId::Player0, scout));
     EXPECT(context, game.phase() == Phase::Reaction);
     EXPECT(context, game.reaction_window() == ReactionWindow::EntryEffectPending);
     const InstanceId trap = game.eligible_traps().front();
     EXPECT(context, game.activate_trap(PlayerId::Player1, trap));
     // The 1/2 scout took 2 damage and died; its draw still resolves (LIFO).
-    EXPECT(context, game.find_on_field(PlayerId::Player0, cards::midrange::kPioneerScout) == std::nullopt);
+    EXPECT(context, game.find_on_field(PlayerId::Player0, test_fixture::kEntryDrawUnit) == std::nullopt);
     EXPECT(context, game.player(PlayerId::Player0).graveyard.size() == 1);
     EXPECT(context, game.player(PlayerId::Player0).hand.size() == 1);
     expect_valid_state(context, game);
@@ -1004,23 +1005,23 @@ void test_trap_entry_pending_damage(TestContext& context) {
 void test_tactic_zone_no_replacement(TestContext& context) {
     Scenario scenario = base_scenario();
     scenario.players[0].hand = {
-        cards::advance::kGrowthFacility,
-        cards::midrange::kCommandOrder,
-        cards::midrange::kInterceptTrap,
+        test_fixture::kCapacityCountdownRelic,
+        test_fixture::kDrawCountdownRelic,
+        test_fixture::kCancelAttackTrap,
     };
-    scenario.players[0].tactics = {cards::midrange::kCommandOrder}; // slot 0 occupied
+    scenario.players[0].tactics = {test_fixture::kDrawCountdownRelic}; // slot 0 occupied
     Game game = scenario_game(scenario);
 
-    const InstanceId facility = *game.find_in_hand(PlayerId::Player0, cards::advance::kGrowthFacility);
+    const InstanceId facility = *game.find_in_hand(PlayerId::Player0, test_fixture::kCapacityCountdownRelic);
     // Slot 0 occupied → rejected; no free replacement (rules-v0.4 §5).
     EXPECT_CODE(context, game.play_tactic(PlayerId::Player0, facility, 0), ErrorCode::TacticZoneFull);
     // Slot 1 is free → accepted.
     EXPECT(context, game.play_tactic(PlayerId::Player0, facility, 1));
     // Slot 2 is free → accepted (v0.4: 3 tactic slots per player).
-    const InstanceId trap = *game.find_in_hand(PlayerId::Player0, cards::midrange::kInterceptTrap);
+    const InstanceId trap = *game.find_in_hand(PlayerId::Player0, test_fixture::kCancelAttackTrap);
     EXPECT(context, game.play_tactic(PlayerId::Player0, trap, 2));
     // All three slots now full: nothing can be placed anywhere.
-    const InstanceId order = *game.find_in_hand(PlayerId::Player0, cards::midrange::kCommandOrder);
+    const InstanceId order = *game.find_in_hand(PlayerId::Player0, test_fixture::kDrawCountdownRelic);
     EXPECT_CODE(context, game.play_tactic(PlayerId::Player0, order, 0), ErrorCode::TacticZoneFull);
     EXPECT_CODE(context, game.play_tactic(PlayerId::Player0, order, 1), ErrorCode::TacticZoneFull);
     EXPECT_CODE(context, game.play_tactic(PlayerId::Player0, order, 2), ErrorCode::TacticZoneFull);
@@ -1029,15 +1030,15 @@ void test_tactic_zone_no_replacement(TestContext& context) {
     // costs, and a successfully declared spell occupies the exact requested
     // slot until its own link resolves.
     Scenario spell_scenario = base_scenario();
-    spell_scenario.players[0].hand = {cards::midrange::kPrecisionStrike};
+    spell_scenario.players[0].hand = {test_fixture::kDamageThreeSpell};
     spell_scenario.players[0].tactics = {
-        cards::midrange::kCommandOrder,
-        cards::midrange::kCommandOrder,
-        cards::midrange::kCommandOrder,
+        test_fixture::kDrawCountdownRelic,
+        test_fixture::kDrawCountdownRelic,
+        test_fixture::kDrawCountdownRelic,
     };
-    spell_scenario.players[1].units = {cards::midrange::kGuardSentry};
+    spell_scenario.players[1].units = {test_fixture::kSmallWardUnit};
     Game spell_game = scenario_game(spell_scenario);
-    const InstanceId spell = *spell_game.find_in_hand(PlayerId::Player0, cards::midrange::kPrecisionStrike);
+    const InstanceId spell = *spell_game.find_in_hand(PlayerId::Player0, test_fixture::kDamageThreeSpell);
     const auto spell_target = first_enemy_unit_target(spell_game, PlayerId::Player0);
     const int pp_before = spell_game.player(PlayerId::Player0).current_pp;
     EXPECT_CODE(
@@ -1062,9 +1063,9 @@ void test_tactic_zone_no_replacement(TestContext& context) {
 void test_hand_overflow_and_fatigue(TestContext& context) {
     Scenario scenario = base_scenario();
     for (int i = 0; i < 9; ++i) {
-        scenario.players[0].hand.push_back(cards::midrange::kGuardSentry);
+        scenario.players[0].hand.push_back(test_fixture::kSmallWardUnit);
     }
-    scenario.players[0].deck = {cards::midrange::kPioneerScout};
+    scenario.players[0].deck = {test_fixture::kEntryDrawUnit};
     Game game = scenario_game(scenario);
     EXPECT(context, game.player(PlayerId::Player0).hand.size() == 9);
     // Drawing with a full hand archives the card publicly (rules-v0.4 §5).
@@ -1094,17 +1095,17 @@ void test_hand_overflow_and_fatigue(TestContext& context) {
 // ---------------------------------------------------------------------------
 void test_combat_and_attack_rules(TestContext& context) {
     Scenario scenario = base_scenario();
-    scenario.players[0].units = {cards::midrange::kEliteCommander}; // 5/5, on field since load
-    scenario.players[1].units = {cards::midrange::kFortressGuard, cards::midrange::kAssaultVanguard}; // 3/6 guard+barrier, 3/1
+    scenario.players[0].units = {test_fixture::kVanillaFiveUnit}; // 5/5, on field since load
+    scenario.players[1].units = {test_fixture::kBarrierWardUnit, test_fixture::kRushComponentUnit}; // 3/6 guard+barrier, 3/1
     Game game = scenario_game(scenario);
 
-    const InstanceId attacker = *game.find_on_field(PlayerId::Player0, cards::midrange::kEliteCommander);
+    const InstanceId attacker = *game.find_on_field(PlayerId::Player0, test_fixture::kVanillaFiveUnit);
     // Guard blocks attacking the non-guard unit.
-    const auto non_guard = *game.find_on_field(PlayerId::Player1, cards::midrange::kAssaultVanguard);
+    const auto non_guard = *game.find_on_field(PlayerId::Player1, test_fixture::kRushComponentUnit);
     EXPECT_CODE(context, game.attack(PlayerId::Player0, attacker, Target::unit_target(PlayerId::Player1, non_guard)),
                 ErrorCode::GuardBlocksTarget);
     // Attacking the guard: barrier absorbs the first hit, simultaneous damage.
-    const auto guard = *game.find_on_field(PlayerId::Player1, cards::midrange::kFortressGuard);
+    const auto guard = *game.find_on_field(PlayerId::Player1, test_fixture::kBarrierWardUnit);
     EXPECT(context, game.attack(PlayerId::Player0, attacker, Target::unit_target(PlayerId::Player1, guard)));
     // Barrier absorbed the 5 damage: guard stays 3/6 (barrier gone), attacker takes 3.
     EXPECT(context, game.instance(guard).current_health == 6);
@@ -1122,19 +1123,19 @@ void test_combat_and_attack_rules(TestContext& context) {
     // Summoning sickness: a fresh unit cannot attack; rush units can attack
     // units but not the leader (rules-v0.4 §21).
     Scenario scenario2 = base_scenario();
-    scenario2.players[0].hand = {cards::midrange::kAssaultVanguard, cards::midrange::kPioneerScout};
-    scenario2.players[1].units = {cards::midrange::kGuardSentry};
+    scenario2.players[0].hand = {test_fixture::kRushComponentUnit, test_fixture::kEntryDrawUnit};
+    scenario2.players[1].units = {test_fixture::kSmallWardUnit};
     Game game2 = scenario_game(scenario2);
-    const InstanceId fresh = *game2.find_in_hand(PlayerId::Player0, cards::midrange::kPioneerScout);
+    const InstanceId fresh = *game2.find_in_hand(PlayerId::Player0, test_fixture::kEntryDrawUnit);
     EXPECT(context, game2.play_unit(PlayerId::Player0, fresh));
     const auto enemy2 = first_enemy_unit_target(game2, PlayerId::Player0);
     EXPECT_CODE(context, game2.attack(PlayerId::Player0, fresh, *enemy2), ErrorCode::SummoningSickness);
-    const InstanceId rush = *game2.find_in_hand(PlayerId::Player0, cards::midrange::kAssaultVanguard);
+    const InstanceId rush = *game2.find_in_hand(PlayerId::Player0, test_fixture::kRushComponentUnit);
     EXPECT(context, game2.play_unit(PlayerId::Player0, rush));
     const auto enemy3 = first_enemy_unit_target(game2, PlayerId::Player0);
     EXPECT(context, game2.attack(PlayerId::Player0, rush, *enemy3)); // rush → unit OK
     // 3/1 vs 1/3: both die simultaneously (rush takes the sentry's 1 damage).
-    EXPECT(context, game2.find_on_field(PlayerId::Player0, cards::midrange::kAssaultVanguard) == std::nullopt);
+    EXPECT(context, game2.find_on_field(PlayerId::Player0, test_fixture::kRushComponentUnit) == std::nullopt);
     EXPECT(context, game2.instance(enemy3->unit).zone != Zone::Unit);
 
     expect_valid_state(context, game);
@@ -1146,15 +1147,15 @@ void test_combat_and_attack_rules(TestContext& context) {
 // ---------------------------------------------------------------------------
 void test_simultaneous_death_batch(TestContext& context) {
     Scenario scenario = base_scenario();
-    scenario.players[0].units = {cards::midrange::kAssaultVanguard}; // 3/1
-    scenario.players[1].units = {cards::midrange::kAssaultVanguard}; // 3/1
+    scenario.players[0].units = {test_fixture::kRushComponentUnit}; // 3/1
+    scenario.players[1].units = {test_fixture::kRushComponentUnit}; // 3/1
     Game game = scenario_game(scenario);
-    const InstanceId attacker = *game.find_on_field(PlayerId::Player0, cards::midrange::kAssaultVanguard);
-    const auto defender = *game.find_on_field(PlayerId::Player1, cards::midrange::kAssaultVanguard);
+    const InstanceId attacker = *game.find_on_field(PlayerId::Player0, test_fixture::kRushComponentUnit);
+    const auto defender = *game.find_on_field(PlayerId::Player1, test_fixture::kRushComponentUnit);
     EXPECT(context, game.attack(PlayerId::Player0, attacker, Target::unit_target(PlayerId::Player1, defender)));
     // Both die simultaneously; both enter the graveyard.
-    EXPECT(context, game.find_on_field(PlayerId::Player0, cards::midrange::kAssaultVanguard) == std::nullopt);
-    EXPECT(context, game.find_on_field(PlayerId::Player1, cards::midrange::kAssaultVanguard) == std::nullopt);
+    EXPECT(context, game.find_on_field(PlayerId::Player0, test_fixture::kRushComponentUnit) == std::nullopt);
+    EXPECT(context, game.find_on_field(PlayerId::Player1, test_fixture::kRushComponentUnit) == std::nullopt);
     EXPECT(context, game.player(PlayerId::Player0).graveyard.size() == 1);
     EXPECT(context, game.player(PlayerId::Player1).graveyard.size() == 1);
     expect_valid_state(context, game);
@@ -1165,11 +1166,11 @@ void test_simultaneous_death_batch(TestContext& context) {
 // ---------------------------------------------------------------------------
 void test_trap_set_once_per_turn(TestContext& context) {
     Scenario scenario = base_scenario();
-    scenario.players[0].hand = {cards::midrange::kInterceptTrap, cards::midrange::kCounterTrap};
+    scenario.players[0].hand = {test_fixture::kCancelAttackTrap, test_fixture::kEntryDamageTrap};
     Game game = scenario_game(scenario);
-    const InstanceId trap_a = *game.find_in_hand(PlayerId::Player0, cards::midrange::kInterceptTrap);
+    const InstanceId trap_a = *game.find_in_hand(PlayerId::Player0, test_fixture::kCancelAttackTrap);
     EXPECT(context, game.play_tactic(PlayerId::Player0, trap_a, 0));
-    const InstanceId trap_b = *game.find_in_hand(PlayerId::Player0, cards::midrange::kCounterTrap);
+    const InstanceId trap_b = *game.find_in_hand(PlayerId::Player0, test_fixture::kEntryDamageTrap);
     EXPECT_CODE(context, game.play_tactic(PlayerId::Player0, trap_b, 1), ErrorCode::TrapAlreadySetThisTurn);
     // The set trap is face-down.
     EXPECT(context, game.instance(trap_a).face_down);
@@ -1185,15 +1186,15 @@ void test_documented_overdraw_walkthrough(TestContext& context) {
     scenario.players[0].pp_capacity = 5;
     scenario.players[0].evolution_points = 2;
     scenario.players[0].own_turn_number = 5;
-    scenario.players[0].hand = {cards::advance::kDebtLord, cards::advance::kBurnBlast, cards::advance::kRepairTechnician};
-    scenario.players[0].deck = {cards::midrange::kGuardSentry, cards::midrange::kGuardSentry};
+    scenario.players[0].hand = {test_fixture::kVanillaEightUnit, test_fixture::kBurnTwoDamageFiveSpell, test_fixture::kRepairTwoUnit};
+    scenario.players[0].deck = {test_fixture::kSmallWardUnit, test_fixture::kSmallWardUnit};
     scenario.players[1].own_turn_number = 1;
-    scenario.players[1].units = {cards::midrange::kGuardSentry};
-    scenario.players[1].deck = {cards::advance::kOnTimeElite, cards::advance::kOnTimeElite};
+    scenario.players[1].units = {test_fixture::kSmallWardUnit};
+    scenario.players[1].deck = {test_fixture::kOnTimeDrawUnit, test_fixture::kOnTimeDrawUnit};
     Game game = scenario_game(scenario);
 
-    const InstanceId debt_lord = *game.find_in_hand(PlayerId::Player0, cards::advance::kDebtLord);
-    const InstanceId enemy = *game.find_on_field(PlayerId::Player1, cards::midrange::kGuardSentry);
+    const InstanceId debt_lord = *game.find_in_hand(PlayerId::Player0, test_fixture::kVanillaEightUnit);
+    const InstanceId enemy = *game.find_on_field(PlayerId::Player1, test_fixture::kSmallWardUnit);
     EXPECT(context, game.play_unit(PlayerId::Player0, debt_lord, std::nullopt, std::nullopt, true));
     EXPECT(context, game.player(PlayerId::Player0).current_pp == 0);
     EXPECT(context, game.player(PlayerId::Player0).pp_capacity == 2);
@@ -1204,14 +1205,14 @@ void test_documented_overdraw_walkthrough(TestContext& context) {
     EXPECT(context, game.player(PlayerId::Player0).pp_capacity == 3);
     EXPECT(context, game.player(PlayerId::Player0).current_pp == 3);
 
-    const InstanceId blast = *game.find_in_hand(PlayerId::Player0, cards::advance::kBurnBlast);
+    const InstanceId blast = *game.find_in_hand(PlayerId::Player0, test_fixture::kBurnTwoDamageFiveSpell);
     EXPECT(context, game.cast_spell(PlayerId::Player0, blast, 0, Target::unit_target(PlayerId::Player1, enemy)));
     EXPECT(context, game.player(PlayerId::Player0).current_pp == 2);
     EXPECT(context, game.player(PlayerId::Player0).pp_capacity == 1);
     EXPECT(context, game.player(PlayerId::Player0).cracks == 5);
     EXPECT(context, game.player(PlayerId::Player0).current_pp > game.player(PlayerId::Player0).pp_capacity);
 
-    const InstanceId tech = *game.find_in_hand(PlayerId::Player0, cards::advance::kRepairTechnician);
+    const InstanceId tech = *game.find_in_hand(PlayerId::Player0, test_fixture::kRepairTwoUnit);
     EXPECT(context, game.play_unit(PlayerId::Player0, tech));
     EXPECT(context, game.player(PlayerId::Player0).current_pp == 0);
     EXPECT(context, game.player(PlayerId::Player0).pp_capacity == 3);
@@ -1223,10 +1224,10 @@ void test_documented_overdraw_walkthrough(TestContext& context) {
 void test_terminal_state_is_idempotent(TestContext& context) {
     // Lethal combat emits one terminal event and rejects later commands.
     Scenario lethal = base_scenario();
-    lethal.players[0].units = {cards::midrange::kEliteCommander};
+    lethal.players[0].units = {test_fixture::kVanillaFiveUnit};
     lethal.players[1].leader_health = 4;
     Game attack_game = scenario_game(lethal);
-    const InstanceId attacker = *attack_game.find_on_field(PlayerId::Player0, cards::midrange::kEliteCommander);
+    const InstanceId attacker = *attack_game.find_on_field(PlayerId::Player0, test_fixture::kVanillaFiveUnit);
     (void)attack_game.drain_events();
     EXPECT(context, attack_game.attack(PlayerId::Player0, attacker, Target::leader(PlayerId::Player1)));
     EXPECT(context, attack_game.result() == GameResult::Player0Won);
@@ -1240,7 +1241,7 @@ void test_terminal_state_is_idempotent(TestContext& context) {
     Scenario fatigue = base_scenario();
     fatigue.players[1].leader_health = 1;
     fatigue.players[1].deck.clear();
-    fatigue.players[1].tactics = {cards::midrange::kCommandOrder};
+    fatigue.players[1].tactics = {test_fixture::kDrawCountdownRelic};
     Game fatigue_game = scenario_game(fatigue);
     const InstanceId relic = *fatigue_game.player(PlayerId::Player1).tactics[0];
     EXPECT(context, fatigue_game.instance(relic).countdown == 2);
@@ -1271,7 +1272,7 @@ void test_terminal_state_is_idempotent(TestContext& context) {
     // If an early effect in a multi-effect trap ends the match, later trap
     // effects must not emit events after MatchEnded.
     constexpr CardId kLethalTrap = 9021;
-    CardCatalog catalog = make_v04_catalog();
+    CardCatalog catalog = test_fixture::make_catalog();
     CardDefinition lethal_trap;
     lethal_trap.id = kLethalTrap;
     lethal_trap.name = "lethal response trap";
@@ -1283,10 +1284,10 @@ void test_terminal_state_is_idempotent(TestContext& context) {
     catalog.add(std::move(lethal_trap));
     Scenario trap_lethal = base_scenario();
     trap_lethal.players[0].leader_health = 1;
-    trap_lethal.players[0].units = {cards::midrange::kEliteCommander};
+    trap_lethal.players[0].units = {test_fixture::kVanillaFiveUnit};
     trap_lethal.players[1].tactics = {kLethalTrap};
     Game trap_game = scenario_game_with_catalog(std::move(catalog), trap_lethal);
-    const InstanceId trap_attacker = *trap_game.find_on_field(PlayerId::Player0, cards::midrange::kEliteCommander);
+    const InstanceId trap_attacker = *trap_game.find_on_field(PlayerId::Player0, test_fixture::kVanillaFiveUnit);
     (void)trap_game.drain_events();
     EXPECT(context, trap_game.attack(PlayerId::Player0, trap_attacker, Target::leader(PlayerId::Player1)));
     const InstanceId lethal_trap_id = trap_game.eligible_traps().front();
@@ -1304,7 +1305,7 @@ void test_terminal_state_is_idempotent(TestContext& context) {
     constexpr CardId kTerminalSpell = 9022;
     constexpr CardId kTerminalSpellTrap = 9023;
     const auto make_terminal_spell_catalog = [=]() {
-        CardCatalog terminal_catalog = make_v04_catalog();
+        CardCatalog terminal_catalog = test_fixture::make_catalog();
         CardDefinition terminal_spell;
         terminal_spell.id = kTerminalSpell;
         terminal_spell.name = "terminal spell";
@@ -1449,7 +1450,7 @@ void test_terminal_state_is_idempotent(TestContext& context) {
     fatal_start_config.leader_health = 1;
     fatal_start_config.shuffle_decks = false;
     DeckList empty_deck;
-    Game fatal_start(make_v04_catalog(), empty_deck, empty_deck, fatal_start_config);
+    Game fatal_start(test_fixture::make_catalog(), empty_deck, empty_deck, fatal_start_config);
     EXPECT(context, fatal_start.start());
     events = fatal_start.drain_events();
     EXPECT(context, fatal_start.phase() == Phase::Finished);
@@ -1463,10 +1464,10 @@ void test_terminal_state_is_idempotent(TestContext& context) {
     // A mulligan that cannot be fully replaced is rejected before moving cards,
     // so it cannot enter a half-mutated fatigue state.
     DeckList four_cards;
-    four_cards.main.assign(4, cards::midrange::kGuardSentry);
+    four_cards.main.assign(4, test_fixture::kSmallWardUnit);
     GameConfig short_deck_config = deterministic_test_config();
     short_deck_config.shuffle_decks = false;
-    Game short_deck_game(make_v04_catalog(), four_cards, four_cards, short_deck_config);
+    Game short_deck_game(test_fixture::make_catalog(), four_cards, four_cards, short_deck_config);
     EXPECT(context, short_deck_game.start());
     const InstanceId selected = short_deck_game.player(PlayerId::Player0).hand.front();
     (void)short_deck_game.drain_events();
@@ -1489,7 +1490,7 @@ void test_first_player_modes_and_match_metadata(TestContext& context) {
     GameConfig forced;
     forced.random_seed = 0xDEADBEEFU;
     forced.first_player_mode = FirstPlayerMode::Player1;
-    Game forced_game(make_v04_catalog(), make_midrange_deck(), make_advance_deck(), forced);
+    Game forced_game(test_fixture::make_catalog(), test_fixture::make_alpha_deck(), test_fixture::make_beta_deck(), forced);
     EXPECT(context, forced_game.first_player() == PlayerId::Player1);
     EXPECT(context, forced_game.random_seed() == 0xDEADBEEFU);
     EXPECT(context, forced_game.start());
@@ -1513,8 +1514,8 @@ void test_first_player_modes_and_match_metadata(TestContext& context) {
     GameConfig seeded_random;
     seeded_random.random_seed = 123456U;
     seeded_random.first_player_mode = FirstPlayerMode::Random;
-    Game random_a(make_v04_catalog(), make_midrange_deck(), make_advance_deck(), seeded_random);
-    Game random_b(make_v04_catalog(), make_midrange_deck(), make_advance_deck(), seeded_random);
+    Game random_a(test_fixture::make_catalog(), test_fixture::make_alpha_deck(), test_fixture::make_beta_deck(), seeded_random);
+    Game random_b(test_fixture::make_catalog(), test_fixture::make_alpha_deck(), test_fixture::make_beta_deck(), seeded_random);
     EXPECT(context, random_a.random_seed() == 123456U);
     EXPECT(context, random_a.first_player() == random_b.first_player());
     EXPECT(context, is_valid_player(random_a.first_player()));
@@ -1547,18 +1548,18 @@ void test_first_player_modes_and_match_metadata(TestContext& context) {
 void test_invalid_player_commands(TestContext& context) {
     const PlayerId invalid = static_cast<PlayerId>(2);
     GameConfig config = deterministic_test_config();
-    Game mulligan_game(make_v04_catalog(), make_midrange_deck(), make_advance_deck(), config);
+    Game mulligan_game(test_fixture::make_catalog(), test_fixture::make_alpha_deck(), test_fixture::make_beta_deck(), config);
     EXPECT(context, mulligan_game.start());
     EXPECT_CODE(context, mulligan_game.mulligan(invalid, {}), ErrorCode::InvalidPlayer);
 
     Scenario scenario = base_scenario();
     scenario.players[0].hand = {
-        cards::midrange::kEliteCommander,
-        cards::midrange::kPrecisionStrike,
-        cards::midrange::kInterceptTrap,
+        test_fixture::kVanillaFiveUnit,
+        test_fixture::kDamageThreeSpell,
+        test_fixture::kCancelAttackTrap,
     };
-    scenario.players[0].units = {cards::midrange::kGuardSentry};
-    scenario.players[0].standby = {cards::midrange::kGuardAce};
+    scenario.players[0].units = {test_fixture::kSmallWardUnit};
+    scenario.players[0].standby = {test_fixture::kArchiveCostStandby};
     Game game = scenario_game(scenario);
     EXPECT_CODE(context, game.end_turn(invalid), ErrorCode::InvalidPlayer);
     EXPECT_CODE(context, game.surrender(invalid), ErrorCode::InvalidPlayer);
@@ -1573,7 +1574,7 @@ void test_invalid_player_commands(TestContext& context) {
     EXPECT_CODE(context, game.activate_trap(invalid, 0), ErrorCode::InvalidPlayer);
     EXPECT_CODE(context, game.pass_reaction(invalid), ErrorCode::InvalidPlayer);
 
-    const InstanceId attacker = *game.find_on_field(PlayerId::Player0, cards::midrange::kGuardSentry);
+    const InstanceId attacker = *game.find_on_field(PlayerId::Player0, test_fixture::kSmallWardUnit);
     Target malformed = Target::leader(PlayerId::Player1);
     malformed.kind = static_cast<Target::Kind>(99);
     const int defender_health = game.player(PlayerId::Player1).leader_health;
@@ -1586,7 +1587,7 @@ void test_invalid_player_commands(TestContext& context) {
 
     Scenario invalid_scenario = base_scenario();
     invalid_scenario.active_player = invalid;
-    Game loader(make_v04_catalog(), make_midrange_deck(), make_advance_deck(), config);
+    Game loader(test_fixture::make_catalog(), test_fixture::make_alpha_deck(), test_fixture::make_beta_deck(), config);
     EXPECT_CODE(context, loader.load_scenario(invalid_scenario), ErrorCode::InvalidPlayer);
     EXPECT(context, loader.phase() == Phase::NotStarted);
 }
@@ -1707,7 +1708,7 @@ void take_smoke_action(Game& game, int& call_counter) {
 
 void test_invariants_and_smoke_matches(TestContext& context) {
     Scenario invalid_spell_tactic = base_scenario();
-    invalid_spell_tactic.players[0].tactics = {cards::midrange::kPrecisionStrike};
+    invalid_spell_tactic.players[0].tactics = {test_fixture::kDamageThreeSpell};
     Game invalid_spell_game = scenario_game(invalid_spell_tactic);
     const std::vector<std::string> invalid_spell_problems = invalid_spell_game.validate_invariants();
     EXPECT(context, std::any_of(
@@ -1732,7 +1733,7 @@ void test_invariants_and_smoke_matches(TestContext& context) {
             GameConfig config;
             config.random_seed = static_cast<std::uint32_t>(seed * 2 + first);
             config.first_player_mode = first == 0 ? FirstPlayerMode::Player0 : FirstPlayerMode::Player1;
-            Game game(make_v04_catalog(), make_midrange_deck(), make_advance_deck(), config);
+            Game game(test_fixture::make_catalog(), test_fixture::make_alpha_deck(), test_fixture::make_beta_deck(), config);
             EXPECT(context, game.start());
             int call_counter = 0;
             int iterations = 0;

@@ -20,7 +20,13 @@ SCRIPTS = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(SCRIPTS / "ci"))
 
-from audit_visual_assets import VisualAssetAuditError, audit  # noqa: E402
+from audit_visual_assets import (  # noqa: E402
+    ANIME_V1_MANIFEST_RELATIVE_PATH,
+    EXPECTED_ANIME_V1_PATHS,
+    VisualAssetAuditError,
+    _rgba_alpha_extrema,
+    audit,
+)
 from compare_visual_golden import (  # noqa: E402
     GoldenComparisonError,
     compare,
@@ -76,6 +82,22 @@ def _write_png(
         + _chunk(b"IHDR", header)
         + _chunk(b"IDAT", zlib.compress(rows))
         + fixture_padding
+        + _chunk(b"IEND", b"")
+    )
+
+
+def _write_rgba_png(
+    path: Path,
+    width: int,
+    height: int,
+    rgba: tuple[int, int, int, int],
+) -> None:
+    rows = b"".join(b"\0" + bytes(rgba) * width for _ in range(height))
+    header = struct.pack(">IIBBBBB", width, height, 8, 6, 0, 0, 0)
+    path.write_bytes(
+        b"\x89PNG\r\n\x1a\n"
+        + _chunk(b"IHDR", header)
+        + _chunk(b"IDAT", zlib.compress(rows))
         + _chunk(b"IEND", b"")
     )
 
@@ -161,21 +183,34 @@ def _fixture_region(
 
 
 class VisualAssetAuditTests(unittest.TestCase):
-    def test_repo_keeps_r2_manifest_frozen_and_audits_r3_separately(self) -> None:
+    def test_repo_keeps_r2_r3_frozen_and_audits_anime_v1_separately(self) -> None:
         root = SCRIPTS.parent
         result = audit(root)
         product_manifest = root / "client/godot/assets/visual/ASSET_MANIFEST.json"
         candidate_manifest = (
             root / "client/godot/assets/visual/arena/R3_ASSET_MANIFEST.json"
         )
+        anime_manifest = root / ANIME_V1_MANIFEST_RELATIVE_PATH
         golden_metadata = json.loads((
             root
             / "client/godot/tests/visual_goldens/gate4b/windows-1600x900/GOLDEN_METADATA.json"
         ).read_text(encoding="utf-8"))
 
-        self.assertEqual(35, result["asset_count"])
+        self.assertEqual(49, result["asset_count"])
         self.assertEqual(34, result["product_asset_count"])
         self.assertEqual(1, result["candidate_asset_count"])
+        self.assertEqual(14, result["anime_asset_count"])
+        self.assertLessEqual(result["anime_asset_count"], 24)
+        self.assertGreater(result["anime_estimated_vram_bytes"], 0)
+        self.assertLessEqual(
+            result["anime_estimated_vram_bytes"],
+            96 * 1024 * 1024,
+        )
+        self.assertGreater(result["anime_source_payload_bytes"], 0)
+        self.assertLessEqual(
+            result["anime_source_payload_bytes"],
+            64 * 1024 * 1024,
+        )
         self.assertEqual(
             "550cee89ccb1b384149d85aa45725474371b022a646fbef8de28d4c9bbae8eac",
             hashlib.sha256(product_manifest.read_bytes()).hexdigest(),
@@ -188,6 +223,34 @@ class VisualAssetAuditTests(unittest.TestCase):
             hashlib.sha256(candidate_manifest.read_bytes()).hexdigest(),
             result["candidate_manifest_sha256"],
         )
+        self.assertEqual(
+            hashlib.sha256(anime_manifest.read_bytes()).hexdigest(),
+            result["anime_manifest_sha256"],
+        )
+        self.assertTrue(EXPECTED_ANIME_V1_PATHS.issubset(result["paths"]))
+
+    def test_anime_v1_imports_use_vram_compression_and_mipmaps(self) -> None:
+        root = SCRIPTS.parent
+        for relative in EXPECTED_ANIME_V1_PATHS:
+            sidecar = (root / f"{relative}.import").read_text(encoding="utf-8")
+            self.assertIn('"vram_texture": true', sidecar)
+            self.assertIn("compress/mode=2", sidecar)
+            self.assertIn("compress/high_quality=true", sidecar)
+            self.assertIn("mipmaps/generate=true", sidecar)
+
+    def test_rgba_alpha_reader_rejects_fake_transparency(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            transparent = directory / "transparent.png"
+            opaque_rgba = directory / "opaque-rgba.png"
+            fake = directory / "fake.png"
+            _write_rgba_png(transparent, 2, 2, (20, 30, 40, 0))
+            _write_rgba_png(opaque_rgba, 2, 2, (20, 30, 40, 255))
+            _write_png(fake, 2, 2, (20, 30, 40))
+            self.assertEqual((0, 0), _rgba_alpha_extrema(transparent))
+            self.assertEqual((255, 255), _rgba_alpha_extrema(opaque_rgba))
+            with self.assertRaisesRegex(VisualAssetAuditError, "8-bit RGBA"):
+                _rgba_alpha_extrema(fake)
 
     def test_asset_inventory_rejects_unregistered_and_hash_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -300,6 +363,7 @@ class VisualAssetAuditTests(unittest.TestCase):
             self.assertEqual(2, result["asset_count"])
             self.assertEqual(1, result["product_asset_count"])
             self.assertEqual(1, result["candidate_asset_count"])
+            self.assertEqual(0, result["anime_asset_count"])
 
             rogue_manifest_path = visual / "ROGUE_ASSET_MANIFEST.json"
             rogue_manifest_path.write_text(

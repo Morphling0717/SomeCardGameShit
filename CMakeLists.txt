@@ -68,7 +68,11 @@ endfunction()
 add_library(scgs_engine STATIC
     engine/src/catalog.cpp
     engine/src/client_api.cpp
+    # Committed output of scripts/design/generate_product_catalog_v2.py.
+    # Regeneration is an explicit verification task; normal builds need no Python.
+    engine/src/generated/product_catalog_v2.generated.cpp
     engine/src/game.cpp
+    engine/src/product_runtime.cpp
     engine/src/protocol.cpp
 )
 add_library(scgs::engine ALIAS scgs_engine)
@@ -123,6 +127,46 @@ if(UNIX AND NOT APPLE)
 endif()
 scgs_apply_project_options(scgs_native_v04)
 
+# Gate 5B transport boundary. This is deliberately parallel to v04: ABI 2.0
+# and schema 2 can evolve the product state shape without mutating the frozen
+# v04 library or legacy wire contract.
+add_library(scgs_native_v05 SHARED engine/src/native_api_v05.cpp)
+add_library(scgs::native_v05 ALIAS scgs_native_v05)
+
+target_include_directories(scgs_native_v05
+    PUBLIC
+        $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/engine/include>
+        $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+target_compile_features(scgs_native_v05 PRIVATE cxx_std_20)
+target_compile_definitions(scgs_native_v05 PRIVATE SCGS_V05_BUILDING_LIBRARY=1)
+target_compile_definitions(scgs_native_v05 INTERFACE SCGS_V05_USING_LIBRARY=1)
+target_link_libraries(scgs_native_v05
+    PRIVATE
+        scgs::engine
+        nlohmann_json::nlohmann_json
+)
+set_target_properties(scgs_native_v05 PROPERTIES
+    OUTPUT_NAME scgs_v05
+    EXPORT_NAME native_v05
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES
+    VERSION 2.0.0
+    SOVERSION 2
+)
+if(UNIX AND NOT APPLE)
+    set(scgs_native_v05_export_map
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/scgs_v05.exports.map"
+    )
+    target_link_options(scgs_native_v05 PRIVATE
+        "-Wl,--version-script=${scgs_native_v05_export_map}"
+    )
+    set_property(TARGET scgs_native_v05 APPEND PROPERTY
+        LINK_DEPENDS "${scgs_native_v05_export_map}"
+    )
+endif()
+scgs_apply_project_options(scgs_native_v05)
+
 add_executable(scgs_demo engine/apps/scgs_demo.cpp)
 target_link_libraries(scgs_demo PRIVATE scgs::engine)
 scgs_apply_project_options(scgs_demo)
@@ -134,6 +178,10 @@ scgs_apply_project_options(scgs_tests)
 add_executable(scgs_client_api_tests engine/tests/test_client_api.cpp)
 target_link_libraries(scgs_client_api_tests PRIVATE scgs::engine)
 scgs_apply_project_options(scgs_client_api_tests)
+
+add_executable(scgs_product_runtime_tests engine/tests/test_product_runtime.cpp)
+target_link_libraries(scgs_product_runtime_tests PRIVATE scgs::engine)
+scgs_apply_project_options(scgs_product_runtime_tests)
 
 # Legacy v1 wire freeze regression (golden bytes + bridge projection).
 add_executable(scgs_wire_tests engine/tests/test_wire.cpp)
@@ -174,9 +222,39 @@ target_link_libraries(scgs_native_api_dynamic_tests PRIVATE ${CMAKE_DL_LIBS})
 add_dependencies(scgs_native_api_dynamic_tests scgs_native_v04)
 scgs_apply_project_options(scgs_native_api_dynamic_tests)
 
+add_executable(scgs_native_api_v05_c_tests engine/tests/test_native_api_v05_c.c)
+target_compile_features(scgs_native_api_v05_c_tests PRIVATE c_std_11)
+set_target_properties(scgs_native_api_v05_c_tests PROPERTIES
+    C_STANDARD 11
+    C_STANDARD_REQUIRED YES
+    C_EXTENSIONS NO
+)
+target_link_libraries(scgs_native_api_v05_c_tests PRIVATE scgs::native_v05)
+if(SCGS_ENABLE_SANITIZERS)
+    set_property(TARGET scgs_native_api_v05_c_tests PROPERTY LINKER_LANGUAGE CXX)
+endif()
+scgs_apply_project_options(scgs_native_api_v05_c_tests)
+
+add_executable(scgs_native_api_v05_tests engine/tests/test_native_api_v05.cpp)
+target_compile_features(scgs_native_api_v05_tests PRIVATE cxx_std_20)
+target_link_libraries(scgs_native_api_v05_tests
+    PRIVATE
+        scgs::native_v05
+        nlohmann_json::nlohmann_json
+)
+scgs_apply_project_options(scgs_native_api_v05_tests)
+
+add_executable(scgs_native_api_v05_dynamic_tests engine/tests/test_native_api_v05_dynamic.cpp)
+target_compile_features(scgs_native_api_v05_dynamic_tests PRIVATE cxx_std_20)
+target_include_directories(scgs_native_api_v05_dynamic_tests PRIVATE engine/include)
+target_link_libraries(scgs_native_api_v05_dynamic_tests PRIVATE ${CMAKE_DL_LIBS})
+add_dependencies(scgs_native_api_v05_dynamic_tests scgs_native_v05)
+scgs_apply_project_options(scgs_native_api_v05_dynamic_tests)
+
 enable_testing()
 add_test(NAME scgs_unit_tests COMMAND scgs_tests)
 add_test(NAME scgs_client_api_contract COMMAND scgs_client_api_tests)
+add_test(NAME scgs_product_runtime_foundation COMMAND scgs_product_runtime_tests)
 add_test(NAME scgs_documented_scenario COMMAND scgs_demo --verify)
 add_test(NAME scgs_wire_frozen_golden COMMAND scgs_wire_tests)
 add_test(NAME scgs_native_api_c_contract COMMAND scgs_native_api_c_tests)
@@ -184,6 +262,12 @@ add_test(NAME scgs_native_api_contract COMMAND scgs_native_api_tests)
 add_test(
     NAME scgs_native_api_dynamic_load
     COMMAND scgs_native_api_dynamic_tests $<TARGET_FILE:scgs_native_v04>
+)
+add_test(NAME scgs_native_api_v05_c_contract COMMAND scgs_native_api_v05_c_tests)
+add_test(NAME scgs_native_api_v05_schema_contract COMMAND scgs_native_api_v05_tests)
+add_test(
+    NAME scgs_native_api_v05_dynamic_load
+    COMMAND scgs_native_api_v05_dynamic_tests $<TARGET_FILE:scgs_native_v05>
 )
 
 if(SCGS_ENABLE_LEGACY_YGO2_TESTS)
@@ -242,9 +326,21 @@ if(SCGS_ENABLE_LEGACY_YGO2_TESTS)
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
     add_test(
+        NAME scgs_anime_visual_slice_contract
+        COMMAND ${Python3_EXECUTABLE} -m unittest
+            scripts.tests.test_anime_visual_slice
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
         NAME scgs_product_decks_v1_design_contract
         COMMAND ${Python3_EXECUTABLE} -m unittest
             scripts.tests.test_validate_product_decks_v1
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+        NAME scgs_product_catalog_generated_contract
+        COMMAND ${Python3_EXECUTABLE}
+            scripts/design/generate_product_catalog_v2.py --check
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
 endif()
@@ -257,7 +353,16 @@ install(
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
 )
 install(
-    FILES engine/include/scgs/native_api_v04.h
+    TARGETS scgs_native_v05
+    EXPORT scgs_native_v05Targets
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+)
+install(
+    FILES
+        engine/include/scgs/native_api_v04.h
+        engine/include/scgs/native_api_v05.h
     DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/scgs
 )
 install(
@@ -270,6 +375,18 @@ install(
 install(
     FILES ${nlohmann_json_SOURCE_DIR}/LICENSE.MIT
     DESTINATION ${CMAKE_INSTALL_DATADIR}/scgs_native_v04
+    RENAME nlohmann-json-LICENSE.MIT
+)
+install(
+    FILES
+        LICENSE
+        THIRD_PARTY_NOTICES.md
+        docs/native-api-v05.md
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/scgs_native_v05
+)
+install(
+    FILES ${nlohmann_json_SOURCE_DIR}/LICENSE.MIT
+    DESTINATION ${CMAKE_INSTALL_DATADIR}/scgs_native_v05
     RENAME nlohmann-json-LICENSE.MIT
 )
 install(
@@ -294,4 +411,27 @@ install(
         ${CMAKE_CURRENT_BINARY_DIR}/scgs_native_v04Config.cmake
         ${CMAKE_CURRENT_BINARY_DIR}/scgs_native_v04ConfigVersion.cmake
     DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/scgs_native_v04
+)
+
+install(
+    EXPORT scgs_native_v05Targets
+    FILE scgs_native_v05Targets.cmake
+    NAMESPACE scgs::
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/scgs_native_v05
+)
+configure_package_config_file(
+    cmake/scgs_native_v05Config.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/scgs_native_v05Config.cmake
+    INSTALL_DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/scgs_native_v05
+)
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/scgs_native_v05ConfigVersion.cmake
+    VERSION 2.0.0
+    COMPATIBILITY SameMajorVersion
+)
+install(
+    FILES
+        ${CMAKE_CURRENT_BINARY_DIR}/scgs_native_v05Config.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/scgs_native_v05ConfigVersion.cmake
+    DESTINATION ${CMAKE_INSTALL_LIBDIR}/cmake/scgs_native_v05
 )

@@ -1,0 +1,118 @@
+{
+  "schema_version": 1,
+  "gate": "6A",
+  "assets": [
+    {
+      "path": "client/godot/assets/visual/anime_v1/slice/arena/open-fantasy-arena.png",
+      "sha256": "94d8392206e7d82b0723fad67050ce4eda2ff32a2bed94afe740921829d16c53",
+      "purpose": "Gate 6A open fantasy duel-arena backdrop",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "Original wide Japanese-fantasy anime arena split between sunlit ivory-blue oath architecture and violet rift magic, with a clear central play space and no enclosing table frame, text, logo, or watermark."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/slice/cards/AP-03.png",
+      "sha256": "76171939ca8287c2493cf29587f63b0c48f09da7ae4662e7b87251af3e02e790",
+      "purpose": "AP-03 契式·违约穿刺 representative spell illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "Original ornate anime-fantasy spell scene in black-violet and crimson: a contract glyph becomes a focused rift lance piercing an armored target, action readable at card size, without frame, text, logo, or watermark."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/slice/cards/AP-05.png",
+      "sha256": "3f9d2a6c1c6cfb5ba419c71d9899c1f424923e610024f935737030cd2e7147d8",
+      "purpose": "AP-05 渊契魔导院·零时讲堂 representative field illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "Original gothic anime-fantasy academy lecture hall suspended around a fractured clock and floating grimoires, black-purple stone, magenta rift light and restrained old gold, with no characters dominating, text, frame, logo, or watermark."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/slice/cards/AP-11-evolved.png",
+      "sha256": "f4fc5ae921e3651ff8b6bd144332d382595450e3b213c7e297030466751041f5",
+      "purpose": "AP-11 禁忌毕业生·诺克缇娅 evolved ace illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "Original evolved dark-anime academy graduate surging forward through a fully opened crimson-violet contract rift, more elaborate mantle and magical intensity than the base pose, dynamic 2:3 composition without text, frame, logo, or watermark."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/slice/cards/AP-11.png",
+      "sha256": "1c514df8de063a54fc083480e9a7acdbb03a175d6adbde385d5712df0000e75d",
+      "purpose": "AP-11 禁忌毕业生·诺克缇娅 base ace illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "Original confident dark-fantasy anime graduate in asymmetric black-purple academy regalia, holding a forbidden contract weapon amid floating pages and a contained magenta rift, full-body 2:3 composition without text, frame, logo, or watermark."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/slice/cards/LO-03.png",
+      "sha256": "b8101088fcf3b76784ec9ad7739809fb1eaf12c0b08462ed6a7729a5b76def9a",
+      "purpose": "LO-03 晨钟誓碑 representative amulet illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "Original towering circular oath-bell monument in a dawn courtyard, ivory stone, platinum filigree, blue runes and three luminous countdown rings, clearly a persistent structure, without text, frame, logo, or watermark."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/slice/cards/LO-07.png",
+      "sha256": "f194c4282d2e8af678ebe14f259cc9b141529bbc65228b555d7a8467868ac2b1",
+      "purpose": "LO-07 曜誓·不破阵 representative trap illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "Original anime-fantasy defensive ambush: oath knights lock radiant shields into a sun-ring formation as an incoming strike is cancelled, white-gold and blue light with readable impact, without text, frame, logo, or watermark."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/slice/cards/LO-11-evolved.png",
+      "sha256": "d6bd41ab1f3bbb9516a7a8e3a85e4e45afe6f99d6700df7da4be10e2696d6af8",
+      "purpose": "LO-11 曜誓大团长·蕾奥妮 evolved ace illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "Original evolved sun-oath grand commander descending in radiant motion with expanded platinum armor, luminous barrier wings and a decisive charge, more intense than the base pose, 2:3 anime-fantasy composition without text, frame, logo, or watermark."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/slice/cards/LO-11.png",
+      "sha256": "1b3aeb1ffae3114b3bdd87ed7036b5630d417dffa3a7e18e15606ea8dbbb6d3c",
+      "purpose": "LO-11 曜誓大团长·蕾奥妮 base ace illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "Original heroic anime-fantasy grand commander in white-platinum armor and blue sun-cloak, centered with shield and oathblade before a restrained solar halo, full-body 2:3 composition without text, frame, logo, or watermark."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/slice/cards/NT-04.png",
+      "sha256": "81a967d27516f2938c05e6ad40869065b8ae1117e805dc40ec738fd92438b728",
+      "purpose": "NT-04 界域裁定 representative neutral spell illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "Original neutral anime-fantasy judgment scene where a gold-silver boundary seal divides and dispels a hostile permanent, balanced moon-white, indigo and old-gold palette, without text, frame, logo, or watermark."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/slice/leaders/aurelia-master.png",
+      "sha256": "dd9ec0dc97e6ac314f3aafaf03e74e578ba96c08b7cf4c274c71876488d90f83",
+      "purpose": "曜誓圣王女·奥蕾莉亚 transparent leader master",
+      "generation_method": "OpenAI built-in image generation; selected true-alpha product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "Original Japanese-fantasy anime holy princess with long white-gold hair, blue eyes, ornate white-platinum armor, sun-ring mantle and calm oathbound bearing, full-body isolated master without text, logo, watermark, or borrowed character design."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/slice/leaders/theraea-master.png",
+      "sha256": "d9d0f2485efb969b6b99fece20abaa219aff462f839dab53c514bd480acf492c",
+      "purpose": "渊契院长·瑟蕾娅 transparent leader master",
+      "generation_method": "OpenAI built-in image generation; selected true-alpha product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "Original Japanese-fantasy anime academy headmistress with long violet-black hair, crimson-violet eyes, asymmetric arcane uniform and floating contract book, dangerous confident full-body isolated master without text, logo, watermark, or borrowed character design."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/slice/menu/menu-key-art.png",
+      "sha256": "ba5ba8f4cdedb30416701abc87168ac89a21e1564af9a7caeb65352a1c315759",
+      "purpose": "Gate 6A anime product-menu key art",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "Original widescreen fantasy-anime confrontation between a white-gold sun-oath heroine and a black-violet contract mage in an elevated duel hall, with intentional navigation space on the right and no embedded text, logo, or watermark."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/slice/shared/card-back.png",
+      "sha256": "d997620c7512af6a03233d040e06e737a350da2cdb74921edc4eea7d578ba8a9",
+      "purpose": "Gate 6A shared anonymous card back",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "Original 2:3 deep-indigo card back with gold-silver concentric oath rings pierced by a restrained violet rift, ornate fantasy filigree and symmetric silhouette, without eye, spiral, text, logo, watermark, or franchise-specific motifs."
+    }
+  ]
+}

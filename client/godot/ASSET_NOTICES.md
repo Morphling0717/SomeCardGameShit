@@ -23,3 +23,15 @@ Exact file paths, SHA-256 digests, purposes, generation methods, dates, and
 prompt summaries are recorded in the frozen R2
 `assets/visual/ASSET_MANIFEST.json` and the isolated R3 candidate
 `assets/visual/arena/R3_ASSET_MANIFEST.json`.
+
+The isolated Gate 6A AnimeV1 visual slice under
+`assets/visual/anime_v1/slice/` contains fourteen original fantasy-anime
+candidate rasters made for this project with the same built-in workflow on
+2026-08-26. It includes two true-alpha leader masters, seven representative
+card illustrations, two ace evolution alternatives, one shared card back, one
+wordless menu key art, and one open fantasy arena. It uses no reference image
+or third-party game asset and is not yet the default playable product path.
+Its exact hashes and summaries are recorded in the adjacent source
+`ASSET_MANIFEST.json` (packaged as `ANIME_V1_ASSET_MANIFEST.json`); complete
+prompts, rejected-background notes, and the human-review boundary are recorded
+in source `PROVENANCE.md` (packaged as `ANIME_V1_PROVENANCE.md`).

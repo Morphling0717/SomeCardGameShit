@@ -48,8 +48,22 @@ LICENSE_MARKERS = {
     "ASSET_NOTICES.md": "OpenAI's built-in image generation workflow",
     "ASSET_MANIFEST.json": "schema_version",
     "R3_ASSET_MANIFEST.json": "4B-R3.1",
+    "ANIME_V1_ASSET_MANIFEST.json": '"gate": "6A"',
+    "ANIME_V1_PROVENANCE.md": "project-bound visual candidate",
+    "ANIME_V1_SLICE_README.md": "Gate 6A：AnimeV1 原创动漫视觉样片",
     "BUILD_INFO.txt": "godot=4.7.2.stable.mono",
 }
+
+EXACT_PACKAGED_SOURCE_FILES = {
+    "ANIME_V1_ASSET_MANIFEST.json":
+        ROOT / "client/godot/assets/visual/anime_v1/slice/ASSET_MANIFEST.json",
+    "ANIME_V1_PROVENANCE.md":
+        ROOT / "client/godot/assets/visual/anime_v1/slice/PROVENANCE.md",
+    "ANIME_V1_SLICE_README.md": ROOT / "docs/anime-v1-visual-slice.md",
+}
+
+WINDOWS_ANIME_LAUNCHER = ROOT / "scripts/ci/PLAY_ANIME_STYLE_SLICE.cmd"
+MACOS_ANIME_LAUNCHER = ROOT / "scripts/ci/PLAY_ANIME_STYLE_SLICE.command"
 
 
 def _pe_architecture(path: Path) -> str:
@@ -103,6 +117,17 @@ def _audit_licenses(directory: Path, expected_commit: str | None = None) -> None
             raise ExportAuditError(f"missing packaged license/notice: {path}")
         if marker not in path.read_text(encoding="utf-8"):
             raise ExportAuditError(f"packaged notice has unexpected content: {path}")
+    for filename, source in EXACT_PACKAGED_SOURCE_FILES.items():
+        packaged = directory / filename
+        expected_payload = source.read_bytes()
+        actual_payload = packaged.read_bytes()
+        if actual_payload != expected_payload:
+            expected_hash = hashlib.sha256(expected_payload).hexdigest()
+            actual_hash = hashlib.sha256(actual_payload).hexdigest()
+            raise ExportAuditError(
+                f"packaged {filename} differs from the reviewed source; "
+                f"expected_sha256={expected_hash}, actual_sha256={actual_hash}"
+            )
     build_info = (directory / "BUILD_INFO.txt").read_text(encoding="utf-8")
     lines = build_info.splitlines()
     if not lines or lines[0] != "SomeCardGameShit Gate 4B-R2":
@@ -144,6 +169,31 @@ def _audit_font_source() -> None:
     if actual != expected.lower():
         raise ExportAuditError(
             f"font SHA-256 mismatch: expected {expected.lower()}, found {actual}"
+        )
+
+
+def _audit_anime_slice_launcher(export: Path, platform: str) -> None:
+    if platform == "windows-x86_64":
+        expected = WINDOWS_ANIME_LAUNCHER
+    elif platform == "macos-arm64":
+        expected = MACOS_ANIME_LAUNCHER
+    else:
+        raise ExportAuditError(f"unsupported AnimeV1 launcher platform: {platform}")
+
+    packaged = export.parent / expected.name
+    if not packaged.is_file():
+        raise ExportAuditError(
+            f"missing packaged AnimeV1 player launcher: {packaged}"
+        )
+    expected_hash = hashlib.sha256(expected.read_bytes()).hexdigest()
+    packaged_hash = hashlib.sha256(packaged.read_bytes()).hexdigest()
+    if packaged_hash != expected_hash:
+        raise ExportAuditError(
+            "packaged AnimeV1 launcher differs from the reviewed source launcher"
+        )
+    if platform == "macos-arm64" and packaged.stat().st_mode & 0o111 == 0:
+        raise ExportAuditError(
+            f"packaged macOS AnimeV1 launcher is not executable: {packaged}"
         )
 
 
@@ -234,6 +284,11 @@ def main() -> int:
         "--platform", required=True, choices=("windows-x86_64", "macos-arm64")
     )
     parser.add_argument("--export", required=True, type=Path)
+    parser.add_argument(
+        "--require-anime-slice-launcher",
+        action="store_true",
+        help="require the reviewed, player-visible AnimeV1 launcher beside the export",
+    )
     args = parser.parse_args()
 
     try:
@@ -245,6 +300,8 @@ def main() -> int:
             _audit_windows(export, expected_commit)
         else:
             _audit_macos(export, expected_commit)
+        if args.require_anime_slice_launcher:
+            _audit_anime_slice_launcher(export, args.platform)
     except (
         AuditError,
         ExportAuditError,

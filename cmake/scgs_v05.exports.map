@@ -1,0 +1,19 @@
+{
+    global:
+        scgs_v05_abi_version;
+        scgs_v05_create;
+        scgs_v05_destroy;
+        scgs_v05_get_last_error;
+        scgs_v05_get_reaction_context_json;
+        scgs_v05_get_view_json;
+        scgs_v05_list_legal_actions_json;
+        scgs_v05_list_valid_donors_json;
+        scgs_v05_list_valid_slots_json;
+        scgs_v05_list_valid_targets_json;
+        scgs_v05_preview_payment_json;
+        scgs_v05_read_events_json;
+        scgs_v05_start;
+        scgs_v05_submit_command_json;
+    local:
+        *;
+};

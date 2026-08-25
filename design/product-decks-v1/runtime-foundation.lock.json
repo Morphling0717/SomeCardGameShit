@@ -1,0 +1,241 @@
+{
+  "$schema": "./runtime-foundation.schema.json",
+  "schema_version": "1.0.0",
+  "status": "locked_not_implemented",
+  "default_definition": {
+    "implementation_status": "locked_not_implemented",
+    "effects_compiled": false
+  },
+  "mode_cards": [
+    {
+      "design_id": "AP-08",
+      "modes": [
+        {
+          "mode_id": "repair",
+          "label": "修复2",
+          "target": "none",
+          "target_filter": null,
+          "effects_compiled": false
+        },
+        {
+          "mode_id": "empower",
+          "label": "强化渊契随从",
+          "target": "friendly_follower",
+          "target_filter": {
+            "allowed_card_types": ["follower"],
+            "profession_id": "pactmage",
+            "series_id": "abyssal_pact",
+            "include_main_board": true,
+            "include_field": false
+          },
+          "effects_compiled": false
+        }
+      ]
+    },
+    {
+      "design_id": "NT-04",
+      "modes": [
+        {
+          "mode_id": "damage_follower",
+          "label": "对敌方随从造成4点伤害",
+          "target": "enemy_follower",
+          "target_filter": {
+            "allowed_card_types": ["follower"],
+            "profession_id": "",
+            "series_id": "",
+            "include_main_board": true,
+            "include_field": false
+          },
+          "effects_compiled": false
+        },
+        {
+          "mode_id": "destroy_amulet_or_field",
+          "label": "破坏敌方护符或场地",
+          "target": "enemy_permanent",
+          "target_filter": {
+            "allowed_card_types": ["amulet", "field"],
+            "profession_id": "",
+            "series_id": "",
+            "include_main_board": true,
+            "include_field": true
+          },
+          "effects_compiled": false
+        }
+      ]
+    }
+  ],
+  "standby_cards": [
+    {
+      "design_id": "LO-S01",
+      "conditions": [
+        {
+          "condition_id": "turn_actual_repair",
+          "kind": "turn_repair_at_least",
+          "threshold": 1,
+          "read_cap": 0,
+          "parameter": "",
+          "permanent_filter": null
+        }
+      ],
+      "additional_cost": null
+    },
+    {
+      "design_id": "LO-S02",
+      "conditions": [
+        {
+          "condition_id": "turn_luminous_oath_barrier_granted",
+          "kind": "turn_barrier_granted",
+          "threshold": 1,
+          "read_cap": 0,
+          "parameter": "",
+          "permanent_filter": {
+            "allowed_card_types": ["follower"],
+            "profession_id": "oathguard",
+            "series_id": "luminous_oath",
+            "include_main_board": true,
+            "include_field": false
+          }
+        }
+      ],
+      "additional_cost": null
+    },
+    {
+      "design_id": "LO-S03",
+      "conditions": [
+        {
+          "condition_id": "match_luminous_oath_amulet_countdown_expired",
+          "kind": "match_countdown_expired_at_least",
+          "threshold": 1,
+          "read_cap": 0,
+          "parameter": "",
+          "permanent_filter": {
+            "allowed_card_types": ["amulet"],
+            "profession_id": "oathguard",
+            "series_id": "luminous_oath",
+            "include_main_board": true,
+            "include_field": false
+          }
+        }
+      ],
+      "additional_cost": null
+    },
+    {
+      "design_id": "LO-S04",
+      "conditions": [
+        {
+          "condition_id": "current_cracks_zero",
+          "kind": "cracks_at_most",
+          "threshold": 0,
+          "read_cap": 0,
+          "parameter": "",
+          "permanent_filter": null
+        },
+        {
+          "condition_id": "match_repair_to_zero_twice",
+          "kind": "match_repair_to_zero_at_least",
+          "threshold": 2,
+          "read_cap": 0,
+          "parameter": "",
+          "permanent_filter": null
+        }
+      ],
+      "additional_cost": null
+    },
+    {
+      "design_id": "AP-S01",
+      "conditions": [
+        {
+          "condition_id": "turn_future_cracks_added",
+          "kind": "turn_future_use_at_least",
+          "threshold": 1,
+          "read_cap": 0,
+          "parameter": "",
+          "permanent_filter": null
+        }
+      ],
+      "additional_cost": null
+    },
+    {
+      "design_id": "AP-S02",
+      "conditions": [
+        {
+          "condition_id": "current_cracks_four",
+          "kind": "cracks_at_least",
+          "threshold": 4,
+          "read_cap": 0,
+          "parameter": "",
+          "permanent_filter": null
+        },
+        {
+          "condition_id": "leader_health_fifteen",
+          "kind": "leader_health_at_most",
+          "threshold": 15,
+          "read_cap": 0,
+          "parameter": "",
+          "permanent_filter": null
+        }
+      ],
+      "additional_cost": null
+    },
+    {
+      "design_id": "AP-S03",
+      "conditions": [
+        {
+          "condition_id": "turn_abyssal_pact_amulet_countdown_expired",
+          "kind": "turn_countdown_expired",
+          "threshold": 1,
+          "read_cap": 0,
+          "parameter": "",
+          "permanent_filter": {
+            "allowed_card_types": ["amulet"],
+            "profession_id": "pactmage",
+            "series_id": "abyssal_pact",
+            "include_main_board": true,
+            "include_field": false
+          }
+        }
+      ],
+      "additional_cost": null
+    },
+    {
+      "design_id": "AP-S04",
+      "conditions": [
+        {
+          "condition_id": "current_cracks_six",
+          "kind": "cracks_at_least",
+          "threshold": 6,
+          "read_cap": 0,
+          "parameter": "",
+          "permanent_filter": null
+        },
+        {
+          "condition_id": "controls_other_abyssal_pact_permanent",
+          "kind": "controls_series_permanent",
+          "threshold": 1,
+          "read_cap": 0,
+          "parameter": "abyssal_pact",
+          "permanent_filter": {
+            "allowed_card_types": ["follower", "amulet"],
+            "profession_id": "pactmage",
+            "series_id": "abyssal_pact",
+            "include_main_board": true,
+            "include_field": false
+          }
+        }
+      ],
+      "additional_cost": {
+        "target": "friendly_permanent",
+        "minimum": 1,
+        "maximum": 1,
+        "move_reason": "additional_cost",
+        "filter": {
+          "allowed_card_types": ["follower", "amulet"],
+          "profession_id": "pactmage",
+          "series_id": "abyssal_pact",
+          "include_main_board": true,
+          "include_field": false
+        }
+      }
+    }
+  ]
+}

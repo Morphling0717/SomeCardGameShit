@@ -10,22 +10,29 @@ import sys
 from pathlib import Path
 
 
-EXPECTED_EXPORTS = {
-    "scgs_v04_abi_version",
-    "scgs_v04_create",
-    "scgs_v04_destroy",
-    "scgs_v04_get_last_error",
-    "scgs_v04_get_reaction_context_json",
-    "scgs_v04_get_view_json",
-    "scgs_v04_list_legal_actions_json",
-    "scgs_v04_list_valid_donors_json",
-    "scgs_v04_list_valid_slots_json",
-    "scgs_v04_list_valid_targets_json",
-    "scgs_v04_preview_payment_json",
-    "scgs_v04_read_events_json",
-    "scgs_v04_start",
-    "scgs_v04_submit_command_json",
+EXPORT_SUFFIXES = {
+    "abi_version",
+    "create",
+    "destroy",
+    "get_last_error",
+    "get_reaction_context_json",
+    "get_view_json",
+    "list_legal_actions_json",
+    "list_valid_donors_json",
+    "list_valid_slots_json",
+    "list_valid_targets_json",
+    "preview_payment_json",
+    "read_events_json",
+    "start",
+    "submit_command_json",
 }
+
+
+def _expected_exports(api_version: str) -> set[str]:
+    return {f"scgs_{api_version}_{suffix}" for suffix in EXPORT_SUFFIXES}
+
+
+EXPECTED_EXPORTS = _expected_exports("v04")
 
 
 def _is_dynamic_msvc_runtime(name: str) -> bool:
@@ -192,7 +199,11 @@ def _audit_mach_o(data: bytes, library: Path) -> tuple[set[str], set[str]]:
     return _mach_architectures(data), exports
 
 
-def audit(library: Path, expected_architecture: str) -> None:
+def audit(
+    library: Path,
+    expected_architecture: str,
+    api_version: str = "v04",
+) -> None:
     if not library.is_file():
         raise AuditError(f"native library does not exist: {library}")
     data = library.read_bytes()
@@ -209,9 +220,11 @@ def audit(library: Path, expected_architecture: str) -> None:
             f"expected exactly {expected_architecture}, found {sorted(architectures)}"
         )
 
-    gate_exports = {name for name in exports if name.startswith("scgs_v04_")}
-    missing = EXPECTED_EXPORTS - exports
-    unexpected = exports - EXPECTED_EXPORTS
+    expected_exports = _expected_exports(api_version)
+    export_prefix = f"scgs_{api_version}_"
+    gate_exports = {name for name in exports if name.startswith(export_prefix)}
+    missing = expected_exports - exports
+    unexpected = exports - expected_exports
     if missing or unexpected:
         raise AuditError(
             f"export mismatch; missing={sorted(missing)}, unexpected={sorted(unexpected)}"
@@ -236,9 +249,10 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--library", required=True, type=Path)
     parser.add_argument("--architecture", required=True, choices=("x86_64", "arm64"))
+    parser.add_argument("--api-version", choices=("v04", "v05"), default="v04")
     args = parser.parse_args()
     try:
-        audit(args.library.resolve(), args.architecture)
+        audit(args.library.resolve(), args.architecture, args.api_version)
     except (AuditError, OSError, struct.error, subprocess.CalledProcessError) as error:
         print(f"native artifact audit failed: {error}", file=sys.stderr)
         return 1

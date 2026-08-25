@@ -37,8 +37,11 @@ jobs:
           cmake -S scripts/native-package-smoke -B build/package-smoke-gcc -G Ninja -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/build/stage-gcc"
           cmake --build build/package-smoke-gcc --parallel 2
           ./build/package-smoke-gcc/scgs_native_v04_package_smoke
-      - name: Audit native artifact
+          ./build/package-smoke-gcc/scgs_native_v05_package_smoke
+      - name: Audit v04 native artifact
         run: python scripts/audit_native_artifact.py --library build/stage-gcc/lib/libscgs_v04.so --architecture x86_64
+      - name: Audit v05 native artifact
+        run: python scripts/audit_native_artifact.py --library build/stage-gcc/lib/libscgs_v05.so --architecture x86_64 --api-version v05
       - name: Audit Gate 4B generated visual inventory
         run: python scripts/audit_visual_assets.py
       - name: Check patch whitespace
@@ -46,6 +49,11 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: scgs-native-v04-linux-x86_64-gcc
+          path: build/stage-gcc
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: scgs-native-v05-linux-x86_64-gcc
           path: build/stage-gcc
           if-no-files-found: error
 
@@ -80,13 +88,21 @@ jobs:
           cmake -S scripts/native-package-smoke -B build/package-smoke-asan -G Ninja -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/build/stage-asan" -DSCGS_NATIVE_SMOKE_USE_CXX_LINKER=ON -DCMAKE_C_FLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
           cmake --build build/package-smoke-asan --parallel 2
           ./build/package-smoke-asan/scgs_native_v04_package_smoke
-      - name: Audit native artifact
+          ./build/package-smoke-asan/scgs_native_v05_package_smoke
+      - name: Audit v04 native artifact
         run: python scripts/audit_native_artifact.py --library build/stage-asan/lib/libscgs_v04.so --architecture x86_64
+      - name: Audit v05 native artifact
+        run: python scripts/audit_native_artifact.py --library build/stage-asan/lib/libscgs_v05.so --architecture x86_64 --api-version v05
       - name: Check patch whitespace
         run: git diff --check
       - uses: actions/upload-artifact@v7
         with:
           name: scgs-native-v04-linux-x86_64-clang-asan-ubsan
+          path: build/stage-asan
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: scgs-native-v05-linux-x86_64-clang-asan-ubsan
           path: build/stage-asan
           if-no-files-found: error
 
@@ -128,8 +144,12 @@ jobs:
           $env:PATH = "${{ github.workspace }}\build\stage-msvc\bin;$env:PATH"
           & "build/package-smoke-msvc/Release/scgs_native_v04_package_smoke.exe"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Audit native artifact
+          & "build/package-smoke-msvc/Release/scgs_native_v05_package_smoke.exe"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Audit v04 native artifact
         run: python scripts/audit_native_artifact.py --library build/stage-msvc/bin/scgs_v04.dll --architecture x86_64
+      - name: Audit v05 native artifact
+        run: python scripts/audit_native_artifact.py --library build/stage-msvc/bin/scgs_v05.dll --architecture x86_64 --api-version v05
       - uses: actions/setup-dotnet@v5
         with:
           global-json-file: global.json
@@ -160,7 +180,10 @@ jobs:
         env:
           SCGS_NATIVE_LIBRARY: ${{ github.workspace }}/build/stage-msvc/bin/scgs_v04.dll
           SCGS_V04_NATIVE_PATH: ${{ github.workspace }}/build/stage-msvc/bin/scgs_v04.dll
+          SCGS_NATIVE_V05_LIBRARY: ${{ github.workspace }}/build/stage-msvc/bin/scgs_v05.dll
         run: python scripts/ci/run_managed_gate3.py
+      - name: AnimeV1 visual slice structural contracts
+        run: python -m unittest scripts.tests.test_anime_visual_slice
       - name: Godot headless import
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
@@ -172,6 +195,20 @@ jobs:
           --forbid-output "ERROR:"
           -- "$env:GODOT4" --headless
           --path client/godot --import
+      - name: Godot AnimeV1 display-backed structural screenshot matrix
+        env:
+          GODOT4: ${{ steps.godot.outputs.godot }}
+        shell: pwsh
+        run: >-
+          ./scripts/ci/capture_anime_visual_slice.ps1
+          -GodotPath $env:GODOT4
+          -OutputRoot "${{ github.workspace }}/artifacts/anime-visual-slice/windows"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: SomeCardGameShit-gate6a-anime-slice-windows
+          path: artifacts/anime-visual-slice/windows
+          if-no-files-found: error
       - name: Godot default 3D current-project native smoke
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
@@ -360,6 +397,37 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/ci/validate_gate4a_report.py --report "$report" --scenario full-match --presentation 3d
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Launch exported Windows AnimeV1 visual slice
+        shell: pwsh
+        run: |
+          $exportDirectory = Join-Path "${{ github.workspace }}" "artifacts/godot/windows-x86_64"
+          $launcher = Join-Path $exportDirectory "PLAY_ANIME_STYLE_SLICE.cmd"
+          $slice = Join-Path "${{ github.workspace }}" "artifacts/anime-exported-visual-slice/windows-1600x900"
+          New-Item -ItemType Directory -Path $slice -Force | Out-Null
+          $env:SCGS_ANIME_LAUNCHER_CI = "1"
+          $env:SCGS_ANIME_LAUNCHER_OUTPUT = $slice
+          $launcherExitCode = 0
+          try {
+            python scripts/ci/run_with_timeout.py `
+              --timeout 300 `
+              --cwd "$exportDirectory" `
+              --expect-output SCGS_ANIME_VISUAL_SLICE_READY `
+              --expect-output-count 1 `
+              --forbid-output "SCRIPT ERROR:" `
+              --forbid-output "ERROR:" `
+              --forbid-output "Unhandled exception" `
+              -- "$env:ComSpec" /d /c call "$launcher"
+            $launcherExitCode = $LASTEXITCODE
+          }
+          finally {
+            Remove-Item Env:SCGS_ANIME_LAUNCHER_CI -ErrorAction SilentlyContinue
+            Remove-Item Env:SCGS_ANIME_LAUNCHER_OUTPUT -ErrorAction SilentlyContinue
+          }
+          if ($launcherExitCode -ne 0) { exit $launcherExitCode }
+          python scripts/ci/validate_anime_visual_slice.py `
+            (Join-Path $slice "anime-visual-slice.json") `
+            --expected-viewport 1600x900
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Launch exported Windows R3 candidate visual slice
         shell: pwsh
         run: |
@@ -388,12 +456,14 @@ jobs:
           $packageDirectory = Join-Path "${{ github.workspace }}" "artifacts/packages"
           $r2Package = Join-Path $packageDirectory "SomeCardGameShit-gate4b-r2-windows-x86_64.zip"
           $r3Package = Join-Path $packageDirectory "SomeCardGameShit-gate4b-r3-visual-slice-windows-x86_64.zip"
+          $animePackage = Join-Path $packageDirectory "SomeCardGameShit-product-runtime-foundation-anime-slice-windows-x86_64.zip"
           New-Item -ItemType Directory -Path $packageDirectory -Force | Out-Null
           Compress-Archive `
             -Path "artifacts/godot/windows-x86_64/*" `
             -DestinationPath $r2Package `
             -CompressionLevel Optimal
           Copy-Item -LiteralPath $r2Package -Destination $r3Package
+          Copy-Item -LiteralPath $r2Package -Destination $animePackage
       - name: Round-trip launch packaged Windows R3 visual slice
         shell: pwsh
         run: |
@@ -439,6 +509,45 @@ jobs:
             --report (Join-Path $slice "r3-visual-slice.json") `
             --width 1600 --height 900
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Round-trip launch packaged AnimeV1 visual slice
+        shell: pwsh
+        run: |
+          $package = Join-Path "${{ github.workspace }}" "artifacts/packages/SomeCardGameShit-product-runtime-foundation-anime-slice-windows-x86_64.zip"
+          $roundTrip = Join-Path "${{ github.workspace }}" "artifacts/roundtrip/anime-visual-slice-windows-x86_64"
+          $slice = Join-Path "${{ github.workspace }}" "artifacts/anime-packaged-visual-slice/windows-1600x900"
+          New-Item -ItemType Directory -Path $roundTrip -Force | Out-Null
+          New-Item -ItemType Directory -Path $slice -Force | Out-Null
+          Expand-Archive -LiteralPath $package -DestinationPath $roundTrip -Force
+          $export = Join-Path $roundTrip "SomeCardGameShit.exe"
+          $launcher = Join-Path $roundTrip "PLAY_ANIME_STYLE_SLICE.cmd"
+          python scripts/audit_godot_export.py `
+            --platform windows-x86_64 --export "$export" `
+            --require-anime-slice-launcher
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:SCGS_ANIME_LAUNCHER_CI = "1"
+          $env:SCGS_ANIME_LAUNCHER_OUTPUT = $slice
+          $launcherExitCode = 0
+          try {
+            python scripts/ci/run_with_timeout.py `
+              --timeout 300 `
+              --cwd "$roundTrip" `
+              --expect-output SCGS_ANIME_VISUAL_SLICE_READY `
+              --expect-output-count 1 `
+              --forbid-output "SCRIPT ERROR:" `
+              --forbid-output "ERROR:" `
+              --forbid-output "Unhandled exception" `
+              -- "$env:ComSpec" /d /c call "$launcher"
+            $launcherExitCode = $LASTEXITCODE
+          }
+          finally {
+            Remove-Item Env:SCGS_ANIME_LAUNCHER_CI -ErrorAction SilentlyContinue
+            Remove-Item Env:SCGS_ANIME_LAUNCHER_OUTPUT -ErrorAction SilentlyContinue
+          }
+          if ($launcherExitCode -ne 0) { exit $launcherExitCode }
+          python scripts/ci/validate_anime_visual_slice.py `
+            (Join-Path $slice "anime-visual-slice.json") `
+            --expected-viewport 1600x900
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Round-trip audit and launch packaged Windows default 3D client
         shell: pwsh
         run: |
@@ -477,6 +586,19 @@ jobs:
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
+          name: SomeCardGameShit-product-runtime-foundation-anime-slice-windows-x86_64
+          path: artifacts/packages/SomeCardGameShit-product-runtime-foundation-anime-slice-windows-x86_64.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: SomeCardGameShit-product-runtime-foundation-anime-slice-windows-evidence
+          path: |
+            artifacts/anime-exported-visual-slice
+            artifacts/anime-packaged-visual-slice
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
           name: SomeCardGameShit-r3-candidate-windows-packaged-visual-slice
           path: artifacts/r3-packaged-visual-slice
           if-no-files-found: error
@@ -488,6 +610,11 @@ jobs:
       - uses: actions/upload-artifact@v7
         with:
           name: scgs-native-v04-windows-x86_64-msvc
+          path: build/stage-msvc
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: scgs-native-v05-windows-x86_64-msvc
           path: build/stage-msvc
           if-no-files-found: error
 
@@ -523,8 +650,11 @@ jobs:
           cmake -S scripts/native-package-smoke -B build/package-smoke-macos -G Ninja -DCMAKE_OSX_ARCHITECTURES=arm64 -DCMAKE_PREFIX_PATH="${GITHUB_WORKSPACE}/build/stage-macos"
           cmake --build build/package-smoke-macos --parallel 2
           ./build/package-smoke-macos/scgs_native_v04_package_smoke
-      - name: Audit native artifact
+          ./build/package-smoke-macos/scgs_native_v05_package_smoke
+      - name: Audit v04 native artifact
         run: python scripts/audit_native_artifact.py --library build/stage-macos/lib/libscgs_v04.dylib --architecture arm64
+      - name: Audit v05 native artifact
+        run: python scripts/audit_native_artifact.py --library build/stage-macos/lib/libscgs_v05.dylib --architecture arm64 --api-version v05
       - name: Audit Gate 4B generated visual inventory
         run: python scripts/audit_visual_assets.py
       - uses: actions/setup-dotnet@v5
@@ -561,7 +691,10 @@ jobs:
         env:
           SCGS_NATIVE_LIBRARY: ${{ github.workspace }}/build/stage-macos/lib/libscgs_v04.dylib
           SCGS_V04_NATIVE_PATH: ${{ github.workspace }}/build/stage-macos/lib/libscgs_v04.dylib
+          SCGS_NATIVE_V05_LIBRARY: ${{ github.workspace }}/build/stage-macos/lib/libscgs_v05.dylib
         run: python scripts/ci/run_managed_gate3.py
+      - name: AnimeV1 visual slice structural contracts
+        run: python -m unittest scripts.tests.test_anime_visual_slice
       - name: Godot headless import
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
@@ -572,6 +705,20 @@ jobs:
           --forbid-output "ERROR:"
           -- "$GODOT4" --headless
           --path client/godot --import
+      - name: Godot AnimeV1 display-backed structural screenshot matrix
+        env:
+          GODOT4: ${{ steps.godot.outputs.godot }}
+        shell: pwsh
+        run: >-
+          ./scripts/ci/capture_anime_visual_slice.ps1
+          -GodotPath $env:GODOT4
+          -OutputRoot "${{ github.workspace }}/artifacts/anime-visual-slice/macos"
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: SomeCardGameShit-gate6a-anime-slice-macos-arm64
+          path: artifacts/anime-visual-slice/macos
+          if-no-files-found: error
       - name: Godot default 3D current-project native smoke
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
@@ -640,12 +787,70 @@ jobs:
             --forbid-output 'Unhandled exception' \
             -- "$executable" --headless -- --ci-smoke "--ci-report=${report}"
           python scripts/ci/validate_gate4a_report.py --report "$report" --scenario full-match --presentation 3d
+      - name: Launch exported macOS AnimeV1 visual slice
+        run: |
+          export_directory="${GITHUB_WORKSPACE}/artifacts/godot/macos-arm64"
+          launcher="${export_directory}/PLAY_ANIME_STYLE_SLICE.command"
+          slice="${GITHUB_WORKSPACE}/artifacts/anime-exported-visual-slice/macos-1600x900"
+          mkdir -p "$slice"
+          export SCGS_ANIME_LAUNCHER_CI=1
+          export SCGS_ANIME_LAUNCHER_OUTPUT="$slice"
+          python scripts/ci/run_with_timeout.py \
+            --timeout 300 \
+            --cwd "$export_directory" \
+            --expect-output SCGS_ANIME_VISUAL_SLICE_READY \
+            --expect-output-count 1 \
+            --forbid-output 'SCRIPT ERROR:' \
+            --forbid-output 'ERROR:' \
+            --forbid-output 'Unhandled exception' \
+            -- "$launcher"
+          unset SCGS_ANIME_LAUNCHER_CI SCGS_ANIME_LAUNCHER_OUTPUT
+          python scripts/ci/validate_anime_visual_slice.py \
+            "$slice/anime-visual-slice.json" \
+            --expected-viewport 1600x900
       - name: Package macOS client
         run: |
-          mkdir -p artifacts/packages
+          export_directory="${GITHUB_WORKSPACE}/artifacts/godot/macos-arm64"
+          package_directory="${GITHUB_WORKSPACE}/artifacts/packages"
+          r2_package="${package_directory}/SomeCardGameShit-gate4b-r2-macos-arm64.app.zip"
+          anime_package="${package_directory}/SomeCardGameShit-product-runtime-foundation-anime-slice-macos-arm64.zip"
+          mkdir -p "$package_directory"
           ditto -c -k --sequesterRsrc --keepParent \
             artifacts/godot/macos-arm64/SomeCardGameShit.app \
-            artifacts/packages/SomeCardGameShit-gate4b-r2-macos-arm64.app.zip
+            "$r2_package"
+          cp "$r2_package" "$anime_package"
+          (
+            cd "$export_directory"
+            /usr/bin/zip -q "$anime_package" PLAY_ANIME_STYLE_SLICE.command
+          )
+      - name: Round-trip launch packaged AnimeV1 visual slice
+        run: |
+          package="${GITHUB_WORKSPACE}/artifacts/packages/SomeCardGameShit-product-runtime-foundation-anime-slice-macos-arm64.zip"
+          round_trip="${GITHUB_WORKSPACE}/artifacts/roundtrip/anime-visual-slice-macos-arm64"
+          slice="${GITHUB_WORKSPACE}/artifacts/anime-packaged-visual-slice/macos-1600x900"
+          mkdir -p "$round_trip" "$slice"
+          ditto -x -k "$package" "$round_trip"
+          app="$round_trip/SomeCardGameShit.app"
+          launcher="$round_trip/PLAY_ANIME_STYLE_SLICE.command"
+          test -x "$launcher"
+          python scripts/audit_godot_export.py \
+            --platform macos-arm64 --export "$app" \
+            --require-anime-slice-launcher
+          export SCGS_ANIME_LAUNCHER_CI=1
+          export SCGS_ANIME_LAUNCHER_OUTPUT="$slice"
+          python scripts/ci/run_with_timeout.py \
+            --timeout 300 \
+            --cwd "$round_trip" \
+            --expect-output SCGS_ANIME_VISUAL_SLICE_READY \
+            --expect-output-count 1 \
+            --forbid-output 'SCRIPT ERROR:' \
+            --forbid-output 'ERROR:' \
+            --forbid-output 'Unhandled exception' \
+            -- "$launcher"
+          unset SCGS_ANIME_LAUNCHER_CI SCGS_ANIME_LAUNCHER_OUTPUT
+          python scripts/ci/validate_anime_visual_slice.py \
+            "$slice/anime-visual-slice.json" \
+            --expected-viewport 1600x900
       - name: Round-trip audit and launch packaged macOS default 3D client
         run: |
           package="${GITHUB_WORKSPACE}/artifacts/packages/SomeCardGameShit-gate4b-r2-macos-arm64.app.zip"
@@ -676,6 +881,24 @@ jobs:
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
+          name: SomeCardGameShit-product-runtime-foundation-anime-slice-macos-arm64
+          path: artifacts/packages/SomeCardGameShit-product-runtime-foundation-anime-slice-macos-arm64.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: SomeCardGameShit-product-runtime-foundation-anime-slice-macos-evidence
+          path: |
+            artifacts/anime-exported-visual-slice
+            artifacts/anime-packaged-visual-slice
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
           name: scgs-native-v04-macos-arm64-appleclang
+          path: build/stage-macos
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: scgs-native-v05-macos-arm64-appleclang
           path: build/stage-macos
           if-no-files-found: error

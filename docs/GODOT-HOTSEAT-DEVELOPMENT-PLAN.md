@@ -1,4 +1,4 @@
-# SomeCardGameShit M1-G 开发计划与执行记录
+# SomeCardGameShit 产品运行时与 Godot 客户端开发计划
 
 **计划代号：** M1-G / Godot Hotseat Alpha  
 **代码基线：** `main@cfdf695d70eeabcc6de9b094c94041364fb1335f`
@@ -10,13 +10,15 @@
 **Gate 4A 自动化验收尖端：** `codex/godot-hotseat-gate4a@7a6808ddcd76d2c78fd906a9235f867c11c84e7c`
 **Gate 4B-R1 已完成基线：** `codex/godot-hotseat-gate4b-visual-baseline@1370491`
 **Gate 4B-R2 当前实现分支：** `codex/godot-hotseat-gate4b-r2-battle-presentation`
+**Gate 5A 设计锁定尖端：** `codex/product-decks-v1-design@cd05a41542c21a4021f53aff3ffb1f9641900429`
+**Gate 5B＋6A 当前实现分支：** `codex/product-runtime-foundation-anime-slice`
 **规则基线：** `docs/rules-v0.4.md`  
 **目标客户端：** Godot 4.7.2 .NET（Gate 4B-R2 默认 3D + 相机相对 2.5D 手牌）
 **.NET SDK：** 10.0.400
 **目标平台：** macOS Apple Silicon、Windows x86-64  
 **M1-G 总目标：** 从完整无界面引擎推进到人类可以完整打一局的单机热座版本
 
-> Gate 3C 已建立点击/拖拽战场直操、复杂动作上下文选择与中立公开 `Resolving` 投影，Gate 4A 建立默认 3D/2.5D 表现，Gate 4B-R1 交付产品菜单、设置、视觉目录和自动化基线。Gate 4B-R2 在不改变 11 个 `ActionKind` 或热座隐私状态机的前提下，已重写前景手牌、卡牌数值可读性、稳定镜头与战场/HUD 构图；实现尖端 `cca04b5` 的 run `32766050188` 四项 CI 全绿，Windows 实机包已交付等待第一次主观验收。隐藏 `--legacy-2d-board` 继续只作同源功能回归。最终自动化、导出和 CI 结果只以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 的同提交实测为准。项目不支持 Web，不修改 legacy v1 wire 字节，也不在本 Gate 创建 PR、合并或标签。
+> Gate 3C～4B-R2 已建立旧牌组可玩的 2.5D 热座路径。Gate 5B 另行建立产品 `scgs::v2` 规则底座与 `scgs_v05/schema 2`，但逐卡产品效果和固定牌整局仍属于 Gate 5C；冻结 v04 不原地修改。Gate 6A 把整个最终产品的视觉方向锁为 AnimeV1 原创日式幻想动漫风，并提供无 native 的八态审批样片。当前旧科幻画面只作迁移期默认与回归，Gate 6C 完成后必须删除，不作为玩家双皮肤。最终自动化、导出和 CI 结果只以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 的同提交实测为准。项目不支持 Web，不修改 legacy v1 wire 字节，也不在本 Gate 创建 PR、合并或标签。
 
 ---
 

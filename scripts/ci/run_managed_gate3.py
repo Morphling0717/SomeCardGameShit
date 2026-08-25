@@ -12,7 +12,11 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 GODOT_PROJECT = ROOT / "client/godot/SomeCardGameShit.csproj"
-NATIVE_LIBRARY_ENVIRONMENTS = ("SCGS_NATIVE_LIBRARY", "SCGS_V04_NATIVE_PATH")
+V04_NATIVE_LIBRARY_ENVIRONMENTS = ("SCGS_NATIVE_LIBRARY", "SCGS_V04_NATIVE_PATH")
+V05_NATIVE_LIBRARY_ENVIRONMENT = "SCGS_NATIVE_V05_LIBRARY"
+# Backwards-compatible import for existing test helpers which only care about
+# the frozen v04 pair.
+NATIVE_LIBRARY_ENVIRONMENTS = V04_NATIVE_LIBRARY_ENVIRONMENTS
 GODOT_BUILD_CONFIGURATIONS = ("Debug", "Release")
 
 
@@ -23,7 +27,7 @@ def _run(*arguments: str) -> None:
 def main() -> int:
     native_paths = {
         name: os.environ.get(name, "").strip()
-        for name in NATIVE_LIBRARY_ENVIRONMENTS
+        for name in (*V04_NATIVE_LIBRARY_ENVIRONMENTS, V05_NATIVE_LIBRARY_ENVIRONMENT)
     }
     missing_environments = [name for name, value in native_paths.items() if not value]
     if missing_environments:
@@ -38,15 +42,26 @@ def main() -> int:
         name: Path(value).expanduser().resolve()
         for name, value in native_paths.items()
     }
-    if len(set(resolved_native_paths.values())) != 1:
+    v04_paths = {
+        resolved_native_paths[name]
+        for name in V04_NATIVE_LIBRARY_ENVIRONMENTS
+    }
+    if len(v04_paths) != 1:
         rendered = ", ".join(
-            f"{name}={path}" for name, path in resolved_native_paths.items()
+            f"{name}={resolved_native_paths[name]}"
+            for name in V04_NATIVE_LIBRARY_ENVIRONMENTS
         )
-        print(f"native library environment variables disagree: {rendered}", file=sys.stderr)
+        print(f"v04 native library environment variables disagree: {rendered}", file=sys.stderr)
         return 1
-    native_library = next(iter(resolved_native_paths.values()))
-    if not native_library.is_file():
-        print(f"native integration library does not exist: {native_library}", file=sys.stderr)
+    for name, native_library in resolved_native_paths.items():
+        if not native_library.is_file():
+            print(
+                f"native integration library does not exist: {name}={native_library}",
+                file=sys.stderr,
+            )
+            return 1
+    if resolved_native_paths[V05_NATIVE_LIBRARY_ENVIRONMENT] in v04_paths:
+        print("v04 and v05 integration libraries must be distinct files", file=sys.stderr)
         return 1
 
     global_config = json.loads((ROOT / "global.json").read_text(encoding="utf-8"))

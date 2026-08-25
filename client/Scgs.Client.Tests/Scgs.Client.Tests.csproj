@@ -21,6 +21,8 @@
              Link="GodotContracts\ClientVisualSettings.cs" />
     <Compile Include="..\godot\scripts\UI\ProductMenuModel.cs"
              Link="GodotContracts\ProductMenuModel.cs" />
+    <Compile Include="..\godot\scripts\Preview\AnimeSliceMotionProfile.cs"
+             Link="GodotContracts\AnimeSliceMotionProfile.cs" />
   </ItemGroup>
 
 </Project>

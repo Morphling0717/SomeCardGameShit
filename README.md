@@ -2,18 +2,19 @@
 
 原创 1v1 数字卡牌游戏实验项目。C++20 规则引擎是唯一规则真值；正式客户端路线锁定为 **Godot 4.7.2 .NET** 的桌面单机热座版本。
 
-当前分支是 **Gate 5A 誓卫／契术双职业成品牌组设计锁定**：以 `locked_not_implemented` 清单冻结两副 30 张主牌、各四张公开战备、四张共享中立、职业规则、能力差距和平衡目标。本 Gate 只增加设计数据、Schema、文档与校验，不修改 C++、C#、Godot、C ABI、schema 1 或 legacy wire；这些新牌现在还不能在客户端中游玩，纸面平衡目标也不等于实战验证结果。
+当前分支是 **Gate 5B＋6A：产品运行时底座与动漫视觉样片**。Gate 5B 已建立与冻结 v0.4 并行的产品规则域、由 Gate 5A 锁定清单生成的 34 张可构筑牌＋1 个衍生物基础目录、混合五格主战场、独立场地、分层关键词、可暂停选择队列、人工触发排序，以及 `scgs_v05` ABI 2.0／JSON schema 2 和纯托管 `Scgs.Client.V05`。能力清单中的 9 项修正＋33 项新增已经形成精确的 42／42 synthetic 可执行原语矩阵。这是可验证的通用底座，**不是**两副 30 张产品牌组已经完整可玩；逐卡效果组合、固定牌整局代理、数值实战和产品入口切换属于 Gate 5C。
 
-运行时视觉基线仍是 **Gate 4B-R3.1 无边界工业竞技场候选切片**。默认客户端保持 Gate 4B-R2；只有双击候选包中的 `PLAY_R3_VISUAL_SLICE.cmd` 或显式传入 `--r3-visual-slice` 才进入 R3 候选。候选不会改动当前规则、旧测试牌组或 R2 golden。被测实现尖端 `3d4012f` 的 [CI run 32808917410](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32808917410) 已四项全绿；Gate 5A 自身的真实验证结果只以 [`TEST_REPORT.md`](TEST_REPORT.md) 为准。
+Gate 6A 同时提供不调用 native 的独立 **AnimeV1 原创华丽厚涂日式幻想动漫样片**：两名主战者、七张代表卡、两张王牌进化异画、统一卡背、菜单主视觉和开放式幻想竞技场，共 14 项候选素材，并覆盖菜单、牌组设置、普通对局、手牌悬停、混合永久物、响应、交接和结果八种状态。可用 `--anime-style-slice` 启动；它只用于视觉审批，不冒充新牌组可玩版。
 
-R2 的 29 张临时卡图、卡背、菜单背景、未知卡通用正面和 2 张领袖头像仍是冻结的 34 项产品素材；R3.1 只新增 1 张独立候选地坪，并使用可由提交源码确定性重建的原创机械 GLB。R3 报告固定为 `pending_user_approval`；用户明确批准前，不会把候选推广为默认产品路径，也不会用三张视觉切片冒充完整对局表现已经迁移。
+AnimeV1 已锁定为整个产品的唯一长期美术方向：菜单、竞技场、主战者、卡牌、卡框、HUD、弹层、VFX、fallback 与 shader 都要统一动漫幻想风。当前 Gate 4B-R2／R3 科幻工业画面只作为迁移期默认客户端和历史回归证据保留；用户批准样片并完成 Gate 6C 后，旧产品 profile、旧卡图与产品入口必须删除，不维护面向玩家的双皮肤模式。
 
-纯托管 C# 边界继续消费 `scgs_v04`，`Scgs.Hotseat` 从同 revision 的规范合法行动派生统一 surface intent；Godot 的默认 3D 与 `--legacy-2d-board` 隐藏回归路径只能把点击/拖拽转换为同一 intent，不能复制规则。Gate 4A.1 的策略位法术语义保持不变：玩家必须选择具体空位，法术正面占位到自身链环结算，后排全满时不能施法。双人真人热座与物理目标机仍是发布标签前硬门。
+冻结的 `scgs_v04` ABI 1.0／schema 1 继续服务当前旧客户端；新的 `scgs_v05` ABI 2.0／schema 2 独立安装并由 `Scgs.Client.V05` 消费，不能原地扩写 v04。Godot 当前产品入口本轮仍不切换 v05。`Scgs.Hotseat` 已具备 `ChooseMode`、`ChooseCards`、`OrderTriggers`、`ChooseAdditionalCost` 状态底座，后续只从同 revision 的安全查询派生操作，不能在客户端复制规则。双人真人热座与物理目标机仍是发布标签前硬门。
 
 - 规则真值：[`docs/rules-v0.4.md`](docs/rules-v0.4.md)
 - Godot 热座开发计划：[`docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md`](docs/GODOT-HOTSEAT-DEVELOPMENT-PLAN.md)
 - 当前交接：[`docs/DSH-HANDOFF-v0.4-ui.md`](docs/DSH-HANDOFF-v0.4-ui.md)
 - 原生 API 契约：[`docs/native-api-v04.md`](docs/native-api-v04.md)
+- 产品原生 API 契约：[`docs/native-api-v05.md`](docs/native-api-v05.md)
 - Godot 客户端架构：[`docs/godot-client-architecture.md`](docs/godot-client-architecture.md)
 - UI 状态图与隐私：[`docs/ui-state-map.md`](docs/ui-state-map.md)
 - 架构：[`docs/architecture.md`](docs/architecture.md)
@@ -21,11 +22,16 @@ R2 的 29 张临时卡图、卡背、菜单背景、未知卡通用正面和 2 �
 - Gate 5A 能力差距：[`docs/product-decks-v1-capability-gap.md`](docs/product-decks-v1-capability-gap.md)
 - Gate 5A 动漫美术圣经：[`docs/product-decks-v1-art-bible.md`](docs/product-decks-v1-art-bible.md)
 - Gate 5A 锁定清单：[`design/product-decks-v1/card-pool.lock.json`](design/product-decks-v1/card-pool.lock.json)
+- AnimeV1 全产品视觉锁：[`design/product-decks-v1/anime-v1-visual.lock.json`](design/product-decks-v1/anime-v1-visual.lock.json)
+- Gate 6A 样片与运行方式：[`docs/anime-v1-visual-slice.md`](docs/anime-v1-visual-slice.md)
+- Gate 6A 素材来源与完整 prompt：[`client/godot/assets/visual/anime_v1/slice/PROVENANCE.md`](client/godot/assets/visual/anime_v1/slice/PROVENANCE.md)
 - 实测记录：[`TEST_REPORT.md`](TEST_REPORT.md)
 
 ## 当前范围
 
-引擎目前仍包含旧 `midrange`／`advance` 两副 30 张固定测试牌组；它们只是现有规则覆盖和客户端回归基线，不是 Gate 5A 锁定的产品牌组。下一规则 Gate 会先把覆盖迁入独立合成 fixture，再彻底删除旧牌组键、旧定义和旧卡图，不能把旧内容作为隐藏牌组保留。当前运行时支持：
+冻结 v0.4 引擎目前仍包含旧 `midrange`／`advance` 两副 30 张固定测试牌组；它们只是当前 Godot 回归基线，不是 Gate 5A 锁定的产品内容。新 `scgs::v2` 产品域已经使用独立 synthetic fixture 覆盖混合永久物、场地、离场原因、关键词、选择与触发排序，且普通构建直接编译已提交的生成目录，不依赖 Python。v0.4 的规则、压力与客户端 API 核心覆盖也已改用独立 fixture；仍依赖旧牌组的冻结 v04 native／managed／Godot 整局回归要在产品整局接通后退役。Gate 5C 最终删除旧牌组键、旧定义、旧卡图与菜单选项，不能把旧内容作为隐藏牌组保留。
+
+当前冻结 v0.4 可运行 Alpha 支持：
 
 - 25 点主战者生命、起手与调度、手牌上限、封存和疲劳；
 - 无上限 PP 容量、当前 PP、预支、燃耗、裂痕、修复和增长；
@@ -37,7 +43,7 @@ R2 的 29 张临时卡图、卡背、菜单背景、未知卡通用正面和 2 �
 - 数据驱动效果；
 - legacy v1 wire 金标字节回归。
 
-面向客户端的 C++ API 只暴露观看者可见信息，`scgs_v04` C ABI 将同一契约编码为 UTF-8 JSON；两层都遵循以下循环：
+面向客户端的 C++ API 只暴露观看者可见信息，`scgs_v04` 与 `scgs_v05` C ABI 分别将自己的契约编码为 UTF-8 JSON；两层都遵循以下循环：
 
 ```text
 快照 → 合法行动/目标/位置/支付查询 → 带 revision 的命令 → 脱敏事件
@@ -45,9 +51,9 @@ R2 的 29 张临时卡图、卡背、菜单背景、未知卡通用正面和 2 �
 
 成功命令使状态 revision 恰好增加一次；失败或过期命令不得改变状态、事件和 revision。对方手牌、背面伏策以及相关事件不会泄露卡名或稳定实例 ID。
 
-C ABI 不暴露 C++ 类、STL、异常或跨 CRT 内存。动态载荷使用调用方所有的两段式缓冲区，native 错误与规则错误分离，事件继续采用 `viewer + after_sequence` 的非破坏读取。完整契约见 [`docs/native-api-v04.md`](docs/native-api-v04.md)。
+C ABI 不暴露 C++ 类、STL、异常或跨 CRT 内存。动态载荷使用调用方所有的两段式缓冲区，native 错误与规则错误分离，事件继续采用 `viewer + after_sequence` 的非破坏读取。v05 增加混合永久物视图、模式／选择／额外代价字段与脱敏 `PendingChoiceView`，并禁止在实时快照和开局事件输出 seed。完整契约见 [`docs/native-api-v04.md`](docs/native-api-v04.md) 与 [`docs/native-api-v05.md`](docs/native-api-v05.md)。
 
-当前可运行 Alpha 只承诺旧两副固定测试牌组的闭环。Gate 5A 的誓卫／契术牌组会在后续规则 Gate 整体替换它们；在那之前，主战技 UI、普通主动能力、人工同时触发排序和旧固定牌组未使用关键词仍按现有限制处理，同一玩家的同时触发暂按确定性场地顺序结算。
+当前可运行 Alpha 仍只承诺旧两副固定测试牌组的闭环。Gate 5B 的产品域已经验证人工同时触发排序与可暂停选择底座，但还没有把 34 张产品牌效果编译成完整可玩的产品 `Game`；v05 对产品出牌动作会受控拒绝，不能借基础 DTO 冒充完成。Gate 5C 完成逐卡能力、固定牌整局和旧内容删除后，誓卫／契术才会替换当前入口。
 
 Gate 4B-R2 保留 Gate 3C/4A 的确定性 signal 整局、重开、投降、空间拾取与隐私契约，并保留 Gate 4A.1 “法术落到己方空策略位”的规则。默认 3D 使用 authored 战场、相机相对前景手牌架和共享 screen-reading HUD shader；`Covered` 仍是唯一必须完全不透明的交接状态。
 
@@ -88,15 +94,15 @@ cmake --build --preset asan
 ctest --preset asan
 ```
 
-`SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认 `ON`。为保持既有 CMake/CI 基线，这个历史命名的开关当前注册整组 Python 契约测试，包括 legacy overlay/protocol、原生/Godot 导出、R2 34 项＋R3 候选 1 项视觉素材联合审计、子进程超时、Gate 3B/3C/4A 整局报告、Gate 4B-R2 视觉报告/golden、独立 R3.1 候选切片及 Gate 5A 产品牌组设计契约；开启时配置阶段必须找到 Python 3.10+，不能静默少注册。设为 `OFF` 会跳过整组 Python 契约，不能用这种构建宣称完成客户端验收。CMake 会按版本与 SHA-256 固定获取 JSON 依赖，不要求系统全局安装。
+`SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认 `ON`。为保持既有 CMake/CI 基线，这个历史命名的开关当前注册整组 Python 契约测试，包括 legacy overlay/protocol、原生/Godot 导出、R2 34 项＋R3 候选 1 项＋AnimeV1 14 项分离素材审计、子进程超时、历史整局/视觉报告、R3.1 候选切片、Gate 5A 产品牌组设计契约、提交态产品目录生成检查及 Gate 6A 样片结构契约；开启时配置阶段必须找到 Python 3.10+，不能静默少注册。设为 `OFF` 会跳过整组 Python 契约，不能用这种构建宣称完成客户端验收。CMake 会按版本与 SHA-256 固定获取 JSON 依赖，不要求系统全局安装。
 
-Gate 2 还可安装到暂存目录以检查真正的消费产物：
+原生边界可安装到暂存目录以检查真正的消费产物：
 
 ```bash
 cmake --install build/release --prefix build/stage
 ```
 
-安装内容包含 C 头、ABI/JSON 契约及当前平台的 `scgs_v04` 动态库。
+安装内容包含两版 C 头、ABI/JSON 契约，以及当前平台的 `scgs_v04` 与 `scgs_v05` 动态库；两者各自必须只有精确 14 个导出。
 
 辅助脚本：
 
@@ -123,7 +129,7 @@ Godot 编辑器和导出包必须使用同一提交构建、审计并暂存的�
 ```text
 engine/          C++20 权威规则引擎、客户端安全 API、C ABI 与测试
 client/          Scgs.Client、Scgs.Hotseat、Godot 桌面客户端；YGOPro2 内容仅为历史参考
-design/          尚未实现的产品卡池锁定清单、Schema 与跨字段设计契约
+design/          产品卡池锁定清单、Schema、AnimeV1 全产品视觉锁与跨字段设计契约
 docs/            规则、架构、路线图、协议和交接文档
 scripts/         构建与压力测试脚本
 tools/           legacy overlay/协议契约工具

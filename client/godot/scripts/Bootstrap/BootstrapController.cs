@@ -4,6 +4,7 @@ using Scgs.GodotClient.Battlefield;
 using Scgs.GodotClient.Ci;
 using Scgs.GodotClient.Match;
 using Scgs.GodotClient.Native;
+using Scgs.GodotClient.Preview;
 using Scgs.GodotClient.UI;
 using Scgs.GodotClient.Visuals;
 using System.Text;
@@ -21,6 +22,9 @@ public sealed partial class BootstrapController : Control
 
     private static readonly PackedScene MatchScene =
         GD.Load<PackedScene>("res://scenes/match/Match.tscn");
+
+    private static readonly PackedScene AnimeStyleSliceScene =
+        GD.Load<PackedScene>("res://scenes/preview/AnimeStyleSlice.tscn");
 
     private Control _screenHost = null!;
     private Control? _currentScreen;
@@ -50,6 +54,25 @@ public sealed partial class BootstrapController : Control
     {
         _screenHost = GetNode<Control>("%ScreenHost");
         IReadOnlyList<string> arguments = OS.GetCmdlineUserArgs();
+        try
+        {
+            AnimeVisualSliceLaunch animeLaunch = AnimeVisualSliceLaunch.Parse(arguments);
+            if (animeLaunch.Requested)
+            {
+                AnimeStyleSliceScreen animeSlice =
+                    AnimeStyleSliceScene.Instantiate<AnimeStyleSliceScreen>();
+                animeSlice.Configure(animeLaunch);
+                ReplaceScreen(animeSlice);
+                return;
+            }
+        }
+        catch (Exception exception)
+        {
+            GD.PrintErr($"SCGS_ANIME_VISUAL_SLICE_FAILED {exception}");
+            GetTree().Quit(1);
+            return;
+        }
+
         _ciSmoke = arguments.Contains("--ci-smoke", StringComparer.Ordinal) ||
                    arguments.Any(argument => argument.StartsWith(
                        "--ci-visual-suite=",

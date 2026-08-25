@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 #include "scgs/client_api.hpp"
 #include "scgs/game.hpp"
+#include "v04_synthetic_fixture.hpp"
 
 #include <algorithm>
 #include <cstdint>
@@ -40,7 +41,7 @@ Scenario base_scenario() {
         player.evolution_points = 3;
         player.own_turn_number = 5;
         for (int index = 0; index < 12; ++index) {
-            player.deck.push_back(cards::midrange::kGuardSentry);
+            player.deck.push_back(test_fixture::kSmallWardUnit);
         }
     }
     return scenario;
@@ -51,7 +52,7 @@ Game scenario_game(const Scenario& scenario) {
     config.random_seed = 0x12345678U;
     config.first_player_mode = FirstPlayerMode::Player0;
     config.shuffle_decks = false;
-    Game game(make_v04_catalog(), make_midrange_deck(), make_advance_deck(), config);
+    Game game(test_fixture::make_catalog(), test_fixture::make_alpha_deck(), test_fixture::make_beta_deck(), config);
     const Status status = game.load_scenario(scenario);
     if (!status) {
         std::cerr << "scenario setup failed: " << status.message << '\n';
@@ -64,7 +65,7 @@ Game scenario_game_with_catalog(CardCatalog catalog, const Scenario& scenario) {
     config.random_seed = 0x12345678U;
     config.first_player_mode = FirstPlayerMode::Player0;
     config.shuffle_decks = false;
-    Game game(std::move(catalog), make_midrange_deck(), make_advance_deck(), config);
+    Game game(std::move(catalog), test_fixture::make_alpha_deck(), test_fixture::make_beta_deck(), config);
     const Status status = game.load_scenario(scenario);
     if (!status) {
         std::cerr << "scenario setup failed: " << status.message << '\n';
@@ -74,11 +75,11 @@ Game scenario_game_with_catalog(CardCatalog catalog, const Scenario& scenario) {
 
 void test_snapshot_privacy(TestContext& context) {
     Scenario scenario = base_scenario();
-    scenario.players[0].hand = {cards::midrange::kPioneerScout};
-    scenario.players[1].hand = {cards::advance::kBurnBlast};
-    scenario.players[0].tactics = {cards::midrange::kInterceptTrap};
-    scenario.players[1].tactics = {cards::advance::kReactionTrap};
-    scenario.players[1].standby = {cards::advance::kDoomEngine};
+    scenario.players[0].hand = {test_fixture::kEntryDrawUnit};
+    scenario.players[1].hand = {test_fixture::kBurnTwoDamageFiveSpell};
+    scenario.players[0].tactics = {test_fixture::kCancelAttackTrap};
+    scenario.players[1].tactics = {test_fixture::kSecondEntryDamageTrap};
+    scenario.players[1].standby = {test_fixture::kSpellCountStandby};
     Game game = scenario_game(scenario);
 
     const MatchView player0 = game.make_view(PlayerId::Player0);
@@ -107,7 +108,7 @@ void test_snapshot_privacy(TestContext& context) {
 
 void test_pending_spell_is_public_in_its_declared_slot(TestContext& context) {
     constexpr CardId kSpellResponseTrap = 9101;
-    CardCatalog catalog = make_v04_catalog();
+    CardCatalog catalog = test_fixture::make_catalog();
     CardDefinition trap;
     trap.id = kSpellResponseTrap;
     trap.name = "public spell response trap";
@@ -122,13 +123,13 @@ void test_pending_spell_is_public_in_its_declared_slot(TestContext& context) {
     catalog.add(std::move(trap));
 
     Scenario scenario = base_scenario();
-    scenario.players[0].hand = {cards::midrange::kPrecisionStrike};
-    scenario.players[1].units = {cards::midrange::kGuardSentry};
+    scenario.players[0].hand = {test_fixture::kDamageThreeSpell};
+    scenario.players[1].units = {test_fixture::kSmallWardUnit};
     scenario.players[1].tactics = {kSpellResponseTrap};
     Game game = scenario_game_with_catalog(std::move(catalog), scenario);
 
     const InstanceId spell = *game.find_in_hand(
-        PlayerId::Player0, cards::midrange::kPrecisionStrike);
+        PlayerId::Player0, test_fixture::kDamageThreeSpell);
     const InstanceId target = *game.player(PlayerId::Player1).units[0];
     const auto initial_events = game.read_events(PlayerId::Player0, 0);
     const std::uint64_t cursor = initial_events.empty() ? 0U : initial_events.back().sequence;
@@ -149,7 +150,7 @@ void test_pending_spell_is_public_in_its_declared_slot(TestContext& context) {
         EXPECT(context, declared.has_value());
         if (declared.has_value()) {
             EXPECT(context, declared->instance_id == spell);
-            EXPECT(context, declared->definition_id == cards::midrange::kPrecisionStrike);
+            EXPECT(context, declared->definition_id == test_fixture::kDamageThreeSpell);
             EXPECT(context, !declared->face_down);
         }
 
@@ -163,7 +164,7 @@ void test_pending_spell_is_public_in_its_declared_slot(TestContext& context) {
         EXPECT(context, moved_to_slot != events.end());
         if (moved_to_slot != events.end()) {
             EXPECT(context, !moved_to_slot->hidden_card);
-            EXPECT(context, moved_to_slot->definition_id == cards::midrange::kPrecisionStrike);
+            EXPECT(context, moved_to_slot->definition_id == test_fixture::kDamageThreeSpell);
         }
     }
 
@@ -181,11 +182,11 @@ void test_legal_actions_and_payment(TestContext& context) {
     scenario.players[0].current_pp = 5;
     scenario.players[0].pp_capacity = 5;
     scenario.players[0].hand = {
-        cards::midrange::kPioneerScout,
-        cards::midrange::kPrecisionStrike,
-        cards::midrange::kCommandOrder,
+        test_fixture::kEntryDrawUnit,
+        test_fixture::kDamageThreeSpell,
+        test_fixture::kDrawCountdownRelic,
     };
-    scenario.players[1].units = {cards::advance::kRepairTechnician};
+    scenario.players[1].units = {test_fixture::kRepairTwoUnit};
     Game game = scenario_game(scenario);
     const std::uint64_t revision = game.revision();
 
@@ -243,13 +244,13 @@ void test_legal_actions_and_payment(TestContext& context) {
     EXPECT(context, spell_slots == std::vector<std::size_t>({0U, 1U, 2U}));
 
     Scenario occupied_spell_scenario = scenario;
-    occupied_spell_scenario.players[0].tactics = {cards::midrange::kCommandOrder};
+    occupied_spell_scenario.players[0].tactics = {test_fixture::kDrawCountdownRelic};
     Game occupied_spell_game = scenario_game(occupied_spell_scenario);
     ActionQuery occupied_spell_query;
     occupied_spell_query.player = PlayerId::Player0;
     occupied_spell_query.action = ActionKind::CastSpell;
     occupied_spell_query.source = *occupied_spell_game.find_in_hand(
-        PlayerId::Player0, cards::midrange::kPrecisionStrike);
+        PlayerId::Player0, test_fixture::kDamageThreeSpell);
     occupied_spell_query.expected_revision = occupied_spell_game.revision();
     EXPECT(
         context,
@@ -276,16 +277,16 @@ void test_legal_actions_and_payment(TestContext& context) {
 
     Scenario full_spell_scenario = scenario;
     full_spell_scenario.players[0].tactics = {
-        cards::midrange::kCommandOrder,
-        cards::midrange::kCommandOrder,
-        cards::midrange::kCommandOrder,
+        test_fixture::kDrawCountdownRelic,
+        test_fixture::kDrawCountdownRelic,
+        test_fixture::kDrawCountdownRelic,
     };
     Game full_spell_game = scenario_game(full_spell_scenario);
     ActionQuery full_spell_query;
     full_spell_query.player = PlayerId::Player0;
     full_spell_query.action = ActionKind::CastSpell;
     full_spell_query.source = *full_spell_game.find_in_hand(
-        PlayerId::Player0, cards::midrange::kPrecisionStrike);
+        PlayerId::Player0, test_fixture::kDamageThreeSpell);
     full_spell_query.expected_revision = full_spell_game.revision();
     EXPECT(context, full_spell_game.list_legal_actions(full_spell_query).empty());
     EXPECT(context, full_spell_game.list_valid_slots(full_spell_query).empty());
@@ -298,15 +299,15 @@ void test_legal_actions_and_payment(TestContext& context) {
 
     Scenario deploy_scenario = base_scenario();
     deploy_scenario.players[0].units = {
-        cards::midrange::kPioneerScout,
-        cards::midrange::kGuardSentry,
+        test_fixture::kEntryDrawUnit,
+        test_fixture::kSmallWardUnit,
     };
-    deploy_scenario.players[0].standby = {cards::midrange::kGuardAce};
+    deploy_scenario.players[0].standby = {test_fixture::kArchiveCostStandby};
     Game deploy_game = scenario_game(deploy_scenario);
     ActionQuery donor_query;
     donor_query.player = PlayerId::Player0;
     donor_query.action = ActionKind::Deploy;
-    donor_query.source = deploy_game.find_in_standby(PlayerId::Player0, cards::midrange::kGuardAce);
+    donor_query.source = deploy_game.find_in_standby(PlayerId::Player0, test_fixture::kArchiveCostStandby);
     donor_query.expected_revision = deploy_game.revision();
     EXPECT(context, deploy_game.list_valid_donors(donor_query).size() == 2U);
 }
@@ -316,10 +317,10 @@ void test_payment_preview_is_cost_only_and_viewer_safe(TestContext& context) {
     plain_scenario.players[0].current_pp = 2;
     plain_scenario.players[0].pp_capacity = 4;
     plain_scenario.players[0].cracks = 2;
-    plain_scenario.players[0].hand = {cards::advance::kRepairTechnician};
+    plain_scenario.players[0].hand = {test_fixture::kRepairTwoUnit};
 
     Scenario trapped_scenario = plain_scenario;
-    trapped_scenario.players[1].tactics = {cards::midrange::kCounterTrap};
+    trapped_scenario.players[1].tactics = {test_fixture::kEntryDamageTrap};
 
     Game plain = scenario_game(plain_scenario);
     Game trapped = scenario_game(trapped_scenario);
@@ -327,7 +328,7 @@ void test_payment_preview_is_cost_only_and_viewer_safe(TestContext& context) {
         GameCommand command;
         command.player = PlayerId::Player0;
         command.action = ActionKind::PlayUnit;
-        command.source = *game.find_in_hand(PlayerId::Player0, cards::advance::kRepairTechnician);
+        command.source = *game.find_in_hand(PlayerId::Player0, test_fixture::kRepairTwoUnit);
         command.slot = 0U;
         command.expected_revision = game.revision();
         return command;
@@ -376,9 +377,9 @@ void test_payment_preview_is_cost_only_and_viewer_safe(TestContext& context) {
 
 void test_transactional_failure_has_no_side_effects(TestContext& context) {
     Scenario scenario = base_scenario();
-    scenario.players[0].hand = {cards::midrange::kPrecisionStrike};
-    scenario.players[1].hand = {cards::advance::kBurnBlast};
-    scenario.players[1].units = {cards::midrange::kGuardSentry};
+    scenario.players[0].hand = {test_fixture::kDamageThreeSpell};
+    scenario.players[1].hand = {test_fixture::kBurnTwoDamageFiveSpell};
+    scenario.players[1].units = {test_fixture::kSmallWardUnit};
     Game game = scenario_game(scenario);
     const MatchView before = game.make_view(PlayerId::Player0);
     const auto prior_events = game.read_events(PlayerId::Player0, 0);
@@ -419,7 +420,7 @@ void test_transactional_failure_has_no_side_effects(TestContext& context) {
     GameCommand hidden_probe;
     hidden_probe.player = PlayerId::Player0;
     hidden_probe.action = ActionKind::CastSpell;
-    hidden_probe.source = *game.find_in_hand(PlayerId::Player1, cards::advance::kBurnBlast);
+    hidden_probe.source = *game.find_in_hand(PlayerId::Player1, test_fixture::kBurnTwoDamageFiveSpell);
     hidden_probe.slot = 0;
     hidden_probe.expected_revision = game.revision();
     const PaymentPreview hidden_payment = game.preview_payment(hidden_probe);
@@ -441,9 +442,9 @@ void test_transactional_failure_has_no_side_effects(TestContext& context) {
 
 void test_event_redaction_and_independent_cursors(TestContext& context) {
     Scenario scenario = base_scenario();
-    scenario.players[0].hand = {cards::midrange::kPioneerScout};
-    scenario.players[0].tactics = {cards::midrange::kInterceptTrap};
-    scenario.players[1].tactics = {cards::advance::kReactionTrap};
+    scenario.players[0].hand = {test_fixture::kEntryDrawUnit};
+    scenario.players[0].tactics = {test_fixture::kCancelAttackTrap};
+    scenario.players[1].tactics = {test_fixture::kSecondEntryDamageTrap};
     Game game = scenario_game(scenario);
 
     const auto p0_first = game.read_events(PlayerId::Player0, 0);
@@ -457,14 +458,15 @@ void test_event_redaction_and_independent_cursors(TestContext& context) {
         if (event.type == EventType::CardMoved && event.player == PlayerId::Player1) {
             saw_hidden_for_p0 = event.hidden_card && !event.card.has_value() &&
                                 !event.definition_id.has_value() &&
-                                event.text.find("Reaction") == std::string::npos &&
-                                event.text.find("2012") == std::string::npos;
+                                event.text.find("synthetic trap") == std::string::npos &&
+                                event.text.find(std::to_string(test_fixture::kSecondEntryDamageTrap)) ==
+                                    std::string::npos;
         }
     }
     for (const GameEventView& event : p1_first) {
         if (event.type == EventType::CardMoved && event.player == PlayerId::Player1) {
             saw_visible_for_p1 = !event.hidden_card && event.card.has_value() &&
-                                 event.definition_id == cards::advance::kReactionTrap;
+                                 event.definition_id == test_fixture::kSecondEntryDamageTrap;
         }
     }
     EXPECT(context, saw_hidden_for_p0);
@@ -477,7 +479,7 @@ void test_event_redaction_and_independent_cursors(TestContext& context) {
     GameCommand play_entry_unit;
     play_entry_unit.player = PlayerId::Player0;
     play_entry_unit.action = ActionKind::PlayUnit;
-    play_entry_unit.source = *game.find_in_hand(PlayerId::Player0, cards::midrange::kPioneerScout);
+    play_entry_unit.source = *game.find_in_hand(PlayerId::Player0, test_fixture::kEntryDrawUnit);
     play_entry_unit.slot = 0U;
     play_entry_unit.expected_revision = game.revision();
     EXPECT(context, game.submit_command(play_entry_unit));
@@ -514,7 +516,7 @@ void test_event_redaction_and_independent_cursors(TestContext& context) {
     config.random_seed = 0xA5A5U;
     config.first_player_mode = FirstPlayerMode::Player1;
     config.shuffle_decks = false;
-    Game started(make_v04_catalog(), make_midrange_deck(), make_advance_deck(), config);
+    Game started(test_fixture::make_catalog(), test_fixture::make_alpha_deck(), test_fixture::make_beta_deck(), config);
     EXPECT(context, started.start());
     const auto start_events = started.read_events(PlayerId::Player0, 0);
     const auto match_started = std::find_if(start_events.begin(), start_events.end(), [](const GameEventView& event) {
@@ -613,7 +615,7 @@ void test_headless_agent_completes_fixed_deck_match(TestContext& context) {
     config.random_seed = 0xC0DEC0DEU;
     config.first_player_mode = FirstPlayerMode::Player0;
     config.shuffle_decks = true;
-    Game match(make_v04_catalog(), make_midrange_deck(), make_advance_deck(), config);
+    Game match(test_fixture::make_catalog(), test_fixture::make_alpha_deck(), test_fixture::make_beta_deck(), config);
     EXPECT(context, match.start());
 
     std::array<std::uint64_t, kPlayerCount> cursors{};

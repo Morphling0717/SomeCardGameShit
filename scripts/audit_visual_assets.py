@@ -10,6 +10,7 @@ import json
 import re
 import struct
 import sys
+import zlib
 from datetime import date
 from pathlib import Path, PurePosixPath
 from typing import Any
@@ -19,7 +20,11 @@ MANIFEST_RELATIVE_PATH = Path("client/godot/assets/visual/ASSET_MANIFEST.json")
 R3_CANDIDATE_MANIFEST_RELATIVE_PATH = Path(
     "client/godot/assets/visual/arena/R3_ASSET_MANIFEST.json"
 )
+ANIME_V1_MANIFEST_RELATIVE_PATH = Path(
+    "client/godot/assets/visual/anime_v1/slice/ASSET_MANIFEST.json"
+)
 VISUAL_ROOT = Path("client/godot/assets/visual")
+ANIME_V1_ROOT = VISUAL_ROOT / "anime_v1/slice"
 MEDIA_SUFFIXES = {".png", ".webp", ".svg"}
 CARD_ART_ROOT = VISUAL_ROOT / "cards/art"
 EXPECTED_CARD_ART_NAMES = {
@@ -40,6 +45,36 @@ PRODUCT_FALLBACK = (VISUAL_ROOT / "cards/shared/fallback_front.svg").as_posix()
 R3_CANDIDATE_FLOOR = (
     VISUAL_ROOT / "arena/r3_industrial_floor_albedo.png"
 ).as_posix()
+ANIME_V1_CARD_NAMES = {
+    "AP-03.png",
+    "AP-05.png",
+    "AP-11-evolved.png",
+    "AP-11.png",
+    "LO-03.png",
+    "LO-07.png",
+    "LO-11-evolved.png",
+    "LO-11.png",
+    "NT-04.png",
+}
+ANIME_V1_CARD_PATHS = {
+    (ANIME_V1_ROOT / "cards" / name).as_posix()
+    for name in ANIME_V1_CARD_NAMES
+}
+ANIME_V1_LEADER_PATHS = {
+    (ANIME_V1_ROOT / "leaders/aurelia-master.png").as_posix(),
+    (ANIME_V1_ROOT / "leaders/theraea-master.png").as_posix(),
+}
+ANIME_V1_CARD_BACK = (ANIME_V1_ROOT / "shared/card-back.png").as_posix()
+ANIME_V1_MENU = (ANIME_V1_ROOT / "menu/menu-key-art.png").as_posix()
+ANIME_V1_ARENA = (ANIME_V1_ROOT / "arena/open-fantasy-arena.png").as_posix()
+EXPECTED_ANIME_V1_PATHS = (
+    ANIME_V1_CARD_PATHS
+    | ANIME_V1_LEADER_PATHS
+    | {ANIME_V1_CARD_BACK, ANIME_V1_MENU, ANIME_V1_ARENA}
+)
+ANIME_V1_MAX_RESIDENT_TEXTURES = 24
+ANIME_V1_MAX_ESTIMATED_VRAM_BYTES = 96 * 1024 * 1024
+ANIME_V1_MAX_SOURCE_PAYLOAD_BYTES = 64 * 1024 * 1024
 EXPECTED_TOP_LEVEL_FIELDS = {"schema_version", "gate", "assets"}
 EXPECTED_ASSET_FIELDS = {
     "path",
@@ -88,6 +123,120 @@ def _png_dimensions(path: Path) -> tuple[int, int]:
     return struct.unpack(">II", header[16:24])
 
 
+def _estimated_desktop_vram_bytes(width: int, height: int) -> int:
+    """Conservative BC3/BC7-size estimate including the complete mip chain."""
+    if width <= 0 or height <= 0:
+        raise VisualAssetAuditError("texture dimensions must be positive")
+    total = 0
+    while True:
+        total += ((width + 3) // 4) * ((height + 3) // 4) * 16
+        if width == 1 and height == 1:
+            return total
+        width = max(1, width // 2)
+        height = max(1, height // 2)
+
+
+def _rgba_alpha_extrema(path: Path) -> tuple[int, int]:
+    """Return alpha extrema for a non-interlaced, 8-bit RGBA PNG."""
+    payload = path.read_bytes()
+    if payload[:8] != b"\x89PNG\r\n\x1a\n":
+        raise VisualAssetAuditError(f"invalid PNG signature: {path}")
+    offset = 8
+    width = height = 0
+    compressed = bytearray()
+    while offset + 12 <= len(payload):
+        length = struct.unpack(">I", payload[offset : offset + 4])[0]
+        kind = payload[offset + 4 : offset + 8]
+        data_start = offset + 8
+        data_end = data_start + length
+        if data_end + 4 > len(payload):
+            raise VisualAssetAuditError(f"truncated PNG chunk: {path}")
+        data = payload[data_start:data_end]
+        if kind == b"IHDR":
+            if len(data) != 13:
+                raise VisualAssetAuditError(f"invalid PNG IHDR: {path}")
+            width, height, bit_depth, color_type, compression, filtering, interlace = (
+                struct.unpack(">IIBBBBB", data)
+            )
+            if (
+                bit_depth != 8
+                or color_type != 6
+                or compression != 0
+                or filtering != 0
+                or interlace != 0
+            ):
+                raise VisualAssetAuditError(
+                    "AnimeV1 leader master must be a non-interlaced 8-bit RGBA PNG: "
+                    f"{path}"
+                )
+        elif kind == b"IDAT":
+            compressed.extend(data)
+        elif kind == b"IEND":
+            break
+        offset = data_end + 4
+    if width <= 0 or height <= 0 or not compressed:
+        raise VisualAssetAuditError(f"incomplete RGBA PNG: {path}")
+
+    try:
+        decoded = zlib.decompress(bytes(compressed))
+    except zlib.error as error:
+        raise VisualAssetAuditError(f"invalid PNG image data: {path}") from error
+    bytes_per_pixel = 4
+    stride = width * bytes_per_pixel
+    if len(decoded) != (stride + 1) * height:
+        raise VisualAssetAuditError(f"unexpected RGBA scanline size: {path}")
+
+    previous = bytearray(stride)
+    alpha_min = 255
+    alpha_max = 0
+    source_offset = 0
+    for _ in range(height):
+        filter_type = decoded[source_offset]
+        source_offset += 1
+        filtered = decoded[source_offset : source_offset + stride]
+        source_offset += stride
+        row = bytearray(stride)
+        for index, value in enumerate(filtered):
+            left = row[index - bytes_per_pixel] if index >= bytes_per_pixel else 0
+            above = previous[index]
+            upper_left = (
+                previous[index - bytes_per_pixel]
+                if index >= bytes_per_pixel
+                else 0
+            )
+            if filter_type == 0:
+                predictor = 0
+            elif filter_type == 1:
+                predictor = left
+            elif filter_type == 2:
+                predictor = above
+            elif filter_type == 3:
+                predictor = (left + above) // 2
+            elif filter_type == 4:
+                estimate = left + above - upper_left
+                distance_left = abs(estimate - left)
+                distance_above = abs(estimate - above)
+                distance_upper_left = abs(estimate - upper_left)
+                predictor = (
+                    left
+                    if distance_left <= distance_above
+                    and distance_left <= distance_upper_left
+                    else above
+                    if distance_above <= distance_upper_left
+                    else upper_left
+                )
+            else:
+                raise VisualAssetAuditError(
+                    f"unsupported PNG row filter {filter_type}: {path}"
+                )
+            row[index] = (value + predictor) & 0xFF
+        row_alpha = row[3::4]
+        alpha_min = min(alpha_min, min(row_alpha))
+        alpha_max = max(alpha_max, max(row_alpha))
+        previous = row
+    return alpha_min, alpha_max
+
+
 def audit(
     repo_root: Path,
     manifest_path: Path | None = None,
@@ -105,6 +254,11 @@ def audit(
     ).resolve()
     if not explicit_manifest and candidate_manifest_path.is_file():
         manifest_paths.append(candidate_manifest_path)
+    anime_manifest_path = (
+        repo_root / ANIME_V1_MANIFEST_RELATIVE_PATH
+    ).resolve()
+    if not explicit_manifest and anime_manifest_path.is_file():
+        manifest_paths.append(anime_manifest_path)
     if not explicit_manifest:
         discovered_manifest_paths = {
             path.resolve()
@@ -132,8 +286,8 @@ def audit(
 
     registered: set[str] = set()
     hashes: set[str] = set()
-    registered_by_manifest: list[set[str]] = []
-    manifest_hashes: list[str] = []
+    registered_by_manifest: dict[Path, set[str]] = {}
+    manifest_hashes: dict[Path, str] = {}
     entry_count = 0
     for manifest_index, current_manifest_path in enumerate(manifest_paths):
         manifest = _load_json(current_manifest_path)
@@ -141,7 +295,13 @@ def audit(
             raise VisualAssetAuditError(
                 f"manifest fields must be exactly {sorted(EXPECTED_TOP_LEVEL_FIELDS)}"
             )
-        expected_gate = "4B-R3.1" if current_manifest_path == candidate_manifest_path else "4B"
+        expected_gate = (
+            "4B-R3.1"
+            if current_manifest_path == candidate_manifest_path
+            else "6A"
+            if current_manifest_path == anime_manifest_path
+            else "4B"
+        )
         if manifest["schema_version"] != 1 or manifest["gate"] != expected_gate:
             raise VisualAssetAuditError(
                 f"asset manifest must identify {expected_gate} schema 1"
@@ -211,15 +371,14 @@ def audit(
                 ) from error
 
         entry_count += len(entries)
-        registered_by_manifest.append(current_registered)
-        manifest_hashes.append(
-            hashlib.sha256(current_manifest_path.read_bytes()).hexdigest()
-        )
+        registered_by_manifest[current_manifest_path] = current_registered
+        manifest_hashes[current_manifest_path] = hashlib.sha256(
+            current_manifest_path.read_bytes()
+        ).hexdigest()
 
-    product_registered = registered_by_manifest[0]
-    candidate_registered = (
-        registered_by_manifest[1] if len(registered_by_manifest) == 2 else set()
-    )
+    product_registered = registered_by_manifest[product_manifest_path]
+    candidate_registered = registered_by_manifest.get(candidate_manifest_path, set())
+    anime_registered = registered_by_manifest.get(anime_manifest_path, set())
 
     actual = {
         path.relative_to(repo_root).as_posix()
@@ -255,6 +414,8 @@ def audit(
             "Gate 4B is missing a required generated card back, menu background, "
             f"or leader portrait: {absent_singletons}"
         )
+    anime_estimated_vram_bytes = 0
+    anime_source_payload_bytes = 0
     if enforce_product_set:
         expected_product_paths = {
             (VISUAL_ROOT / "cards/art" / name).as_posix()
@@ -270,6 +431,12 @@ def audit(
             raise VisualAssetAuditError(
                 "Gate 4B-R3.1 candidate manifest must contain only the candidate floor; "
                 f"got={sorted(candidate_registered)}"
+            )
+        if anime_registered != EXPECTED_ANIME_V1_PATHS:
+            raise VisualAssetAuditError(
+                "Gate 6A AnimeV1 manifest must contain the exact 14-item visual slice; "
+                f"missing={sorted(EXPECTED_ANIME_V1_PATHS - anime_registered)}, "
+                f"unexpected={sorted(anime_registered - EXPECTED_ANIME_V1_PATHS)}"
             )
         for relative in sorted(card_art | {(VISUAL_ROOT / "shared/card_back.png").as_posix()}):
             width, height = _png_dimensions(repo_root / relative)
@@ -291,14 +458,91 @@ def audit(
                     "leader portrait must use a square canvas: "
                     f"{portrait_relative} is {portrait_width}x{portrait_height}"
                 )
+        for relative in sorted(ANIME_V1_CARD_PATHS | {ANIME_V1_CARD_BACK}):
+            width, height = _png_dimensions(repo_root / relative)
+            if width * 3 != height * 2:
+                raise VisualAssetAuditError(
+                    f"AnimeV1 card illustration/back must use an exact 2:3 canvas: "
+                    f"{relative} is {width}x{height}"
+                )
+        for relative in sorted(ANIME_V1_LEADER_PATHS):
+            width, height = _png_dimensions(repo_root / relative)
+            if width * 3 != height * 2:
+                raise VisualAssetAuditError(
+                    f"AnimeV1 leader master must use an exact 2:3 canvas: "
+                    f"{relative} is {width}x{height}"
+                )
+            alpha_min, alpha_max = _rgba_alpha_extrema(repo_root / relative)
+            if alpha_min != 0 or alpha_max == 0:
+                raise VisualAssetAuditError(
+                    "AnimeV1 leader master must contain real transparent and visible "
+                    f"pixels: {relative} alpha={alpha_min}..{alpha_max}"
+                )
+        for relative in (ANIME_V1_MENU, ANIME_V1_ARENA):
+            width, height = _png_dimensions(repo_root / relative)
+            if abs(width / height - 16 / 9) > 0.01:
+                raise VisualAssetAuditError(
+                    f"AnimeV1 widescreen art must be approximately 16:9: "
+                    f"{relative} is {width}x{height}"
+                )
+        for relative in sorted(EXPECTED_ANIME_V1_PATHS):
+            width, height = _png_dimensions(repo_root / relative)
+            anime_estimated_vram_bytes += _estimated_desktop_vram_bytes(
+                width, height
+            )
+            anime_source_payload_bytes += (repo_root / relative).stat().st_size
+            import_path = repo_root / f"{relative}.import"
+            try:
+                import_text = import_path.read_text(encoding="utf-8")
+            except (FileNotFoundError, UnicodeDecodeError) as error:
+                raise VisualAssetAuditError(
+                    f"AnimeV1 asset is missing a valid Godot import sidecar: {relative}"
+                ) from error
+            expected_source = "res://" + relative.removeprefix("client/godot/")
+            required_import_settings = {
+                '"vram_texture": true',
+                "compress/mode=2",
+                "compress/high_quality=true",
+                "mipmaps/generate=true",
+                f'source_file="{expected_source}"',
+            }
+            missing_settings = sorted(
+                setting
+                for setting in required_import_settings
+                if setting not in import_text
+            )
+            if missing_settings:
+                raise VisualAssetAuditError(
+                    "AnimeV1 Godot import must use desktop VRAM compression and "
+                    f"mipmaps for {relative}; missing={missing_settings}"
+                )
+        if len(anime_registered) > ANIME_V1_MAX_RESIDENT_TEXTURES:
+            raise VisualAssetAuditError(
+                "Gate 6A AnimeV1 identity texture count exceeds the 24-texture "
+                f"residency ceiling: {len(anime_registered)}"
+            )
+        if anime_estimated_vram_bytes > ANIME_V1_MAX_ESTIMATED_VRAM_BYTES:
+            raise VisualAssetAuditError(
+                "Gate 6A AnimeV1 conservative desktop VRAM estimate exceeds 96 MiB: "
+                f"{anime_estimated_vram_bytes} bytes"
+            )
+        if anime_source_payload_bytes > ANIME_V1_MAX_SOURCE_PAYLOAD_BYTES:
+            raise VisualAssetAuditError(
+                "Gate 6A AnimeV1 source payload exceeds the 64 MiB package ceiling: "
+                f"{anime_source_payload_bytes} bytes"
+            )
 
     return {
         "asset_count": entry_count,
         "product_asset_count": len(product_registered),
         "candidate_asset_count": len(candidate_registered),
-        "manifest_sha256": manifest_hashes[0],
-        "product_manifest_sha256": manifest_hashes[0],
-        "candidate_manifest_sha256": manifest_hashes[1] if len(manifest_hashes) == 2 else None,
+        "anime_asset_count": len(anime_registered),
+        "anime_estimated_vram_bytes": anime_estimated_vram_bytes,
+        "anime_source_payload_bytes": anime_source_payload_bytes,
+        "manifest_sha256": manifest_hashes[product_manifest_path],
+        "product_manifest_sha256": manifest_hashes[product_manifest_path],
+        "candidate_manifest_sha256": manifest_hashes.get(candidate_manifest_path),
+        "anime_manifest_sha256": manifest_hashes.get(anime_manifest_path),
         "paths": sorted(registered),
     }
 
@@ -315,9 +559,13 @@ def main() -> int:
         return 1
     print(
         f"audited {result['product_asset_count']} Gate 4B-R2 product assets and "
-        f"{result['candidate_asset_count']} candidate assets; "
+        f"{result['candidate_asset_count']} R3 candidate assets and "
+        f"{result['anime_asset_count']} Gate 6A AnimeV1 assets; "
+        f"anime_estimated_vram_bytes={result['anime_estimated_vram_bytes']}; "
+        f"anime_source_payload_bytes={result['anime_source_payload_bytes']}; "
         f"product_manifest_sha256={result['product_manifest_sha256']}; "
-        f"candidate_manifest_sha256={result['candidate_manifest_sha256'] or 'none'}"
+        f"candidate_manifest_sha256={result['candidate_manifest_sha256'] or 'none'}; "
+        f"anime_manifest_sha256={result['anime_manifest_sha256'] or 'none'}"
     )
     return 0
 

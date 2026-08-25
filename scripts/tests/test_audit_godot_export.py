@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import hashlib
+import os
+import shutil
 import struct
 import subprocess
 import sys
@@ -16,11 +18,16 @@ sys.path.insert(0, str(SCRIPTS))
 sys.path.insert(0, str(SCRIPTS / "ci"))
 
 from audit_godot_export import (  # noqa: E402
+    EXACT_PACKAGED_SOURCE_FILES,
     ExportAuditError,
     LICENSE_MARKERS,
+    MACOS_ANIME_LAUNCHER,
+    WINDOWS_ANIME_LAUNCHER,
+    _audit_anime_slice_launcher,
     _audit_licenses,
     _audit_macos_bundle_architectures,
 )
+from finalize_godot_export import LICENSES as FINALIZED_LICENSES  # noqa: E402
 from prepare_godot_macos_template import (  # noqa: E402
     ARM64_ENTRY,
     UNIVERSAL_ENTRY,
@@ -51,6 +58,24 @@ def _write_template_archive(path: Path, binary: bytes | None) -> str:
             entry.external_attr = (0o100755) << 16
             archive.writestr(entry, binary)
     return hashlib.sha512(path.read_bytes()).hexdigest()
+
+
+def _write_packaged_notices(directory: Path, *, commit: str = "local") -> None:
+    for filename, marker in LICENSE_MARKERS.items():
+        destination = directory / filename
+        if filename in EXACT_PACKAGED_SOURCE_FILES:
+            shutil.copy2(EXACT_PACKAGED_SOURCE_FILES[filename], destination)
+        elif filename == "BUILD_INFO.txt":
+            destination.write_text(
+                "SomeCardGameShit Gate 4B-R2\n"
+                f"commit={commit}\n"
+                "godot=4.7.2.stable.mono\n"
+                "dotnet_sdk=10.0.400\n"
+                "dotnet_runtime=8.0.30\n",
+                encoding="utf-8",
+            )
+        else:
+            destination.write_text(marker, encoding="utf-8")
 
 
 class GodotExportAuditTests(unittest.TestCase):
@@ -105,6 +130,71 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertIn("--expect-output-count 1", packaged_step)
         self.assertIn("validate_r3_visual_slice.py", packaged_step)
 
+    def test_packaged_anime_launchers_are_safe_and_round_tripped_on_both_platforms(
+        self,
+    ) -> None:
+        root = SCRIPTS.parent
+        windows_launcher = WINDOWS_ANIME_LAUNCHER.read_text(encoding="utf-8")
+        macos_launcher = MACOS_ANIME_LAUNCHER.read_text(encoding="utf-8")
+        finalize = (root / "scripts/ci/finalize_godot_export.py").read_text(
+            encoding="utf-8"
+        )
+        workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        attributes = (root / ".gitattributes").read_text(encoding="utf-8")
+
+        self.assertIn("DisableDelayedExpansion", windows_launcher)
+        self.assertIn('"%SCGS_ANIME_APP%" --windowed', windows_launcher)
+        self.assertEqual(1, windows_launcher.count("--anime-style-slice-exit"))
+        self.assertIn("SCGS_ANIME_LAUNCHER_OUTPUT", windows_launcher)
+        self.assertNotIn("%*", windows_launcher)
+
+        self.assertTrue(macos_launcher.startswith("#!/bin/sh\nset -eu\n"))
+        self.assertIn('application="$launcher_directory/SomeCardGameShit.app"', macos_launcher)
+        self.assertEqual(1, macos_launcher.count("--anime-style-slice-exit"))
+        self.assertIn("SCGS_ANIME_LAUNCHER_OUTPUT", macos_launcher)
+        self.assertNotIn('"$@"', macos_launcher)
+        self.assertIn(
+            "scripts/ci/PLAY_ANIME_STYLE_SLICE.command text eol=lf",
+            attributes,
+        )
+
+        self.assertIn("WINDOWS_ANIME_LAUNCHER", finalize)
+        self.assertIn("MACOS_ANIME_LAUNCHER", finalize)
+        self.assertIn("macos_launcher.chmod(0o755)", finalize)
+        self.assertIn("ANIME_V1_ASSET_MANIFEST.json", finalize)
+        self.assertIn("ANIME_V1_PROVENANCE.md", finalize)
+        self.assertIn("ANIME_V1_SLICE_README.md", finalize)
+
+        artifact_stem = "SomeCardGameShit-product-runtime-foundation-anime-slice"
+        self.assertIn(f"{artifact_stem}-windows-x86_64.zip", workflow)
+        self.assertIn(f"{artifact_stem}-macos-arm64.zip", workflow)
+        self.assertEqual(2, workflow.count("--require-anime-slice-launcher"))
+        self.assertEqual(2, workflow.count("Round-trip launch packaged AnimeV1 visual slice"))
+
+    def test_anime_launcher_audit_requires_exact_bytes_and_macos_execute_bit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            windows_export = directory / "SomeCardGameShit.exe"
+            windows_export.write_bytes(b"placeholder")
+            shutil.copy2(WINDOWS_ANIME_LAUNCHER, directory / WINDOWS_ANIME_LAUNCHER.name)
+            _audit_anime_slice_launcher(windows_export, "windows-x86_64")
+            (directory / WINDOWS_ANIME_LAUNCHER.name).write_bytes(b"tampered")
+            with self.assertRaisesRegex(ExportAuditError, "differs"):
+                _audit_anime_slice_launcher(windows_export, "windows-x86_64")
+
+        if os.name != "nt":
+            with tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                app = directory / "SomeCardGameShit.app"
+                app.mkdir()
+                packaged = directory / MACOS_ANIME_LAUNCHER.name
+                shutil.copy2(MACOS_ANIME_LAUNCHER, packaged)
+                packaged.chmod(0o755)
+                _audit_anime_slice_launcher(app, "macos-arm64")
+                packaged.chmod(0o644)
+                with self.assertRaisesRegex(ExportAuditError, "not executable"):
+                    _audit_anime_slice_launcher(app, "macos-arm64")
+
     def test_ci_waits_for_cold_import_and_uses_official_macos_template_shape(
         self,
     ) -> None:
@@ -147,8 +237,8 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertEqual(8, workflow.count("validate_gate4a_report.py"))
         self.assertEqual(8, workflow.count("--scenario full-match"))
         self.assertEqual(9, workflow.count("--expect-output SCGS_GODOT_CI_SMOKE_OK"))
-        self.assertEqual(12, workflow.count("--expect-output-count 1"))
-        self.assertEqual(12, workflow.count("Unhandled exception"))
+        self.assertEqual(16, workflow.count("--expect-output-count 1"))
+        self.assertEqual(16, workflow.count("Unhandled exception"))
         self.assertEqual(4, workflow.count("gate4a-current-project-"))
         self.assertEqual(2, workflow.count("gate4a-export-"))
         self.assertEqual(2, workflow.count("gate4a-roundtrip-"))
@@ -319,40 +409,49 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertIn("ASSET_NOTICES.md", LICENSE_MARKERS)
         self.assertIn("ASSET_MANIFEST.json", LICENSE_MARKERS)
         self.assertIn("R3_ASSET_MANIFEST.json", LICENSE_MARKERS)
+        self.assertIn("ANIME_V1_ASSET_MANIFEST.json", LICENSE_MARKERS)
+        self.assertIn("ANIME_V1_PROVENANCE.md", LICENSE_MARKERS)
+        self.assertIn("ANIME_V1_SLICE_README.md", LICENSE_MARKERS)
+        self.assertEqual(
+            {
+                "ANIME_V1_ASSET_MANIFEST.json",
+                "ANIME_V1_PROVENANCE.md",
+                "ANIME_V1_SLICE_README.md",
+            },
+            set(EXACT_PACKAGED_SOURCE_FILES),
+        )
+        for filename, source in EXACT_PACKAGED_SOURCE_FILES.items():
+            self.assertEqual(filename, FINALIZED_LICENSES[source])
 
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            for filename, marker in LICENSE_MARKERS.items():
-                content = marker
-                if filename == "BUILD_INFO.txt":
-                    content = (
-                        "SomeCardGameShit Gate 4B-R2\n"
-                        "commit=0123456789abcdef0123456789abcdef01234567\n"
-                        f"{marker}\n"
-                        "dotnet_sdk=10.0.400\n"
-                        "dotnet_runtime=8.0.30\n"
-                    )
-                (directory / filename).write_text(content, encoding="utf-8")
+            _write_packaged_notices(
+                directory,
+                commit="0123456789abcdef0123456789abcdef01234567",
+            )
             _audit_licenses(directory)
 
             (directory / "Godot-COPYRIGHT.txt").unlink()
             with self.assertRaisesRegex(ExportAuditError, "missing packaged"):
                 _audit_licenses(directory)
 
+    def test_packaged_anime_documents_must_match_reviewed_sources_exactly(self) -> None:
+        for filename in EXACT_PACKAGED_SOURCE_FILES:
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                _write_packaged_notices(directory)
+                packaged = directory / filename
+                packaged.write_bytes(packaged.read_bytes() + b"\n<!-- tampered -->\n")
+                with self.assertRaisesRegex(
+                    ExportAuditError,
+                    rf"packaged {filename} differs from the reviewed source",
+                ):
+                    _audit_licenses(directory)
+
     def test_packaged_build_info_is_a_strict_versioned_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            for filename, marker in LICENSE_MARKERS.items():
-                content = marker
-                if filename == "BUILD_INFO.txt":
-                    content = (
-                        "SomeCardGameShit Gate 4B-R2\n"
-                        "commit=local\n"
-                        "godot=4.7.2.stable.mono\n"
-                        "dotnet_sdk=10.0.400\n"
-                        "dotnet_runtime=8.0.30\n"
-                    )
-                (directory / filename).write_text(content, encoding="utf-8")
+            _write_packaged_notices(directory)
 
             _audit_licenses(directory)
             build_info = directory / "BUILD_INFO.txt"

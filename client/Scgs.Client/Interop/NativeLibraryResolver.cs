@@ -7,17 +7,23 @@ namespace Scgs.Client;
 internal static class NativeLibraryResolver
 {
     private static readonly object Sync = new();
-    private static string? configuredPath;
-    private static nint loadedLibrary;
+    private static readonly Dictionary<string, string> ConfiguredPaths = new(StringComparer.Ordinal);
+    private static readonly Dictionary<string, nint> LoadedLibraries = new(StringComparer.Ordinal);
     private static bool resolverRegistered;
 
-    internal static string Configure(string absoluteLibraryPath)
+    internal static string Configure(string absoluteLibraryPath) =>
+        ConfigureCore(ScgsV04NativeMethods.LibraryName, absoluteLibraryPath);
+
+    internal static string ConfigureV05(string absoluteLibraryPath) =>
+        ConfigureCore(V05.ScgsV05NativeMethods.LibraryName, absoluteLibraryPath);
+
+    private static string ConfigureCore(string libraryName, string absoluteLibraryPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(absoluteLibraryPath);
         if (!Path.IsPathFullyQualified(absoluteLibraryPath))
         {
             throw new ArgumentException(
-                "The scgs_v04 native library path must be absolute.",
+                $"The {libraryName} native library path must be absolute.",
                 nameof(absoluteLibraryPath));
         }
 
@@ -25,17 +31,17 @@ internal static class NativeLibraryResolver
         string fullPath = Path.GetFullPath(absoluteLibraryPath);
         if (!File.Exists(fullPath))
         {
-            throw new FileNotFoundException("The scgs_v04 native library was not found.", fullPath);
+            throw new FileNotFoundException($"The {libraryName} native library was not found.", fullPath);
         }
 
         lock (Sync)
         {
-            if (configuredPath is not null)
+            if (ConfiguredPaths.TryGetValue(libraryName, out string? configuredPath))
             {
                 if (!PathsEqual(configuredPath, fullPath))
                 {
                     throw new InvalidOperationException(
-                        $"scgs_v04 is already bound to '{configuredPath}' and cannot be rebound.");
+                        $"{libraryName} is already bound to '{configuredPath}' and cannot be rebound.");
                 }
 
                 return configuredPath;
@@ -49,8 +55,8 @@ internal static class NativeLibraryResolver
                 resolverRegistered = true;
             }
 
-            configuredPath = fullPath;
-            return configuredPath;
+            ConfiguredPaths.Add(libraryName, fullPath);
+            return fullPath;
         }
     }
 
@@ -61,37 +67,35 @@ internal static class NativeLibraryResolver
     {
         _ = assembly;
         _ = searchPath;
-        if (!string.Equals(
-                libraryName,
-                ScgsV04NativeMethods.LibraryName,
-                StringComparison.Ordinal))
+        if (libraryName is not ScgsV04NativeMethods.LibraryName and not V05.ScgsV05NativeMethods.LibraryName)
         {
             return nint.Zero;
         }
 
         lock (Sync)
         {
-            if (loadedLibrary != nint.Zero)
+            if (LoadedLibraries.TryGetValue(libraryName, out nint loadedLibrary))
             {
                 return loadedLibrary;
             }
 
-            if (configuredPath is null)
+            if (!ConfiguredPaths.TryGetValue(libraryName, out string? configuredPath))
             {
                 throw new DllNotFoundException(
-                    "scgs_v04 was called before an absolute native library path was configured.");
+                    $"{libraryName} was called before an absolute native library path was configured.");
             }
 
             try
             {
                 loadedLibrary = NativeLibrary.Load(configuredPath);
+                LoadedLibraries.Add(libraryName, loadedLibrary);
                 return loadedLibrary;
             }
             catch (Exception exception) when (
                 exception is DllNotFoundException or BadImageFormatException or FileLoadException)
             {
                 throw new DllNotFoundException(
-                    $"Could not load scgs_v04 from '{configuredPath}'. " +
+                    $"Could not load {libraryName} from '{configuredPath}'. " +
                     $"Process architecture: {RuntimeInformation.ProcessArchitecture}.",
                     exception);
             }
@@ -106,7 +110,7 @@ internal static class NativeLibraryResolver
         if (!supportedArchitecture || !supportedOperatingSystem)
         {
             throw new PlatformNotSupportedException(
-                "The managed client supports scgs_v04 only on Windows x64 and macOS arm64.");
+                "The managed client supports scgs_v04/scgs_v05 only on Windows x64 and macOS arm64.");
         }
 
         if (OperatingSystem.IsWindows() && RuntimeInformation.ProcessArchitecture != Architecture.X64)

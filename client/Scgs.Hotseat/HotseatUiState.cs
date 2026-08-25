@@ -25,6 +25,10 @@ public enum HotseatSelectionStep
     ChooseTarget,
     ChooseAdvance,
     Ready,
+    ChooseMode,
+    ChooseCards,
+    OrderTriggers,
+    ChooseAdditionalCost,
 }
 
 public enum HotseatCoverReason

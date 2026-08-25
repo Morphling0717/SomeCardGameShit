@@ -74,9 +74,37 @@ python scripts/ci/validate_product_decks_v1.py
 python -m unittest scripts.tests.test_validate_product_decks_v1
 ```
 
+### Gate 5B 产品规则底座与生成目录契约
+
+`scgs_product_runtime_foundation` 对 34＋1 提交态产品目录只做结构／锁定状态审计，所有可执行行为则只使用 `scgs::v2::synthetic` 定义，不允许复用旧 `midrange`／`advance` 名称或数字 `CardId`。它至少覆盖冻结枚举值、混合五格、护符不可攻／进化／被攻击、独立场地、非破坏替换、显式离场原因、倒数原格预留、衍生物召唤、关键词层、屏障／必杀／主动攻击吸血、同一随从每回合只能攻击一次、选择阻断、错误选择无副作用、人工触发排序、响应语义帧暂停以及终局幂等清理。v04 的规则、压力和客户端 API 核心测试也使用独立 synthetic fixture；负向依赖检查防止它们重新引用旧产品卡名或数字卡号。
+
+`scripts/design/generate_product_catalog_v2.py` 以 Gate 5A 锁定清单／Schema 和独立的 `runtime-foundation.lock.json`／Schema 为输入，确定性产生提交态 `engine/src/generated/product_catalog_v2.generated.cpp`。运行时基础清单精确约束两张模式牌的 mode ID／目标、八张战备的 typed conditions 与 AP-S04 的系列随从／护符额外代价。普通构建不得运行 Python 或改写源树；CTest 的 `scgs_product_catalog_generated_contract` 只用 `--check` 比较期望内容，生成物过期时必须失败并要求开发者显式再生成。
+
+目录契约还必须证明所有产品定义保持 `locked_not_implemented`、没有已编译效果，且不会出现在可支付／可枚举列表中；synthetic fixture 才能标记为可执行。这样模式与条件元数据可以先冻结，而不会把空 effect graph 当成合法产品行动。
+
+生成器从 Gate 5A 能力清单精确登记 9 项修正与 33 项新增能力；产品测试只有在对应通用原语的真实断言执行成功后才记为覆盖，并要求清单、生成注册表与 42 项运行证据无缺失、无额外项。该矩阵证明过滤检索、置底、弃牌、职业充能、历史监听器、战备条件等能力积木具备可执行语义，但不证明 34 张构筑卡的规范效果已经完成组合。Gate 5C 仍须逐卡编译效果图，并由两副固定牌整局、压力与产品代理验证跨能力组合。
+
+### scgs_v05／schema 2 契约
+
+v05 与 v04 必须并行构建、安装和审计：每个动态库精确 14 个自身前缀导出，不得泄露另一版本符号。C11 consumer、静态 schema 测试、真实动态加载测试和安装后 package smoke 分别验证 ABI `2.0`、schema `2`、两段式缓冲、严格 UTF-8、TLS `last_error`、生命周期及配置版本拒绝；v04 的现有同类测试必须原样继续通过。
+
+schema 2 测试必须冻结 `CardKind` 0～4、`Zone` 0～8、`ActionKind` 0～13、Leader／Permanent 目标，以及 `mode_id`、`choice_id`、有序 `selected_option_ids`、`additional_cost_cards` 的可选省略和 shape 拒绝。配置、查询和命令都拒绝未知字段；非法组合覆盖整张 action-field 矩阵且必须无副作用。双 viewer 快照与事件验证五格 `main_board`、三格 `tactics`、可选 `field`、隐藏手牌／伏策、独立游标和实时 seed 全树扫描。`PendingChoiceView` 对选择者公开短生命周期 option ID，对另一 viewer 只公开等待状态；等待期间选择者枚举 `ResolveChoice` 与投降，对方仍能投降，每个枚举行动都必须能在同 revision 的新会话中提交。错误 viewer、revision、choice、option、目标、格位或额外代价都必须无副作用。
+
+`Scgs.Client.V05` 的托管测试同时覆盖全部 14 个签名、冻结枚举、SafeHandle、绝对路径 resolver、严格 JSON/UTF-8、native/engine 错误分层、会话 revision/游标和真实 v05 动态库。`Scgs.Hotseat` 的产品选择状态必须把四种 `PendingChoiceKind` 映射为 `ChooseMode`、`ChooseCards`、`OrderTriggers`、`ChooseAdditionalCost`，并拒绝非选择者、重复 option、越界数量和过期选择。本轮 Godot 产品入口仍只加载 v04，因此 v05 测试绿不等于产品牌组 UI 已接通。
+
+### Gate 6A AnimeV1 视觉样片契约
+
+Gate 6A 的 `--anime-style-slice` 是无 native 的视觉审批入口。严格报告必须只包含 `menu`、`setup`、`action`、`hand-hover`、`mixed-permanents-field`、`reaction`、`covered` 和 `result` 八态，并明确 `visual_profile=anime-v1-proposal`、`approval_status=pending_user_approval`；不得输出“产品牌组可玩”或使用真实 session 计数冒充规则验证。
+
+Windows 与 macOS 都在 1280×720、1600×900、2560×1440、2560×1600 捕获 32 张截图。validator 检查画布尺寸、八态齐全、菜单／竞技场／双方主战者／相机相对扇形手牌／五个混合主战场格／三个策略格／独立场地格和 Covered 遮挡锚点；卡面文字和费用／身材由 Godot/SVG 绘制，不能烘焙进图片。交互入口允许受限的呼吸、视差、入场、受击和胜负动效；自动截图入口必须关闭所有时间相关动效，每种状态等待资源导入、process-frame 栅栏和两个完成的 `FramePostDraw` 后保存第二帧。当前 CI 不把跨进程或重复矩阵的 PNG 哈希完全相同作为契约。
+
+AnimeV1 样片 manifest 必须精确登记 14 项：两名透明主战者、七张代表卡、两张王牌进化异画、统一卡背、菜单主视觉和开放式竞技场。审计逐项验证路径、用途、尺寸、RGBA 透明要求、SHA-256、`.png.import` 的 desktop VRAM compression/high quality/mipmap，并要求与冻结 R2 34 项、R3 1 项跨清单无路径或内容冲突。身份纹理数量不得超过 24，估算驻留显存不得超过 96 MiB；源 PNG payload 另设保守上限，不能用压缩文件大小代替显存估算。
+
+完整 prompt、生成方式、日期、修改记录与人工 clean-room 审查边界必须保存在 `PROVENANCE.md`；授权和打包声明进入 `ASSET_NOTICES.md`。自动测试只检查可量化结构，人物手脸、服饰、构图、缩略可读性、文字／水印和潜在 IP 近似仍须用户与人工终审。
+
 ### legacy 兼容性
 
-`scgs_wire_frozen_golden` 固定验证 v1 消息长度、字节序、消息 ID 和金标字节。历史命名的 `SCGS_ENABLE_LEGACY_YGO2_TESTS` 当前控制整组 Python CTest：legacy overlay/协议、原生/Godot 制品与“R2 34 项＋R3 候选 1 项”联合视觉素材审计、子进程超时、Gate 3B/3C/4A full-match、Gate 4B-R2 visual-suite/golden、独立 R3.1 候选切片契约，以及不依赖运行时的 Gate 5A 产品牌组设计契约。它默认开启；开启时 CMake 必须找到 Python 3.10+，不能静默只注册部分测试。关闭会跳过整组 Python 契约，因此不能用于客户端 Gate 验收。
+`scgs_wire_frozen_golden` 固定验证 v1 消息长度、字节序、消息 ID 和金标字节。历史命名的 `SCGS_ENABLE_LEGACY_YGO2_TESTS` 当前控制整组 Python CTest：legacy overlay/协议、原生/Godot 制品与“R2 34 项＋R3 候选 1 项＋AnimeV1 14 项”分离视觉素材审计、子进程超时、Gate 3B/3C/4A full-match、Gate 4B-R2 visual-suite/golden、独立 R3.1 候选切片、Gate 5A 产品设计、v2 提交态目录及 Gate 6A 样片契约。它默认开启；开启时 CMake 必须找到 Python 3.10+，不能静默只注册部分测试。关闭会跳过整组 Python 契约，因此不能用于客户端 Gate 验收。
 
 ### Gate 4B-R3.1 候选切片契约
 
@@ -118,7 +146,7 @@ git diff --check
 
 Windows MSVC 使用 `scripts/test.ps1` 或等价的 Release 配置。CI 在 GCC Release、Clang ASan/UBSan、MSVC Release 和 macOS ARM64 Release 四个 job 中固定 Python 版本，并显式设置 `SCGS_ENABLE_LEGACY_YGO2_TESTS=ON`。每个平台还安装并审计原生库，上传仅供 CI 验收的暂存 artifact。
 
-Linux 两个 job 保持纯原生。Windows 与 macOS job 在原生安装审计之后追加 locked managed restore/build/test、等待冷资源扫描完成的 Godot `--import`、默认 3D 与 legacy 2D 源码 smoke、目标平台默认 3D 导出、导出包启动与 ZIP 往返审计。Windows 另跑四尺寸 display-backed Gate 4B-R2 visual suite、1600×900 golden 和 600 帧性能/资源验证；macOS 从已校验的官方 universal template 临时派生 arm64 release template，并要求最终 bundle 只有一套 arm64 托管数据且所有 Mach-O 均为 arm64-only。这不构成 Web 或 Linux 客户端支持声明。
+Linux 两个 job 保持纯原生，但现在同时安装、C11 package-smoke 并审计 v04 与 v05。Windows 与 macOS job 在双版本原生安装审计之后追加 locked managed restore/build/test、等待冷资源扫描完成的 Godot `--import`、Gate 6A 四尺寸样片矩阵、默认 3D 与 legacy 2D 源码 smoke、目标平台默认 3D 导出、导出包启动与 ZIP 往返审计。Windows 仍跑四尺寸 display-backed Gate 4B-R2 visual suite、1600×900 golden 和 600 帧性能/资源验证；macOS 从已校验的官方 universal template 临时派生 arm64 release template，并要求最终 bundle 只有一套 arm64 托管数据且所有 Mach-O 均为 arm64-only。这不构成 Web 或 Linux 客户端支持声明。
 
 Gate 4B-R1 实现由 GitHub Actions run `32719076472` 验证，最终 R1 基线 `1370491` 又由 run `32732554577` 复验；这些历史 run 都不能证明 Gate 4B-R2。R2 实现尖端 `cca04b5` 已由 run `32766050188` 的四项完整矩阵验证。R3.1 被测实现尖端 `3d4012f` 又由 run `32808917410` 验证：四项 job 全绿，Windows 源码、正式 EXE 与 ZIP 内 launcher 候选实启，R2 四尺寸 schema 4/golden 回归不变。精确 job、测试数量、截图取证和制品 digest 记录在 [`TEST_REPORT.md`](../TEST_REPORT.md)。包含报告的后续文档尖端仍必须在自身 commit 上复跑，不能沿用实现尖端 run 冒充通过。
 

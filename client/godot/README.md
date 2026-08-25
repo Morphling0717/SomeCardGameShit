@@ -1,4 +1,4 @@
-# Godot 热座客户端（Gate 4B-R2）
+# Godot 热座客户端与 Gate 6A AnimeV1 样片
 
 此目录是 Godot 4.7.2 .NET、`net8.0` 的桌面热座客户端。产品默认使用 authored 3D/2.5D 战场、相机相对前景手牌架、稳定安全区 HUD、临时卡图/头像目录和完整主菜单外壳；legacy 2D 仅保留为隐藏回归路径。法术没有中央施放区，必须点击或拖到当前玩家自己的具体空策略位；三个位置全满时不可施法。Godot 层引用：
 
@@ -6,6 +6,8 @@
 - `../Scgs.Hotseat/Scgs.Hotseat.csproj`：无 Godot 依赖的热座状态机与命令编排。
 
 两个纯托管项目同时生成 `net8.0` / `net10.0`；Godot 使用 `net8.0`，测试使用 `net10.0`。C++ 引擎仍是费用、目标、响应、状态和胜负的唯一规则真值。
+
+Gate 6A 另有独立 `--anime-style-slice`：它不加载 native、不创建对局，只用于审批 AnimeV1 菜单、主战者、卡牌、开放式竞技场、2.5D 手牌、混合永久物、响应、交接和结果画面。AnimeV1 是整个最终游戏的唯一视觉目标；当前 Gate 4B 科幻客户端只是过渡默认和历史回归路径，不能理解为长期双主题支持。新誓卫／契术牌组尚未接入 Godot，样片不能用于规则试玩。
 
 ## 本地运行
 
@@ -23,6 +25,14 @@
 ```text
 godot --path client/godot -- --legacy-2d-board --native-library=<绝对路径>
 ```
+
+无需原生库查看 AnimeV1 样片：
+
+```text
+godot --path client/godot -- --anime-style-slice
+```
+
+Windows 导出包可双击 `PLAY_ANIME_STYLE_SLICE.cmd`，macOS 包可双击或执行 `PLAY_ANIME_STYLE_SLICE.command`。自动捕获使用 `--anime-style-slice=<绝对输出目录> --anime-style-slice-exit`；可再用 `--anime-style-state=<state>` 指定 `menu`、`setup`、`action`、`hand-hover`、`mixed-permanents-field`、`reaction`、`covered` 或 `result`。逐项来源、完整 prompt 和哈希见 `assets/visual/anime_v1/slice/PROVENANCE.md` 与 `ASSET_MANIFEST.json`。
 
 ## 产品菜单与设置
 

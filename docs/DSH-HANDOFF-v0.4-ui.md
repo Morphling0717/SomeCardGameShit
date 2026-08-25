@@ -1,4 +1,4 @@
-# 工程交接：Gate 4B-R3.1 无边界工业竞技场候选
+# 工程交接：Gate 5B＋6A 产品运行时底座与 AnimeV1 样片
 
 > 现行交接文档。旧 [`DSH-HANDOFF.md`](DSH-HANDOFF.md) 与 [`ygopro-integration.md`](ygopro-integration.md) 是历史归档，不是执行指令。
 
@@ -29,15 +29,25 @@
 - Gate 4B-R3.1 主要实现：`codex/godot-hotseat-gate4b-r3-visual-slice@22b1b7b2938bdb3984d69d8b49b6293efc904cf7`
 - Gate 4B-R3.1 被测实现尖端：`3d4012fe5d9dc8c93e2379d33618a0ee7554d829`
 - Gate 4B-R3.1 实现 CI：[run `32808917410`](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32808917410)，四项 job 全绿；Windows 源码、正式 EXE 和 ZIP 内 launcher 候选实启以及 11 项制品摘要见 [`../TEST_REPORT.md`](../TEST_REPORT.md)
+- Gate 5A 设计锁定尖端：`codex/product-decks-v1-design@cd05a41542c21a4021f53aff3ffb1f9641900429`
+- Gate 5B＋6A 当前实现分支：`codex/product-runtime-foundation-anime-slice`
 - 规则真值：[`rules-v0.4.md`](rules-v0.4.md)，用户最新明确决定优先于旧文档歧义
 - 客户端架构：[`godot-client-architecture.md`](godot-client-architecture.md)
 - UI 状态：[`ui-state-map.md`](ui-state-map.md)
 - 验收清单：[`hotseat-acceptance.md`](hotseat-acceptance.md)
 - 真实构建/测试/CI：[`../TEST_REPORT.md`](../TEST_REPORT.md)
 
-Gate 4A 保留 Gate 3C 的完整对局、直接交互、公共投影、原生与导出基线，只把战场表现升级为默认 3D/2.5D，并保留隐藏 legacy 2D 回归。Gate 4A.1 进一步把法术发动改为占用玩家明确选择的己方空策略位，并从两种 presenter 中移除中央施放区。Gate 4B-R1 在这些基线上交付产品菜单、设置、现代玻璃 HUD、34 项临时视觉目录和严格视觉/隐私/性能自动化；Gate 4B-R2 把己方手牌迁移到相机相对前景架，修复真实费用/身材/倒计时徽章，稳定镜头、安全区、战场托座和 HUD 信息架构。Gate 4B-R3.1 再以独立、未批准的 opt-in profile 验证无边界工业竞技场构图，不替换 R2 默认路径。11 个 `ActionKind` 与热座隐私状态机保持不变。本文描述源码职责和必须保持的约束；详细命令、数量、制品摘要和未完成边界只以 `TEST_REPORT.md` 为准。
+Gate 4A～R3.1 的旧对局与画面仍作为迁移期回归基线。Gate 5B 现在新增并行 `scgs::v2` 产品域、提交态 34＋1 基础目录、混合五格、独立场地、选择／触发排序内核，以及独立 `scgs_v05` ABI 2.0／schema 2 和 `Scgs.Client.V05`；它不原地改变 v04，也还没有把两副产品牌接成完整可玩 `Game`。Gate 6A 提交 14 项原创 AnimeV1 候选和无 native 的八态样片入口。AnimeV1 是全产品唯一长期视觉目标，旧科幻工业 profile 只在迁移期间保留，完成 Gate 6C 后必须删除。本文描述源码职责和必须保持的约束；详细命令、数量、制品摘要和未完成边界只以 `TEST_REPORT.md` 为准。
 
-Gate 4A.1 修改 C++ `CastSpell` 规则与强类型 `Game::cast_spell` 签名；Gate 4B-R1/R2 只修改客户端表现与自动验收。后两轮不修改 legacy v1 wire 字节，不改变 `scgs_v04` ABI 1.0/schema 1/精确 14 导出，不提交原生 DLL/dylib，不创建 PR、不合并、不打标签。
+Gate 4A.1 修改 C++ `CastSpell` 规则与强类型 `Game::cast_spell` 签名；Gate 4B-R1/R2 只修改客户端表现与自动验收。Gate 5B 新增 v05 而不修改 v04；两版各自精确 14 导出，legacy v1 wire 字节继续冻结，不提交原生 DLL/dylib，不创建 PR、不合并、不打标签。Gate 6A 图片只来自项目内建生成流程，逐项 prompt、哈希和人工复审边界必须随素材提交。
+
+### Gate 5B＋6A 继续开发时的硬边界
+
+- v04 是冻结旧客户端边界；v05 是 schema 2 产品边界。不能把 v05 字段塞回 v04，也不能让 Godot 在本轮悄悄切到尚未完成的产品 `Game`。
+- `scgs::v2` synthetic fixture 和 42 项 fix/new 能力矩阵必须按通用语义测试；逐卡落地不得按名称或 `design_id` 分支。
+- v05 的私密选择只给选择者 opaque option ID；另一 viewer 只能知道正在等待，实时快照／事件都不能输出 seed。
+- `--anime-style-slice` 不访问 native，不可写成产品牌已可玩。用户批准后才批量生成剩余美术。
+- AnimeV1 要覆盖整个最终游戏；旧 R2/R3 科幻卡图、头像、卡背、竞技场和黑蓝玻璃主题最终是删除对象，不是长期双皮肤。
 
 ## 1. 不可推翻的架构决定
 

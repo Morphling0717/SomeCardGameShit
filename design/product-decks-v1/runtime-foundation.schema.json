@@ -1,0 +1,184 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://somecardgameshit.invalid/schemas/product-runtime-foundation-1.0.0.json",
+  "title": "Gate 5B product runtime foundation metadata",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "$schema",
+    "schema_version",
+    "status",
+    "default_definition",
+    "mode_cards",
+    "standby_cards"
+  ],
+  "properties": {
+    "$schema": { "const": "./runtime-foundation.schema.json" },
+    "schema_version": { "const": "1.0.0" },
+    "status": { "const": "locked_not_implemented" },
+    "default_definition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["implementation_status", "effects_compiled"],
+      "properties": {
+        "implementation_status": { "const": "locked_not_implemented" },
+        "effects_compiled": { "const": false }
+      }
+    },
+    "mode_cards": {
+      "type": "array",
+      "minItems": 2,
+      "maxItems": 2,
+      "items": { "$ref": "#/$defs/modeCard" }
+    },
+    "standby_cards": {
+      "type": "array",
+      "minItems": 8,
+      "maxItems": 8,
+      "items": { "$ref": "#/$defs/standbyCard" }
+    }
+  },
+  "$defs": {
+    "nonEmptyString": { "type": "string", "minLength": 1 },
+    "cardKind": { "enum": ["follower", "spell", "amulet", "trap", "field"] },
+    "target": {
+      "enum": [
+        "none",
+        "self",
+        "friendly_follower",
+        "enemy_follower",
+        "friendly_permanent",
+        "enemy_permanent"
+      ]
+    },
+    "permanentFilter": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "allowed_card_types",
+        "profession_id",
+        "series_id",
+        "include_main_board",
+        "include_field"
+      ],
+      "properties": {
+        "allowed_card_types": {
+          "type": "array",
+          "minItems": 1,
+          "maxItems": 2,
+          "items": { "$ref": "#/$defs/cardKind" },
+          "uniqueItems": true
+        },
+        "profession_id": { "type": "string" },
+        "series_id": { "type": "string" },
+        "include_main_board": { "type": "boolean" },
+        "include_field": { "type": "boolean" }
+      }
+    },
+    "mode": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["mode_id", "label", "target", "target_filter", "effects_compiled"],
+      "properties": {
+        "mode_id": { "$ref": "#/$defs/nonEmptyString" },
+        "label": { "$ref": "#/$defs/nonEmptyString" },
+        "target": { "$ref": "#/$defs/target" },
+        "target_filter": {
+          "anyOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/permanentFilter" }
+          ]
+        },
+        "effects_compiled": { "const": false }
+      }
+    },
+    "modeCard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["design_id", "modes"],
+      "properties": {
+        "design_id": { "enum": ["AP-08", "NT-04"] },
+        "modes": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "$ref": "#/$defs/mode" }
+        }
+      }
+    },
+    "condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "condition_id",
+        "kind",
+        "threshold",
+        "read_cap",
+        "parameter",
+        "permanent_filter"
+      ],
+      "properties": {
+        "condition_id": { "$ref": "#/$defs/nonEmptyString" },
+        "kind": {
+          "enum": [
+            "cracks_at_least",
+            "cracks_at_most",
+            "turn_repair_at_least",
+            "turn_future_use_at_least",
+            "turn_barrier_granted",
+            "turn_countdown_expired",
+            "match_repair_to_zero_at_least",
+            "match_countdown_expired_at_least",
+            "leader_health_at_most",
+            "controls_series_permanent"
+          ]
+        },
+        "threshold": { "type": "integer", "minimum": 0 },
+        "read_cap": { "type": "integer", "minimum": 0 },
+        "parameter": { "type": "string" },
+        "permanent_filter": {
+          "anyOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/permanentFilter" }
+          ]
+        }
+      }
+    },
+    "additionalCost": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["target", "minimum", "maximum", "move_reason", "filter"],
+      "properties": {
+        "target": { "const": "friendly_permanent" },
+        "minimum": { "const": 1 },
+        "maximum": { "const": 1 },
+        "move_reason": { "const": "additional_cost" },
+        "filter": { "$ref": "#/$defs/permanentFilter" }
+      }
+    },
+    "standbyCard": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["design_id", "conditions", "additional_cost"],
+      "properties": {
+        "design_id": {
+          "enum": [
+            "LO-S01", "LO-S02", "LO-S03", "LO-S04",
+            "AP-S01", "AP-S02", "AP-S03", "AP-S04"
+          ]
+        },
+        "conditions": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/$defs/condition" }
+        },
+        "additional_cost": {
+          "anyOf": [
+            { "type": "null" },
+            { "$ref": "#/$defs/additionalCost" }
+          ]
+        }
+      }
+    }
+  }
+}

@@ -13,6 +13,7 @@ sys.path.insert(0, str(SCRIPTS))
 from audit_native_artifact import (  # noqa: E402
     AuditError,
     _audit_pe,
+    _expected_exports,
     _is_dynamic_msvc_runtime,
     _validate_windows_runtime_imports,
 )
@@ -52,6 +53,16 @@ def _minimal_pe(import_name: str, *, terminate_imports: bool = True) -> bytes:
 
 
 class NativeArtifactAuditTests(unittest.TestCase):
+    def test_v04_and_v05_export_sets_are_parallel_and_exact(self) -> None:
+        v04 = _expected_exports("v04")
+        v05 = _expected_exports("v05")
+        self.assertEqual(14, len(v04))
+        self.assertEqual(14, len(v05))
+        self.assertEqual(
+            {name.replace("scgs_v04_", "") for name in v04},
+            {name.replace("scgs_v05_", "") for name in v05},
+        )
+
     def test_dynamic_runtime_names_are_case_insensitive(self) -> None:
         for name in (
             "MSVCP140.dll",

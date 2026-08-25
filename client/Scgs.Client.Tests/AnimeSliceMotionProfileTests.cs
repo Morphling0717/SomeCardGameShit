@@ -31,4 +31,39 @@ public sealed class AnimeSliceMotionProfileTests
         Assert.IsLessThanOrEqualTo(0.60f, profile.EntryDurationSeconds);
         Assert.IsLessThanOrEqualTo(0.35f, profile.HitDurationSeconds);
     }
+
+    [TestMethod]
+    [DataRow("1280x720", 1280, 720)]
+    [DataRow("1600x900", 1600, 900)]
+    [DataRow("2560x1440", 2560, 1440)]
+    [DataRow("2560x1600", 2560, 1600)]
+    public void ProductScreenshotViewportsNeedNoException(string value, int width, int height)
+    {
+        AnimeSliceViewportSize? viewport = AnimeVisualSliceViewportPolicy.Resolve(
+            [$"--ci-visual-viewport={value}"]);
+
+        Assert.AreEqual(new AnimeSliceViewportSize(width, height), viewport);
+    }
+
+    [TestMethod]
+    public void HostedMacViewportRequiresTheDedicatedException()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            AnimeVisualSliceViewportPolicy.Resolve(["--ci-visual-viewport=1024x684"]));
+
+        AnimeSliceViewportSize? viewport = AnimeVisualSliceViewportPolicy.Resolve(
+            ["--ci-visual-viewport=1024x684", "--ci-anime-runner-viewport"]);
+
+        Assert.AreEqual(new AnimeSliceViewportSize(1024, 684), viewport);
+    }
+
+    [TestMethod]
+    public void HostedMacExceptionCannotWidenAnyOtherViewport()
+    {
+        Assert.Throws<InvalidOperationException>(() =>
+            AnimeVisualSliceViewportPolicy.Resolve(
+                ["--ci-visual-viewport=1280x720", "--ci-anime-runner-viewport"]));
+        Assert.Throws<InvalidOperationException>(() =>
+            AnimeVisualSliceViewportPolicy.Resolve(["--ci-anime-runner-viewport"]));
+    }
 }

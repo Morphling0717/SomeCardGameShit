@@ -441,11 +441,18 @@ class AnimeVisualSliceSourceContractTests(unittest.TestCase):
         self.assertIn("--anime-style-slice=$captureDirectory", runner)
         self.assertIn("--anime-style-slice-exit", runner)
         self.assertIn("AllowCiRunnerViewport", runner)
+        self.assertIn("--ci-anime-runner-viewport", runner)
         self.assertNotIn("--ci-visual-suite=", runner)
 
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn('-Viewports "1024x684"', workflow)
         self.assertIn("-AllowCiRunnerViewport", workflow)
+
+        suite = (ROOT / "client/godot/scripts/Ci/AnimeVisualSliceSuite.cs").read_text(encoding="utf-8")
+        policy = (ROOT / "client/godot/scripts/Preview/AnimeSliceMotionProfile.cs").read_text(encoding="utf-8")
+        self.assertIn("AnimeVisualSliceViewportPolicy.Resolve", suite)
+        self.assertIn('CiRunnerOption = "--ci-anime-runner-viewport"', policy)
+        self.assertIn("CiRunnerViewport { get; } = new(1024, 684)", policy)
 
 
 if __name__ == "__main__":

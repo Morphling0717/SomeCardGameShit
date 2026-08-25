@@ -10,14 +10,6 @@ namespace Scgs.GodotClient.Ci;
 
 internal sealed class AnimeVisualSliceSuite
 {
-    private static readonly HashSet<Vector2I> AllowedViewports =
-    [
-        new Vector2I(1280, 720),
-        new Vector2I(1600, 900),
-        new Vector2I(2560, 1440),
-        new Vector2I(2560, 1600),
-    ];
-
     private readonly AnimeStyleSliceScreen _screen;
     private readonly string _outputDirectory;
     private readonly DisplayServer.VSyncMode _previousVsync;
@@ -40,11 +32,11 @@ internal sealed class AnimeVisualSliceSuite
         Directory.CreateDirectory(_outputDirectory);
         _previousVsync = DisplayServer.WindowGetVsyncMode();
         DisplayServer.WindowSetVsyncMode(DisplayServer.VSyncMode.Disabled);
-        if (ResolveRequestedViewport(OS.GetCmdlineUserArgs()) is { } viewport)
+        if (AnimeVisualSliceViewportPolicy.Resolve(OS.GetCmdlineUserArgs()) is { } viewport)
         {
             DisplayServer.WindowSetFlag(DisplayServer.WindowFlags.Borderless, true);
             DisplayServer.WindowSetPosition(Vector2I.Zero);
-            DisplayServer.WindowSetSize(viewport);
+            DisplayServer.WindowSetSize(new Vector2I(viewport.Width, viewport.Height));
         }
     }
 
@@ -139,33 +131,6 @@ internal sealed class AnimeVisualSliceSuite
         {
             DisplayServer.WindowSetVsyncMode(_previousVsync);
         }
-    }
-
-    private static Vector2I? ResolveRequestedViewport(IReadOnlyList<string> arguments)
-    {
-        const string prefix = "--ci-visual-viewport=";
-        string[] values = arguments
-            .Where(argument => argument.StartsWith(prefix, StringComparison.Ordinal))
-            .Select(argument => argument[prefix.Length..])
-            .ToArray();
-        if (values.Length == 0)
-        {
-            return null;
-        }
-        if (values.Length != 1)
-        {
-            throw new InvalidOperationException("--ci-visual-viewport may be specified only once.");
-        }
-        string[] parts = values[0].Split('x', StringSplitOptions.TrimEntries);
-        if (parts.Length != 2 ||
-            !int.TryParse(parts[0], out int width) ||
-            !int.TryParse(parts[1], out int height) ||
-            !AllowedViewports.Contains(new Vector2I(width, height)))
-        {
-            throw new InvalidOperationException(
-                "AnimeV1 screenshots support 1280x720, 1600x900, 2560x1440, or 2560x1600.");
-        }
-        return new Vector2I(width, height);
     }
 
     private static void ValidateRuntimeEvidence(AnimeSliceLayoutEvidence layout, int width, int height)

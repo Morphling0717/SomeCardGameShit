@@ -25,6 +25,19 @@ New-Item -ItemType Directory -Force -Path $resolvedOutput | Out-Null
 foreach ($viewport in $Viewports) {
     $captureDirectory = Join-Path $resolvedOutput $viewport
     New-Item -ItemType Directory -Force -Path $captureDirectory | Out-Null
+    $captureArguments = @(
+        "--path", $projectPath,
+        "--windowed",
+        "--audio-driver", "Dummy",
+        "--resolution", $viewport,
+        "--",
+        "--anime-style-slice=$captureDirectory",
+        "--anime-style-slice-exit",
+        "--ci-visual-viewport=$viewport"
+    )
+    if ($AllowCiRunnerViewport) {
+        $captureArguments += "--ci-anime-runner-viewport"
+    }
     & $PythonPath $timeoutRunner `
         --timeout 600 `
         --expect-output SCGS_ANIME_VISUAL_SLICE_READY `
@@ -32,11 +45,7 @@ foreach ($viewport in $Viewports) {
         --forbid-output "SCRIPT ERROR:" `
         --forbid-output "ERROR:" `
         --forbid-output "Unhandled exception" `
-        -- $resolvedGodot --path $projectPath --windowed --audio-driver Dummy `
-        --resolution $viewport -- `
-        "--anime-style-slice=$captureDirectory" `
-        --anime-style-slice-exit `
-        "--ci-visual-viewport=$viewport"
+        -- $resolvedGodot @captureArguments
     if ($LASTEXITCODE -ne 0) {
         throw "Godot AnimeV1 capture failed for $viewport with exit code $LASTEXITCODE."
     }

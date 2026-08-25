@@ -58,3 +58,73 @@ internal static class AnimeSliceMotionPolicy
             ? AnimeSliceMotionProfile.Interactive
             : AnimeSliceMotionProfile.Disabled;
 }
+
+internal readonly record struct AnimeSliceViewportSize(int Width, int Height);
+
+/// <summary>
+/// Pure managed policy for the screenshot viewport boundary. The hosted
+/// macOS runner exception stays explicit and cannot widen product support.
+/// </summary>
+internal static class AnimeVisualSliceViewportPolicy
+{
+    internal const string ViewportPrefix = "--ci-visual-viewport=";
+    internal const string CiRunnerOption = "--ci-anime-runner-viewport";
+    internal static AnimeSliceViewportSize CiRunnerViewport { get; } = new(1024, 684);
+
+    private static readonly HashSet<AnimeSliceViewportSize> ProductViewports =
+    [
+        new(1280, 720),
+        new(1600, 900),
+        new(2560, 1440),
+        new(2560, 1600),
+    ];
+
+    internal static AnimeSliceViewportSize? Resolve(IReadOnlyList<string> arguments)
+    {
+        ArgumentNullException.ThrowIfNull(arguments);
+        string[] values = arguments
+            .Where(argument => argument.StartsWith(ViewportPrefix, StringComparison.Ordinal))
+            .Select(argument => argument[ViewportPrefix.Length..])
+            .ToArray();
+        int runnerOptionCount = arguments.Count(argument => argument == CiRunnerOption);
+        if (runnerOptionCount > 1)
+        {
+            throw new InvalidOperationException($"{CiRunnerOption} may be specified only once.");
+        }
+        if (values.Length == 0)
+        {
+            if (runnerOptionCount != 0)
+            {
+                throw new InvalidOperationException($"{CiRunnerOption} requires {ViewportPrefix}1024x684.");
+            }
+            return null;
+        }
+        if (values.Length != 1)
+        {
+            throw new InvalidOperationException("--ci-visual-viewport may be specified only once.");
+        }
+
+        string[] parts = values[0].Split('x', StringSplitOptions.TrimEntries);
+        if (parts.Length != 2 ||
+            !int.TryParse(parts[0], out int width) ||
+            !int.TryParse(parts[1], out int height))
+        {
+            throw new InvalidOperationException("--ci-visual-viewport must be WIDTHxHEIGHT.");
+        }
+        var requested = new AnimeSliceViewportSize(width, height);
+        if (runnerOptionCount == 1)
+        {
+            if (requested != CiRunnerViewport)
+            {
+                throw new InvalidOperationException($"{CiRunnerOption} permits only 1024x684.");
+            }
+            return requested;
+        }
+        if (!ProductViewports.Contains(requested))
+        {
+            throw new InvalidOperationException(
+                "AnimeV1 screenshots support 1280x720, 1600x900, 2560x1440, or 2560x1600.");
+        }
+        return requested;
+    }
+}

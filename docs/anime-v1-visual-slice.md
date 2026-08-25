@@ -43,7 +43,7 @@ Godot 编辑器或导出程序可附加参数：
 
     --anime-style-slice=<absolute-directory> --anime-style-slice-exit
 
-也可用 `--anime-style-state=<state>` 选择 `menu`、`setup`、`action`、`hand-hover`、`mixed-permanents-field`、`reaction`、`covered` 或 `result`。自动矩阵脚本在 Windows 与 macOS 上分别捕获 1280×720、1600×900、2560×1440 和 2560×1600，共 32 张图，并让验证器检查八态完整性、无外围桌框、五种卡面、隐藏牌无身份和 Covered 不透明。
+也可用 `--anime-style-state=<state>` 选择 `menu`、`setup`、`action`、`hand-hover`、`mixed-permanents-field`、`reaction`、`covered` 或 `result`。自动矩阵脚本在 Windows 上捕获 1280×720、1600×900、2560×1440 和 2560×1600，共 32 张正式尺寸截图；GitHub 托管 macOS 虚拟显示另以其实际可用的 1024×684 捕获八态跨平台 shader／结构 smoke。macOS 尺寸只能通过显式 CI runner 开关验收，不能冒充 1280×720。两条路径都检查八态完整性、无外围桌框、五种卡面、隐藏牌无身份和 Covered 不透明。
 
 正式导出包提供显式入口：Windows 必须先完整解压 ZIP，再双击 `PLAY_ANIME_STYLE_SLICE.cmd`；macOS 解压后执行或双击 `PLAY_ANIME_STYLE_SLICE.command`。不要只把启动器单独拖出包。启动器与导出程序同目录，只传固定的无 native 样片参数；CI 会从原始导出和 ZIP 解包结果分别启动一次并核对八态报告。默认双击游戏 EXE／APP 仍进入过渡期旧产品路径，不会因为样片存在而提前切换。
 

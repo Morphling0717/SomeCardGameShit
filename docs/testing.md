@@ -96,7 +96,7 @@ schema 2 测试必须冻结 `CardKind` 0～4、`Zone` 0～8、`ActionKind` 0～1
 
 Gate 6A 的 `--anime-style-slice` 是无 native 的视觉审批入口。严格报告必须只包含 `menu`、`setup`、`action`、`hand-hover`、`mixed-permanents-field`、`reaction`、`covered` 和 `result` 八态，并明确 `visual_profile=anime-v1-proposal`、`approval_status=pending_user_approval`；不得输出“产品牌组可玩”或使用真实 session 计数冒充规则验证。
 
-Windows 与 macOS 都在 1280×720、1600×900、2560×1440、2560×1600 捕获 32 张截图。validator 检查画布尺寸、八态齐全、菜单／竞技场／双方主战者／相机相对扇形手牌／五个混合主战场格／三个策略格／独立场地格和 Covered 遮挡锚点；卡面文字和费用／身材由 Godot/SVG 绘制，不能烘焙进图片。交互入口允许受限的呼吸、视差、入场、受击和胜负动效；自动截图入口必须关闭所有时间相关动效，每种状态等待资源导入、process-frame 栅栏和两个完成的 `FramePostDraw` 后保存第二帧。当前 CI 不把跨进程或重复矩阵的 PNG 哈希完全相同作为契约。
+Windows 在 1280×720、1600×900、2560×1440、2560×1600 捕获 32 张正式尺寸截图。GitHub 托管 macOS 虚拟显示的实际可用区为 1024×684，因此 macOS 只以显式 `--allow-ci-runner-viewport` 运行八态跨平台 shader／结构 smoke；该结果不得记作 1280×720 正式尺寸通过。validator 检查画布尺寸、八态齐全、菜单／竞技场／双方主战者／相机相对扇形手牌／五个混合主战场格／三个策略格／独立场地格和 Covered 遮挡锚点；卡面文字和费用／身材由 Godot/SVG 绘制，不能烘焙进图片。交互入口允许受限的呼吸、视差、入场、受击和胜负动效；自动截图入口必须关闭所有时间相关动效，每种状态等待资源导入、process-frame 栅栏和两个完成的 `FramePostDraw` 后保存第二帧。当前 CI 不把跨进程或重复矩阵的 PNG 哈希完全相同作为契约。
 
 AnimeV1 样片 manifest 必须精确登记 14 项：两名透明主战者、七张代表卡、两张王牌进化异画、统一卡背、菜单主视觉和开放式竞技场。审计逐项验证路径、用途、尺寸、RGBA 透明要求、SHA-256、`.png.import` 的 desktop VRAM compression/high quality/mipmap，并要求与冻结 R2 34 项、R3 1 项跨清单无路径或内容冲突。身份纹理数量不得超过 24，估算驻留显存不得超过 96 MiB；源 PNG payload 另设保守上限，不能用压缩文件大小代替显存估算。
 

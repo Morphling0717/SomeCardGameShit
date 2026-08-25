@@ -49,6 +49,7 @@ BADGES_BY_KIND = {
     "Field": {"cost"},
 }
 VIEWPORTS = {(1280, 720), (1600, 900), (2560, 1440), (2560, 1600)}
+CI_RUNNER_VIEWPORTS = {(1024, 684)}
 ROOT = "res://assets/visual/anime_v1/slice"
 REQUIRED_ASSETS = tuple(
     sorted(
@@ -493,6 +494,7 @@ def validate_report(
     expected_viewport: tuple[int, int] | None = None,
     *,
     allow_missing_assets: bool = False,
+    allow_ci_runner_viewport: bool = False,
 ) -> dict[str, Any]:
     report_path = report_path.resolve()
     report = _mapping(json.loads(report_path.read_text(encoding="utf-8")), "report")
@@ -514,7 +516,8 @@ def validate_report(
         _int(viewport.get("width"), "viewport.width"),
         _int(viewport.get("height"), "viewport.height"),
     )
-    if physical_viewport not in VIEWPORTS:
+    allowed_viewports = VIEWPORTS | (CI_RUNNER_VIEWPORTS if allow_ci_runner_viewport else set())
+    if physical_viewport not in allowed_viewports:
         raise AnimeVisualSliceError(f"unsupported viewport {physical_viewport}")
     if expected_viewport is not None and physical_viewport != expected_viewport:
         raise AnimeVisualSliceError(
@@ -623,8 +626,8 @@ def _parse_viewport(value: str) -> tuple[int, int]:
         width, height = (int(part) for part in value.lower().split("x", 1))
     except (ValueError, TypeError) as error:
         raise argparse.ArgumentTypeError("viewport must be WIDTHxHEIGHT") from error
-    if (width, height) not in VIEWPORTS:
-        raise argparse.ArgumentTypeError("viewport is outside the Gate 6A matrix")
+    if (width, height) not in VIEWPORTS | CI_RUNNER_VIEWPORTS:
+        raise argparse.ArgumentTypeError("viewport is outside the Gate 6A matrix and CI runner smoke set")
     return width, height
 
 
@@ -637,12 +640,18 @@ def main() -> int:
         action="store_true",
         help="Permit code-native fallbacks while raster generation is still in progress.",
     )
+    parser.add_argument(
+        "--allow-ci-runner-viewport",
+        action="store_true",
+        help="Permit the macOS hosted runner's native 1024x684 display for structural smoke only.",
+    )
     arguments = parser.parse_args()
     try:
         validate_report(
             arguments.report,
             arguments.expected_viewport,
             allow_missing_assets=arguments.allow_missing_assets,
+            allow_ci_runner_viewport=arguments.allow_ci_runner_viewport,
         )
     except (AnimeVisualSliceError, OSError, json.JSONDecodeError) as error:
         print(f"Gate 6A anime visual-slice validation failed: {error}")

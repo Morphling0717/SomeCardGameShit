@@ -713,6 +713,8 @@ jobs:
           ./scripts/ci/capture_anime_visual_slice.ps1
           -GodotPath $env:GODOT4
           -OutputRoot "${{ github.workspace }}/artifacts/anime-visual-slice/macos"
+          -Viewports "1024x684"
+          -AllowCiRunnerViewport
       - uses: actions/upload-artifact@v7
         if: always()
         with:

@@ -63,13 +63,19 @@ def _write_png(path: Path, width: int = 1280, height: int = 720) -> None:
     path.write_bytes(_png_fixture_bytes(width, height))
 
 
-def _fixture(directory: Path, *, complete_assets: bool = True) -> tuple[Path, dict[str, object]]:
+def _fixture(
+    directory: Path,
+    *,
+    complete_assets: bool = True,
+    physical_viewport: tuple[int, int] = (1280, 720),
+) -> tuple[Path, dict[str, object]]:
+    physical_width, physical_height = physical_viewport
     captures: list[dict[str, object]] = []
     fixture_rgba: bytes | None = None
     for index, state in enumerate(STATES):
         filename = f"{index:02d}-{state}.png"
         screenshot = directory / filename
-        _write_png(screenshot)
+        _write_png(screenshot, physical_width, physical_height)
         if fixture_rgba is None:
             _, _, fixture_rgba = _png_rgba(screenshot)
         rgba = fixture_rgba
@@ -108,7 +114,7 @@ def _fixture(directory: Path, *, complete_assets: bool = True) -> tuple[Path, di
                             "roi": roi,
                             "inside_safe_area": present,
                             "pixels": (
-                                _pixel_evidence(rgba, (1280, 720), logical_viewport, roi)
+                                _pixel_evidence(rgba, physical_viewport, logical_viewport, roi)
                                 if present
                                 else None
                             ),
@@ -158,7 +164,7 @@ def _fixture(directory: Path, *, complete_assets: bool = True) -> tuple[Path, di
                         "roi": roi,
                         "inside_safe_area": True,
                         "pixels": _pixel_evidence(
-                            rgba, (1280, 720), logical_viewport, roi
+                            rgba, physical_viewport, logical_viewport, roi
                         ),
                     }
                 )
@@ -167,8 +173,8 @@ def _fixture(directory: Path, *, complete_assets: bool = True) -> tuple[Path, di
                 "state": state,
                 "file": filename,
                 "sha256": hashlib.sha256(screenshot.read_bytes()).hexdigest(),
-                "width": 1280,
-                "height": 720,
+                "width": physical_width,
+                "height": physical_height,
                 "complete_frame_post_draws": 2,
                 "layout": {
                     "state": state,
@@ -211,7 +217,7 @@ def _fixture(directory: Path, *, complete_assets: bool = True) -> tuple[Path, di
         "approval_status": "pending_user_approval",
         "uses_native_session": False,
         "default_product_path_unchanged": True,
-        "viewport": {"width": 1280, "height": 720},
+        "viewport": {"width": physical_width, "height": physical_height},
         "asset_contract": {
             "required_paths": list(REQUIRED_ASSETS),
             "loaded_paths": loaded,
@@ -231,6 +237,20 @@ class AnimeVisualSliceValidatorTests(unittest.TestCase):
             report_path, _ = _fixture(Path(temporary))
             report = validate_report(report_path, (1280, 720))
             self.assertEqual("anime-v1-proposal", report["visual_profile"])
+
+    def test_ci_runner_viewport_requires_explicit_structural_smoke_opt_in(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            report_path, _ = _fixture(
+                Path(temporary),
+                physical_viewport=(1024, 684),
+            )
+            with self.assertRaisesRegex(AnimeVisualSliceError, "unsupported viewport"):
+                validate_report(report_path, (1024, 684))
+            validate_report(
+                report_path,
+                (1024, 684),
+                allow_ci_runner_viewport=True,
+            )
 
     def test_missing_rasters_require_explicit_infrastructure_override(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -420,7 +440,12 @@ class AnimeVisualSliceSourceContractTests(unittest.TestCase):
             self.assertIn(viewport, runner)
         self.assertIn("--anime-style-slice=$captureDirectory", runner)
         self.assertIn("--anime-style-slice-exit", runner)
+        self.assertIn("AllowCiRunnerViewport", runner)
         self.assertNotIn("--ci-visual-suite=", runner)
+
+        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        self.assertIn('-Viewports "1024x684"', workflow)
+        self.assertIn("-AllowCiRunnerViewport", workflow)
 
 
 if __name__ == "__main__":

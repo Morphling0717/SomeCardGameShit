@@ -7,6 +7,10 @@ param(
 
     [string]$PythonPath = "python",
 
+    [string[]]$Viewports = @("1280x720", "1600x900", "2560x1440", "2560x1600"),
+
+    [switch]$AllowCiRunnerViewport,
+
     [switch]$AllowMissingAssets
 )
 
@@ -17,10 +21,8 @@ $validator = Join-Path $workspaceRoot "scripts/ci/validate_anime_visual_slice.py
 $timeoutRunner = Join-Path $workspaceRoot "scripts/ci/run_with_timeout.py"
 $resolvedGodot = (Resolve-Path -LiteralPath $GodotPath).Path
 $resolvedOutput = [System.IO.Path]::GetFullPath($OutputRoot)
-$viewports = @("1280x720", "1600x900", "2560x1440", "2560x1600")
-
 New-Item -ItemType Directory -Force -Path $resolvedOutput | Out-Null
-foreach ($viewport in $viewports) {
+foreach ($viewport in $Viewports) {
     $captureDirectory = Join-Path $resolvedOutput $viewport
     New-Item -ItemType Directory -Force -Path $captureDirectory | Out-Null
     & $PythonPath $timeoutRunner `
@@ -46,6 +48,9 @@ foreach ($viewport in $viewports) {
     )
     if ($AllowMissingAssets) {
         $arguments += "--allow-missing-assets"
+    }
+    if ($AllowCiRunnerViewport) {
+        $arguments += "--allow-ci-runner-viewport"
     }
     & $PythonPath @arguments
     if ($LASTEXITCODE -ne 0) {

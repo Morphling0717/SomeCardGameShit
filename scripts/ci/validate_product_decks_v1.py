@@ -13,6 +13,7 @@ legality, reference integrity, and the locked rules/balance contracts).
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import re
@@ -69,6 +70,28 @@ EXPECTED_GAMEPLAY_ROLES = {
         "recovery": ["AP-07", "AP-08", "AP-09", "AP-S02", "AP-S03", "NT-03"],
         "finishers": ["AP-11", "AP-S04"],
     },
+}
+
+# Canonical SHA-256 digests make the design lock enforce content, not merely
+# JSON shape.  Each partition is deliberately small enough that drift reports
+# the product area which changed.  Update a digest only as part of an explicit
+# design-lock revision which updates the manifest, design documents, and tests
+# together.
+LOCKED_PRODUCT_SECTION_SHA256 = {
+    "metadata": "643e33a1bf15d5828e040337fa79aa9af3a0ea9a76edcb88f2fd69acaa437ee3",
+    "rules": "286c567f3bf79446955100ca2fdf56836409a6e9ae04114f0ea56a6e469145cd",
+    "classes": "82b8224ae7fbec1f00c81293b7ccd596543611e3405fdb1c60bde8b0360367e6",
+    "leaders": "92967f864605382512f1753bc7dbc19454e8c726bbf5b061f13924fbf2cbdeef",
+    "card_types": "2916268768717db253be311f204373e633ee50b3181ca843a7df263f68e6e8a0",
+    "keywords": "0ffd3429d7a43047474f976aca22b04a680f39907fcf81192237214ff8ea93d4",
+    "capability_catalog": "1c5a5ed33e6622ca5717f7efcfe5ed705fdb57a50fe474140f69ccef6f507e2c",
+    "tokens": "89188ca2afdfcf1c2a77ff75b7971e091b7a6a824ea62ea4649c1012fdb4b0d3",
+    "cards": "375f8d40cc065214f99908d5869cacade66e51f28e579334dcbacad94023f672",
+    "decks": "de2490603bdedcfe7a1c0930845cbb3d437cea660c9503e42b87b3ff1f615102",
+    "visual_assets": "a41640165fd4b5656d22ab5657c138aa178519d6c37c435a102e42564fdde427",
+    "paper_balance_targets": "be34c98f5bb2eb9afaba4e4e350a1bbc70705ca5ad68b04c1596bbc590c9e8bb",
+    "art_direction": "5f826b1b79436796c02c8cc3ff5390d3a891be8416af6253c51157cfa4d44d17",
+    "migration_policy": "5ea3287b955f474ee7a208ccf3c03a6e82163c12f66471fda7c2860cdd8ddb8e",
 }
 
 
@@ -284,6 +307,102 @@ def _integer(value: object, path: str, minimum: int | None = None) -> int:
     if minimum is not None and value < minimum:
         _fail(path, f"must be at least {minimum}")
     return value
+
+
+def _required_value(mapping: Mapping[str, object], key: str, path: str) -> object:
+    if key not in mapping:
+        _fail(path, f"missing locked property {key!r}")
+    return mapping[key]
+
+
+def _canonical_json_sha256(value: object) -> str:
+    canonical = json.dumps(
+        value,
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    ).encode("utf-8")
+    return hashlib.sha256(canonical).hexdigest()
+
+
+def _product_design_sections(document: Mapping[str, object]) -> dict[str, object]:
+    metadata_fields = (
+        "$schema",
+        "schema_version",
+        "status",
+        "design_id_policy",
+        "implementation_scope",
+        "format",
+    )
+    metadata = {
+        field: _required_value(document, field, "$.metadata")
+        for field in metadata_fields
+    }
+    rules = _object(
+        _required_value(document, "rules", "$.rules"),
+        "$.rules",
+    )
+    card_types = _required_value(rules, "card_types", "$.rules.card_types")
+    keywords = _required_value(rules, "keywords", "$.rules.keywords")
+    remaining_rules = {
+        key: value
+        for key, value in rules.items()
+        if key not in {"card_types", "keywords"}
+    }
+
+    return {
+        "metadata": metadata,
+        "rules": remaining_rules,
+        "classes": _required_value(document, "professions", "$.professions"),
+        "leaders": _required_value(document, "leaders", "$.leaders"),
+        "card_types": card_types,
+        "keywords": keywords,
+        "capability_catalog": _required_value(
+            document,
+            "capability_catalog",
+            "$.capability_catalog",
+        ),
+        "tokens": _required_value(document, "tokens", "$.tokens"),
+        "cards": _required_value(document, "cards", "$.cards"),
+        "decks": _required_value(document, "decks", "$.decks"),
+        "visual_assets": _required_value(
+            document,
+            "visual_assets",
+            "$.visual_assets",
+        ),
+        "paper_balance_targets": _required_value(
+            document,
+            "paper_balance_targets",
+            "$.paper_balance_targets",
+        ),
+        "art_direction": _required_value(
+            document,
+            "art_direction",
+            "$.art_direction",
+        ),
+        "migration_policy": _required_value(
+            document,
+            "legacy_product_migration",
+            "$.legacy_product_migration",
+        ),
+    }
+
+
+def _validate_locked_product_sections(document: Mapping[str, object]) -> None:
+    sections = _product_design_sections(document)
+    if set(sections) != set(LOCKED_PRODUCT_SECTION_SHA256):
+        _fail(
+            "$.locked_product_sections",
+            "internal section map and SHA-256 table differ",
+        )
+    for section_name, expected_digest in LOCKED_PRODUCT_SECTION_SHA256.items():
+        actual_digest = _canonical_json_sha256(sections[section_name])
+        if actual_digest != expected_digest:
+            _fail(
+                f"$.locked_product_sections.{section_name}",
+                f"locked product design section {section_name!r} drifted: "
+                f"expected SHA-256 {expected_digest}, got {actual_digest}",
+            )
 
 
 def _id_map(entries: object, id_field: str, path: str) -> dict[str, dict[str, Any]]:
@@ -1005,6 +1124,11 @@ def validate(document: object, schema: object | None = None) -> None:
                 f"{kind} subjects must cover each locked subject exactly once; "
                 f"missing={sorted(expected - set(actual))}, duplicates={sorted(item for item in set(actual) if actual.count(item) > 1)}",
             )
+
+    # Run the content lock after the descriptive semantic checks so established
+    # failures keep their precise rule/deck/reference messages.  Design drift
+    # which is otherwise structurally valid is reported by product partition.
+    _validate_locked_product_sections(root)
 
 
 def _read_json(path: Path, label: str) -> object:

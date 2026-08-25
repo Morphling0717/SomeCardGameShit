@@ -12,7 +12,11 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from scripts.ci.validate_product_decks_v1 import ManifestError, validate
+from scripts.ci.validate_product_decks_v1 import (
+    LOCKED_PRODUCT_SECTION_SHA256,
+    ManifestError,
+    validate,
+)
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -46,6 +50,19 @@ class ProductDeckV1ValidationTests(unittest.TestCase):
     ) -> None:
         with self.assertRaisesRegex(ManifestError, message):
             validate(document, self.schema if with_schema else None)
+
+    def assert_section_drift(
+        self,
+        document: object,
+        section: str,
+        *,
+        with_schema: bool = True,
+    ) -> None:
+        self.assert_invalid(
+            document,
+            rf"locked product design section '{section}' drifted",
+            with_schema=with_schema,
+        )
 
     def test_checked_in_manifest_satisfies_schema_and_semantic_contract(self) -> None:
         validate(self.manifest, self.schema)
@@ -357,6 +374,208 @@ class ProductDeckV1ValidationTests(unittest.TestCase):
         )
         oath["gameplay_roles"]["payoffs"].remove("LO-S01")
         self.assert_invalid(document, "locked ordered role list")
+
+    def test_partition_hashes_reject_card_values_text_series_and_exact_copies(
+        self,
+    ) -> None:
+        document = self.valid_copy()
+        _by_id(document["cards"], "design_id", "LO-11")["stats"]["attack"] = 1
+        self.assert_section_drift(document, "cards")
+
+        document = self.valid_copy()
+        _by_id(document["cards"], "design_id", "LO-01")[
+            "canonical_rules_text"
+        ] = "任意非空规则文本。"
+        self.assert_section_drift(document, "cards")
+
+        document = self.valid_copy()
+        _by_id(document["cards"], "design_id", "LO-01")[
+            "series_id"
+        ] = "abyssal_pact"
+        self.assert_section_drift(document, "cards")
+
+        document = self.valid_copy()
+        oath = _by_id(
+            document["decks"],
+            "deck_id",
+            "oathguard_luminous_oath_v1",
+        )
+        _by_id(oath["main"], "design_id", "LO-01")["copies"] = 2
+        _by_id(oath["main"], "design_id", "LO-04")["copies"] = 3
+        self.assert_section_drift(document, "decks")
+
+    def test_partition_hashes_reject_capability_status_reference_and_catalog_drift(
+        self,
+    ) -> None:
+        document = self.valid_copy()
+        lo_01 = _by_id(document["cards"], "design_id", "LO-01")
+        _by_id(
+            lo_01["capability_requirements"],
+            "capability_id",
+            "base_follower_play",
+        )["status"] = "new"
+        self.assert_section_drift(document, "cards")
+
+        document = self.valid_copy()
+        lo_01 = _by_id(document["cards"], "design_id", "LO-01")
+        lo_01["capability_requirements"].pop()
+        self.assert_section_drift(document, "cards")
+
+        document = self.valid_copy()
+        _by_id(
+            document["capability_catalog"],
+            "capability_id",
+            "repair_cracks",
+        )["default_status"] = "new"
+        self.assert_section_drift(document, "capability_catalog")
+
+    def test_partition_hashes_reject_visual_id_name_and_summary_drift(self) -> None:
+        for field, replacement in (
+            ("asset_id", "visual-arbitrary"),
+            ("name", "完全错误但唯一的名称"),
+            ("art_summary", "狮鹫版本重新出现。"),
+        ):
+            with self.subTest(field=field):
+                document = self.valid_copy()
+                asset = _by_id(
+                    document["visual_assets"],
+                    "subject_id",
+                    "LO-11",
+                )
+                asset[field] = replacement
+                self.assert_section_drift(document, "visual_assets")
+
+    def test_partition_hashes_reject_curve_leader_keyword_and_extra_capability(
+        self,
+    ) -> None:
+        document = self.valid_copy()
+        oath = _by_id(
+            document["decks"],
+            "deck_id",
+            "oathguard_luminous_oath_v1",
+        )
+        _by_id(oath["curve"], "pp", 2)["copies"] = 1
+        self.assert_section_drift(document, "decks")
+
+        document = self.valid_copy()
+        document["leaders"][0]["name"] = "错误主战者名"
+        self.assert_section_drift(document, "leaders")
+
+        document = self.valid_copy()
+        _by_id(document["rules"]["keywords"], "keyword", "ward")[
+            "name_zh_cn"
+        ] = "吸血"
+        self.assert_section_drift(document, "keywords")
+
+        document = self.valid_copy()
+        document["capability_catalog"].append(
+            {
+                "capability_id": "fake_capability",
+                "default_status": "existing",
+                "description": "虚假能力",
+            }
+        )
+        self.assert_section_drift(document, "capability_catalog")
+
+    def test_hash_table_covers_all_product_design_partitions(self) -> None:
+        self.assertEqual(
+            {
+                "metadata",
+                "rules",
+                "classes",
+                "leaders",
+                "card_types",
+                "keywords",
+                "capability_catalog",
+                "tokens",
+                "cards",
+                "decks",
+                "visual_assets",
+                "paper_balance_targets",
+                "art_direction",
+                "migration_policy",
+            },
+            set(LOCKED_PRODUCT_SECTION_SHA256),
+        )
+
+        mutations = (
+            (
+                "metadata",
+                lambda document: document["design_id_policy"].__setitem__(
+                    "statement",
+                    "错误但仍符合 Schema 的设计编号声明。",
+                ),
+                True,
+            ),
+            (
+                "rules",
+                lambda document: document["rules"]["ability_words"][0].__setitem__(
+                    "canonical_definition",
+                    document["rules"]["ability_words"][0][
+                        "canonical_definition"
+                    ]
+                    + " ",
+                ),
+                True,
+            ),
+            (
+                "classes",
+                lambda document: document["professions"][0].__setitem__(
+                    "name_zh_cn",
+                    "错误职业名",
+                ),
+                True,
+            ),
+            (
+                "card_types",
+                lambda document: document["rules"]["card_types"][0].__setitem__(
+                    "canonical_definition",
+                    "随从不能攻击。",
+                ),
+                True,
+            ),
+            (
+                "tokens",
+                lambda document: document["tokens"][0].__setitem__(
+                    "art_summary",
+                    "错误衍生物摘要。",
+                ),
+                True,
+            ),
+            (
+                "paper_balance_targets",
+                lambda document: document["paper_balance_targets"].__setitem__(
+                    "scope",
+                    "wrong_scope",
+                ),
+                False,
+            ),
+            (
+                "art_direction",
+                lambda document: document["art_direction"].__setitem__(
+                    "originality_constraint",
+                    "错误美术约束。",
+                ),
+                True,
+            ),
+            (
+                "migration_policy",
+                lambda document: document["legacy_product_migration"].__setitem__(
+                    "old_art",
+                    "retain",
+                ),
+                False,
+            ),
+        )
+        for section, mutate, with_schema in mutations:
+            with self.subTest(section=section):
+                document = self.valid_copy()
+                mutate(document)
+                self.assert_section_drift(
+                    document,
+                    section,
+                    with_schema=with_schema,
+                )
 
     def test_future_visual_inventory_is_exact_and_not_generated(self) -> None:
         document = self.valid_copy()

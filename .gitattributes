@@ -1,2 +1,7 @@
+/.gitattributes text eol=lf
 *.svg text eol=lf
 client/godot/assets/visual/ASSET_MANIFEST.json text eol=lf
+client/godot/assets/visual/arena/R3_ASSET_MANIFEST.json text eol=lf
+client/godot/assets/visual/arena/source/generate_r3_arena_machinery.py text eol=lf
+client/godot/assets/visual/r3/r3_industrial_floor.gdshader text eol=lf
+scripts/ci/PLAY_R3_VISUAL_SLICE.cmd text eol=lf

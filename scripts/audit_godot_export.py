@@ -47,6 +47,7 @@ LICENSE_MARKERS = {
     "NotoSansCJKsc-NOTICE.md": "Noto Sans CJK SC",
     "ASSET_NOTICES.md": "OpenAI's built-in image generation workflow",
     "ASSET_MANIFEST.json": "schema_version",
+    "R3_ASSET_MANIFEST.json": "4B-R3.1",
     "BUILD_INFO.txt": "godot=4.7.2.stable.mono",
 }
 

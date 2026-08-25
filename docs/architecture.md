@@ -55,7 +55,7 @@ Gate 4B-R2 在 Gate 4A 的 3D presenter、Gate 4A.1 的策略位法术规则和 
 
 authored 3D 场景把空间战场、相机相对的 `BattlefieldHandRig` 与 `CanvasLayer` HUD 分开：透视相机采用 58° FOV、约 58° 俯角，`BattlefieldViewportLayout` 按 1280/1600/2560 宽度档固定左右安全区，详情或日志显隐不会改变桌面 framing。手牌在独立前景景深层面向相机排成自适应弧线，桌面滚轮缩放不改变其屏幕卡高；对手手牌架只接收匿名共享卡背。靠近当前 viewer 的一侧只在完全遮挡期间重建。HUD 命中会阻止空间拾取，空间射线只在允许输入的 Action/Reaction 状态工作。拖拽超过 8 px 才成立，未达到阈值仍按点击处理；无效落点只恢复表现，不调用 native。
 
-`CardVisualCatalog` 以 definition ID 映射 29 张唯一原创临时卡图，并提供无身份 fallback 正面与全局共享卡背。`MatchVisualIdentity` 只从公开的对局设置中得到两席牌组身份，`LeaderPortraitCatalog` 再映射两张临时头像；它们不读取 viewer 私密 DTO。连同卡背、菜单背景和 fallback 在内，`ASSET_MANIFEST.json` 对 34 项视觉资产做路径与 SHA-256 审计。视觉目录是可替换的表现数据，不是卡牌规则或第二套合法性数据。
+`CardVisualCatalog` 以 definition ID 映射 29 张唯一原创临时卡图，并提供无身份 fallback 正面与全局共享卡背。`MatchVisualIdentity` 只从公开的对局设置中得到两席牌组身份，`LeaderPortraitCatalog` 再映射两张临时头像；它们不读取 viewer 私密 DTO。Gate 4B-R2 冻结产品集连同卡背、菜单背景和 fallback 共 34 项，继续由原始 `ASSET_MANIFEST.json` 单独审计并供 R2 golden 引用；R3.1 的 1 张未批准候选地坪只登记在 `arena/R3_ASSET_MANIFEST.json`。联合资产审计校验两份清单间路径/哈希唯一且完整覆盖实际 35 项。视觉目录是可替换的表现数据，不是卡牌规则或第二套合法性数据。
 
 `GlassHudTheme` 集中响应式安全矩形，`MatchHudPresenter` 只把安全 `MatchView` / `HotseatPublicBoardView` 和公开视觉身份绑定到左侧可收窄详情抽屉、两个独立玩家状态舱、阶段胶囊与悬浮控制。同一 viewport 只使用一个 `BackBufferCopy`，共享 screen-reading CanvasItem shader 为顶层面板提供模糊、半透明渐变、圆角与细描边。普通产品状态不使用全高不透明黑栏；只有物理交接的 `Covered` 必须完全不透明。安全 FX 队列只消费观看者安全 DTO、公开事件和公共投影，不推导规则。
 

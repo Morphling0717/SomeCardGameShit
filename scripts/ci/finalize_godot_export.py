@@ -34,7 +34,11 @@ LICENSES = {
     ROOT / "client/godot/ASSET_NOTICES.md": "ASSET_NOTICES.md",
     ROOT / "client/godot/assets/visual/ASSET_MANIFEST.json":
         "ASSET_MANIFEST.json",
+    ROOT / "client/godot/assets/visual/arena/R3_ASSET_MANIFEST.json":
+        "R3_ASSET_MANIFEST.json",
 }
+
+WINDOWS_R3_LAUNCHER = ROOT / "scripts/ci/PLAY_R3_VISUAL_SLICE.cmd"
 
 
 def _copy_atomic(source: Path, destination: Path) -> None:
@@ -77,6 +81,11 @@ def main() -> int:
         license_directory = export / "Contents/Resources/licenses"
 
     _copy_atomic(native, native_destination)
+    if args.platform == "windows-x86_64":
+        _copy_atomic(
+            WINDOWS_R3_LAUNCHER,
+            export.parent / "PLAY_R3_VISUAL_SLICE.cmd",
+        )
     for source, output_name in LICENSES.items():
         _copy_atomic(source, license_directory / output_name)
 

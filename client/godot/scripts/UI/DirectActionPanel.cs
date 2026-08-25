@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using Godot;
+using Scgs.GodotClient.Battlefield;
 
 namespace Scgs.GodotClient.UI;
 
@@ -14,6 +15,9 @@ public sealed partial class DirectActionPanel : PanelContainer
     private Label _payment = null!;
     private Container _chips = null!;
     private Button _back = null!;
+    private MarginContainer _margin = null!;
+    private VBoxContainer _layout = null!;
+    private bool _tacticalCandidate;
 
     public event Action<string>? ChoiceRequested;
 
@@ -32,8 +36,16 @@ public sealed partial class DirectActionPanel : PanelContainer
         _payment = GetNode<Label>("%DirectPayment");
         _chips = GetNode<Container>("%DirectChips");
         _back = GetNode<Button>("%DirectBackButton");
+        _margin = GetNode<MarginContainer>("Margin");
+        _layout = GetNode<VBoxContainer>("Margin/Layout");
         _back.Pressed += () => BackRequested?.Invoke();
         Visible = false;
+    }
+
+    internal void ConfigureVisualProfile(BattlefieldVisualProfile profile)
+    {
+        _tacticalCandidate = profile == BattlefieldVisualProfile.R3Candidate;
+        SetCompactMode(compact: false);
     }
 
     public void Present(
@@ -52,7 +64,9 @@ public sealed partial class DirectActionPanel : PanelContainer
             var chip = new Button
             {
                 Text = label,
-                CustomMinimumSize = new Vector2(108, 42),
+                CustomMinimumSize = _tacticalCandidate
+                    ? new Vector2(92, 34)
+                    : new Vector2(108, 42),
                 ThemeTypeVariation = "PrimaryButton",
                 FocusMode = FocusModeEnum.All,
                 TooltipText = label,
@@ -61,6 +75,10 @@ public sealed partial class DirectActionPanel : PanelContainer
             Action handler = () => ChoiceRequested?.Invoke(captured);
             _handlers.Add(chip, handler);
             chip.Pressed += handler;
+            if (_tacticalCandidate)
+            {
+                TacticalHudTheme.R3Candidate.ApplyActionButton(chip);
+            }
             _chips.AddChild(chip);
         }
 
@@ -77,13 +95,28 @@ public sealed partial class DirectActionPanel : PanelContainer
     /// </summary>
     public void SetCompactMode(bool compact)
     {
-        CustomMinimumSize = compact ? new Vector2(196, 64) : new Vector2(360, 92);
+        CustomMinimumSize = _tacticalCandidate
+            ? compact ? new Vector2(176, 50) : new Vector2(300, 66)
+            : compact ? new Vector2(196, 64) : new Vector2(360, 92);
         _prompt.Visible = !compact;
         _payment.Visible = !compact && !string.IsNullOrWhiteSpace(_payment.Text);
-        _back.CustomMinimumSize = compact ? new Vector2(72, 36) : new Vector2(88, 42);
+        _prompt.AddThemeFontSizeOverride("font_size", _tacticalCandidate ? 14 : 17);
+        _payment.AddThemeFontSizeOverride("font_size", _tacticalCandidate ? 12 : 14);
+        _layout.AddThemeConstantOverride("separation", _tacticalCandidate ? 2 : 6);
+        int marginHorizontal = _tacticalCandidate ? 10 : 14;
+        int marginVertical = _tacticalCandidate ? 5 : 9;
+        _margin.AddThemeConstantOverride("margin_left", marginHorizontal);
+        _margin.AddThemeConstantOverride("margin_top", marginVertical);
+        _margin.AddThemeConstantOverride("margin_right", marginHorizontal);
+        _margin.AddThemeConstantOverride("margin_bottom", marginVertical);
+        _back.CustomMinimumSize = _tacticalCandidate
+            ? compact ? new Vector2(64, 30) : new Vector2(72, 32)
+            : compact ? new Vector2(72, 36) : new Vector2(88, 42);
         foreach (Button button in _chips.GetChildren().OfType<Button>())
         {
-            button.CustomMinimumSize = compact ? new Vector2(88, 36) : new Vector2(108, 42);
+            button.CustomMinimumSize = _tacticalCandidate
+                ? compact ? new Vector2(78, 30) : new Vector2(92, 34)
+                : compact ? new Vector2(88, 36) : new Vector2(108, 42);
         }
     }
 
@@ -101,7 +134,7 @@ public sealed partial class DirectActionPanel : PanelContainer
 
     public void ClearSensitive()
     {
-        CustomMinimumSize = new Vector2(360, 92);
+        SetCompactMode(compact: false);
         _prompt.Text = string.Empty;
         _payment.Text = string.Empty;
         _payment.Visible = false;

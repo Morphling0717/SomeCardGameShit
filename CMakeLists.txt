@@ -235,6 +235,12 @@ if(SCGS_ENABLE_LEGACY_YGO2_TESTS)
             scripts.tests.test_gate4b_golden_metadata
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
+    add_test(
+        NAME scgs_r3_visual_slice_contract
+        COMMAND ${Python3_EXECUTABLE} -m unittest
+            scripts.tests.test_r3_visual_slice
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
 endif()
 
 install(

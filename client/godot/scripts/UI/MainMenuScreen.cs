@@ -497,7 +497,10 @@ public sealed partial class MainMenuScreen : Control
     {
         return arguments.Contains("--ci-smoke", StringComparer.Ordinal) ||
                arguments.Any(argument =>
-                   argument.StartsWith("--ci-visual-suite=", StringComparison.Ordinal));
+                   argument.StartsWith("--ci-visual-suite=", StringComparison.Ordinal)) ||
+               arguments.Contains("--r3-visual-slice", StringComparer.Ordinal) ||
+               arguments.Any(argument =>
+                   argument.StartsWith("--r3-visual-slice=", StringComparison.Ordinal));
     }
 
     private enum MenuPage : byte

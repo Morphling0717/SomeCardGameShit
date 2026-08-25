@@ -24,6 +24,8 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
     private static readonly Color AdvanceFrameColor = new("675084");
     private static readonly Color NeutralFrameColor = new("2b4052");
     private static readonly Color HiddenFrameColor = new("101d31");
+    private static readonly ArenaVisualProfile R3Profile =
+        ArenaVisualProfile.R3Candidate;
 
     private static readonly BoxMesh CardMesh = new()
     {
@@ -65,9 +67,26 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
     private static readonly StandardMaterial3D DestinationOutline = CreateOutlineMaterial(DestinationColor);
     private static readonly StandardMaterial3D SelectedOutline = CreateOutlineMaterial(SelectedColor);
     private static readonly StandardMaterial3D BadgeMaterial = CreateBadgeMaterial();
-    private static readonly Dictionary<ulong, StandardMaterial3D> ArtworkMaterials = [];
+    private static readonly StandardMaterial3D R3MidrangeFrame =
+        CreateCandidateFrameMaterial(R3Profile.MidrangeMetal);
+    private static readonly StandardMaterial3D R3AdvanceFrame =
+        CreateCandidateFrameMaterial(R3Profile.AdvanceMetal);
+    private static readonly StandardMaterial3D R3NeutralFrame =
+        CreateCandidateFrameMaterial(R3Profile.NeutralMetal);
+    private static readonly StandardMaterial3D R3HiddenFrame =
+        CreateCandidateFrameMaterial(R3Profile.HiddenMetal);
+    private static readonly StandardMaterial3D R3LegalOutline =
+        CreateCandidateOutlineMaterial(R3Profile.FunctionalAccent);
+    private static readonly StandardMaterial3D R3DestinationOutline =
+        CreateCandidateOutlineMaterial(R3Profile.DestinationAccent);
+    private static readonly StandardMaterial3D R3SelectedOutline =
+        CreateCandidateOutlineMaterial(R3Profile.SelectedAccent);
+    private static readonly StandardMaterial3D R3BadgeMaterial = CreateCandidateBadgeMaterial();
+    private static readonly Dictionary<(ulong TextureId, BattlefieldVisualProfile Profile),
+        StandardMaterial3D> ArtworkMaterials = [];
 
     private ICardVisualCatalog _visualCatalog = CardVisualCatalog.Shared;
+    private ArenaVisualProfile _visualProfile = ArenaVisualProfile.Gate4BR2;
     private MeshInstance3D _baseMesh = null!;
     private MeshInstance3D _artworkSurface = null!;
     private MeshInstance3D _outlineMesh = null!;
@@ -181,6 +200,18 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         ReferenceEquals(_artworkSurface?.MaterialOverride, material) &&
         material.ResourceName == token && texture.ResourceName == token;
 
+    internal bool CiUsesSharedCardBack
+    {
+        get
+        {
+            EnsureBuilt();
+            return Visible && !_showsIdentity &&
+                   ReferenceEquals(
+                       _artworkSurface.MaterialOverride,
+                       SharedArtworkMaterial(_visualCatalog.CardBack, _visualProfile));
+        }
+    }
+
     public bool HasTripleAffordance =>
         Visible && CanActivate && _highlight != BattlefieldHighlightKind.None &&
         OutlineVisible && !string.IsNullOrWhiteSpace(StateText);
@@ -200,6 +231,20 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         }
 
         _visualCatalog = visualCatalog;
+    }
+
+    internal void ConfigureVisualProfile(BattlefieldVisualProfile profile)
+    {
+        if (Visible && CardPresentation is not null)
+        {
+            throw new InvalidOperationException("Visual profiles can only change while an actor is pooled.");
+        }
+
+        _visualProfile = ArenaVisualProfile.Resolve(profile);
+        if (_baseMesh is not null)
+        {
+            ApplyVisualProfileMaterials();
+        }
     }
 
     public void BindPrivate(
@@ -283,18 +328,26 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         _displayText = $"{title}\n{count}";
         if (!hidden)
         {
-            _artworkSurface.MaterialOverride = SharedArtworkMaterial(_visualCatalog.FallbackFront);
-            _baseMesh.MaterialOverride = NeutralFrame;
+            _artworkSurface.MaterialOverride = SharedArtworkMaterial(
+                _visualCatalog.FallbackFront,
+                _visualProfile);
+            _baseMesh.MaterialOverride = NeutralFrameMaterial;
         }
 
         _faceLabel.Text = string.Empty;
         _faceLabel.Visible = false;
         _pileLabel.Text = $"{title}  {count}";
         _pileLabel.Visible = true;
-        _stackUnderlayA.MaterialOverride = hidden ? HiddenFrame : NeutralFrame;
-        _stackUnderlayB.MaterialOverride = hidden ? HiddenFrame : NeutralFrame;
+        _stackUnderlayA.MaterialOverride = hidden ? HiddenFrameMaterial : NeutralFrameMaterial;
+        _stackUnderlayB.MaterialOverride = hidden ? HiddenFrameMaterial : NeutralFrameMaterial;
         _stackUnderlayA.Visible = count >= 2;
         _stackUnderlayB.Visible = count >= 5;
+        if (_visualProfile.UsesOpenArena)
+        {
+            _pileLabel.FontSize = 20;
+            _pileLabel.Modulate = new Color("d9cfbd");
+            _pileLabel.Position = new Vector3(0.0f, 0.106f, 0.72f);
+        }
     }
 
     public void SetHighlight(BattlefieldHighlightKind highlight)
@@ -416,6 +469,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
     public void ClearSensitive()
     {
         EnsureBuilt();
+        ApplyVisualProfileMaterials();
         CancelHoverTween();
         Surface = null;
         _boundSurface = null;
@@ -429,12 +483,12 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         _displayText = string.Empty;
         _showsIdentity = false;
         ClearLabels();
-        _baseMesh.MaterialOverride = NeutralFrame;
+        _baseMesh.MaterialOverride = NeutralFrameMaterial;
         _artworkSurface.MaterialOverride = null;
         DisposeCiPrivacyResources();
         _artworkSurface.Visible = false;
-        _stackUnderlayA.MaterialOverride = NeutralFrame;
-        _stackUnderlayB.MaterialOverride = NeutralFrame;
+        _stackUnderlayA.MaterialOverride = NeutralFrameMaterial;
+        _stackUnderlayB.MaterialOverride = NeutralFrameMaterial;
         _stackUnderlayA.Visible = false;
         _stackUnderlayB.Visible = false;
         _costBadge.Visible = false;
@@ -443,7 +497,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         _healthBadge.Visible = false;
         _countdownBadge.Visible = false;
         _outlineMesh.Visible = false;
-        _outlineMesh.MaterialOverride = LegalOutline;
+        _outlineMesh.MaterialOverride = LegalOutlineMaterial;
         _collision.Disabled = true;
         CollisionLayer = 0;
         Visible = false;
@@ -543,11 +597,11 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         Texture2D faceTexture = known
             ? _visualCatalog.LoadArtwork(presentation.DefinitionId!.Value)
             : _visualCatalog.CardBack;
-        _artworkSurface.MaterialOverride = SharedArtworkMaterial(faceTexture);
+        _artworkSurface.MaterialOverride = SharedArtworkMaterial(faceTexture, _visualProfile);
         _artworkSurface.Visible = true;
         _baseMesh.MaterialOverride = known
-            ? FrameMaterial(CardVisualCatalog.FactionFor(presentation.DefinitionId))
-            : HiddenFrame;
+            ? FrameMaterialFor(CardVisualCatalog.FactionFor(presentation.DefinitionId))
+            : HiddenFrameMaterial;
 
         _displayText = known ? FormatKnownCard(presentation, layout) : string.Empty;
         _faceLabel.Text = known
@@ -667,6 +721,8 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
 
     private void ApplyLabelLayout(BattlefieldCardLayout layout)
     {
+        bool candidateNearHand = _visualProfile.Id == BattlefieldVisualProfile.R3Candidate &&
+                                 layout == BattlefieldCardLayout.NearHand;
         (_faceLabel.FontSize, _faceLabel.PixelSize, _faceLabel.OutlineSize, _faceLabel.Width) =
             layout switch
             {
@@ -679,7 +735,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
 
         int badgeSize = layout switch
         {
-            BattlefieldCardLayout.NearHand => 28,
+            BattlefieldCardLayout.NearHand => candidateNearHand ? 25 : 28,
             BattlefieldCardLayout.Field => 46,
             _ => 26,
         };
@@ -697,15 +753,19 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         _attackLabel.Width = roundBadgeWidth;
         _healthLabel.Width = roundBadgeWidth;
         _countdownLabel.Width = layout == BattlefieldCardLayout.Field ? 72.0f : 64.0f;
-        float fieldPlateScale = layout == BattlefieldCardLayout.Field ? 1.22f : 1.0f;
+        float fieldPlateScale = layout == BattlefieldCardLayout.Field
+            ? 1.22f
+            : candidateNearHand ? 0.86f : 1.0f;
         Vector3 roundScale = new(fieldPlateScale, 1.0f, fieldPlateScale);
         _costBadge.Scale = roundScale;
         _attackBadge.Scale = roundScale;
         _healthBadge.Scale = roundScale;
-        _kindBadge.Scale = Vector3.One;
+        _kindBadge.Scale = candidateNearHand
+            ? new Vector3(0.9f, 1.0f, 0.9f)
+            : Vector3.One;
         _countdownBadge.Scale = layout == BattlefieldCardLayout.Field
             ? new Vector3(1.18f, 1.0f, 1.18f)
-            : Vector3.One;
+            : candidateNearHand ? new Vector3(0.88f, 1.0f, 0.88f) : Vector3.One;
         _costLabel.FontSize = badgeSize;
         _attackLabel.FontSize = badgeSize;
         _healthLabel.FontSize = badgeSize;
@@ -718,9 +778,9 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
     {
         _outlineMesh.MaterialOverride = _highlight switch
         {
-            BattlefieldHighlightKind.Selected => SelectedOutline,
-            BattlefieldHighlightKind.Destination => DestinationOutline,
-            _ => LegalOutline,
+            BattlefieldHighlightKind.Selected => SelectedOutlineMaterial,
+            BattlefieldHighlightKind.Destination => DestinationOutlineMaterial,
+            _ => LegalOutlineMaterial,
         };
         _outlineMesh.Visible = _highlight != BattlefieldHighlightKind.None;
     }
@@ -760,7 +820,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             Name = "AffordanceOutline",
             Mesh = OutlineMesh,
             Position = new Vector3(0.0f, -0.062f, 0.0f),
-            MaterialOverride = LegalOutline,
+            MaterialOverride = LegalOutlineMaterial,
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
             Visible = false,
         };
@@ -770,18 +830,20 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         {
             Name = "CardBase",
             Mesh = CardMesh,
-            MaterialOverride = NeutralFrame,
+            MaterialOverride = NeutralFrameMaterial,
             CastShadow = GeometryInstance3D.ShadowCastingSetting.On,
         };
         AddChild(_baseMesh);
 
         _stackUnderlayA = CreateStackUnderlay(
             "StackUnderlayA",
-            new Vector3(0.075f, -0.105f, 0.075f));
+            new Vector3(0.075f, -0.105f, 0.075f),
+            NeutralFrameMaterial);
         AddChild(_stackUnderlayA);
         _stackUnderlayB = CreateStackUnderlay(
             "StackUnderlayB",
-            new Vector3(0.14f, -0.17f, 0.14f));
+            new Vector3(0.14f, -0.17f, 0.14f),
+            NeutralFrameMaterial);
         AddChild(_stackUnderlayB);
 
         _artworkSurface = new MeshInstance3D
@@ -797,27 +859,32 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         _costBadge = CreateBadge(
             "CostBadgePlate",
             RoundBadgeMesh,
-            new Vector3(-0.57f, BadgePlateCenterY, -0.84f));
+            new Vector3(-0.57f, BadgePlateCenterY, -0.84f),
+            BadgePlateMaterial);
         AddChild(_costBadge);
         _kindBadge = CreateBadge(
             "KindBadgePlate",
             PillBadgeMesh,
-            new Vector3(0.45f, BadgePlateCenterY, -0.84f));
+            new Vector3(0.45f, BadgePlateCenterY, -0.84f),
+            BadgePlateMaterial);
         AddChild(_kindBadge);
         _attackBadge = CreateBadge(
             "AttackBadgePlate",
             RoundBadgeMesh,
-            new Vector3(-0.57f, BadgePlateCenterY, 0.84f));
+            new Vector3(-0.57f, BadgePlateCenterY, 0.84f),
+            BadgePlateMaterial);
         AddChild(_attackBadge);
         _healthBadge = CreateBadge(
             "HealthBadgePlate",
             RoundBadgeMesh,
-            new Vector3(0.57f, BadgePlateCenterY, 0.84f));
+            new Vector3(0.57f, BadgePlateCenterY, 0.84f),
+            BadgePlateMaterial);
         AddChild(_healthBadge);
         _countdownBadge = CreateBadge(
             "CountdownBadgePlate",
             PillBadgeMesh,
-            new Vector3(0.43f, BadgePlateCenterY, 0.84f));
+            new Vector3(0.43f, BadgePlateCenterY, 0.84f),
+            BadgePlateMaterial);
         AddChild(_countdownBadge);
 
         _collision = new CollisionShape3D
@@ -888,36 +955,81 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         Monitorable = false;
     }
 
-    private static StandardMaterial3D FrameMaterial(CardVisualFaction faction) => faction switch
-    {
-        CardVisualFaction.Midrange => MidrangeFrame,
-        CardVisualFaction.Advance => AdvanceFrame,
-        _ => NeutralFrame,
-    };
+    private StandardMaterial3D FrameMaterialFor(CardVisualFaction faction) =>
+        (_visualProfile.Id, faction) switch
+        {
+            (BattlefieldVisualProfile.R3Candidate, CardVisualFaction.Midrange) => R3MidrangeFrame,
+            (BattlefieldVisualProfile.R3Candidate, CardVisualFaction.Advance) => R3AdvanceFrame,
+            (BattlefieldVisualProfile.R3Candidate, _) => R3NeutralFrame,
+            (_, CardVisualFaction.Midrange) => MidrangeFrame,
+            (_, CardVisualFaction.Advance) => AdvanceFrame,
+            _ => NeutralFrame,
+        };
 
-    private static MeshInstance3D CreateStackUnderlay(string name, Vector3 position) => new()
-    {
-        Name = name,
-        Mesh = CardMesh,
-        Position = position,
-        MaterialOverride = NeutralFrame,
-        CastShadow = GeometryInstance3D.ShadowCastingSetting.On,
-        Visible = false,
-    };
+    private StandardMaterial3D NeutralFrameMaterial =>
+        _visualProfile.Id == BattlefieldVisualProfile.R3Candidate
+            ? R3NeutralFrame
+            : NeutralFrame;
 
-    private static MeshInstance3D CreateBadge(string name, Mesh mesh, Vector3 position) => new()
-    {
-        Name = name,
-        Mesh = mesh,
-        Position = position,
-        MaterialOverride = BadgeMaterial,
-        CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
-        Visible = false,
-    };
+    private StandardMaterial3D HiddenFrameMaterial =>
+        _visualProfile.Id == BattlefieldVisualProfile.R3Candidate
+            ? R3HiddenFrame
+            : HiddenFrame;
 
-    private static StandardMaterial3D SharedArtworkMaterial(Texture2D texture)
+    private StandardMaterial3D BadgePlateMaterial =>
+        _visualProfile.Id == BattlefieldVisualProfile.R3Candidate
+            ? R3BadgeMaterial
+            : BadgeMaterial;
+
+    private StandardMaterial3D LegalOutlineMaterial =>
+        _visualProfile.Id == BattlefieldVisualProfile.R3Candidate
+            ? R3LegalOutline
+            : LegalOutline;
+
+    private StandardMaterial3D DestinationOutlineMaterial =>
+        _visualProfile.Id == BattlefieldVisualProfile.R3Candidate
+            ? R3DestinationOutline
+            : DestinationOutline;
+
+    private StandardMaterial3D SelectedOutlineMaterial =>
+        _visualProfile.Id == BattlefieldVisualProfile.R3Candidate
+            ? R3SelectedOutline
+            : SelectedOutline;
+
+    private static MeshInstance3D CreateStackUnderlay(
+        string name,
+        Vector3 position,
+        Material material) =>
+        new()
+        {
+            Name = name,
+            Mesh = CardMesh,
+            Position = position,
+            MaterialOverride = material,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.On,
+            Visible = false,
+        };
+
+    private static MeshInstance3D CreateBadge(
+        string name,
+        Mesh mesh,
+        Vector3 position,
+        Material material) =>
+        new()
+        {
+            Name = name,
+            Mesh = mesh,
+            Position = position,
+            MaterialOverride = material,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+            Visible = false,
+        };
+
+    private static StandardMaterial3D SharedArtworkMaterial(
+        Texture2D texture,
+        ArenaVisualProfile profile)
     {
-        ulong key = texture.GetInstanceId();
+        var key = (texture.GetInstanceId(), profile.Id);
         if (ArtworkMaterials.TryGetValue(key, out StandardMaterial3D? material))
         {
             return material;
@@ -927,9 +1039,11 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         {
             AlbedoTexture = texture,
             AlbedoColor = Colors.White,
-            Roughness = 0.58f,
-            Metallic = 0.04f,
-            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            Roughness = profile.UsesShadedCardArtwork ? 0.46f : 0.58f,
+            Metallic = profile.UsesShadedCardArtwork ? 0.015f : 0.04f,
+            ShadingMode = profile.UsesShadedCardArtwork
+                ? BaseMaterial3D.ShadingModeEnum.PerPixel
+                : BaseMaterial3D.ShadingModeEnum.Unshaded,
             CullMode = BaseMaterial3D.CullModeEnum.Disabled,
             TextureFilter = BaseMaterial3D.TextureFilterEnum.LinearWithMipmapsAnisotropic,
         };
@@ -954,11 +1068,55 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         NoDepthTest = false,
     };
 
+    private void ApplyVisualProfileMaterials()
+    {
+        _baseMesh.MaterialOverride = NeutralFrameMaterial;
+        _outlineMesh.MaterialOverride = LegalOutlineMaterial;
+        _stackUnderlayA.MaterialOverride = NeutralFrameMaterial;
+        _stackUnderlayB.MaterialOverride = NeutralFrameMaterial;
+        foreach (MeshInstance3D badge in new[]
+                 {
+                     _costBadge, _kindBadge, _attackBadge, _healthBadge, _countdownBadge,
+                 })
+        {
+            badge.MaterialOverride = BadgePlateMaterial;
+        }
+
+        if (_visualProfile.Id == BattlefieldVisualProfile.R3Candidate)
+        {
+            _faceLabel.Modulate = new Color("f0e9dd");
+            _pileLabel.Modulate = new Color("d9cfbd");
+            _costLabel.Modulate = new Color("f1e4bd");
+            _kindLabel.Modulate = new Color("c7c7c0");
+            _attackLabel.Modulate = new Color("e6bd75");
+            _healthLabel.Modulate = new Color("c4d5c3");
+            _countdownLabel.Modulate = new Color("d8c89a");
+            _stateLabel.Modulate = new Color("ead19a");
+            return;
+        }
+
+        _faceLabel.Modulate = Colors.White;
+        _pileLabel.Modulate = new Color("efffff");
+        _costLabel.Modulate = new Color("ddfff9");
+        _kindLabel.Modulate = new Color("d7e4ed");
+        _attackLabel.Modulate = new Color("ffe0a5");
+        _healthLabel.Modulate = new Color("baffcf");
+        _countdownLabel.Modulate = new Color("fff0b2");
+        _stateLabel.Modulate = new Color(1.0f, 0.94f, 0.63f, 1.0f);
+    }
+
     private static StandardMaterial3D CreateFrameMaterial(Color color) => new()
     {
         AlbedoColor = color,
         Metallic = 0.56f,
         Roughness = 0.35f,
+    };
+
+    private static StandardMaterial3D CreateCandidateFrameMaterial(Color color) => new()
+    {
+        AlbedoColor = color,
+        Metallic = 0.72f,
+        Roughness = 0.39f,
     };
 
     private static StandardMaterial3D CreateBadgeMaterial() => new()
@@ -970,6 +1128,15 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         Emission = new Color(0.02f, 0.13f, 0.16f, 1.0f),
     };
 
+    private static StandardMaterial3D CreateCandidateBadgeMaterial() => new()
+    {
+        AlbedoColor = new Color(0.045f, 0.052f, 0.055f, 0.98f),
+        Metallic = 0.76f,
+        Roughness = 0.36f,
+        EmissionEnabled = true,
+        Emission = new Color(0.035f, 0.03f, 0.02f, 1.0f),
+    };
+
     private static StandardMaterial3D CreateOutlineMaterial(Color color) => new()
     {
         AlbedoColor = color,
@@ -977,6 +1144,15 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         EmissionEnabled = true,
         Emission = color * 1.4f,
         ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+    };
+
+    private static StandardMaterial3D CreateCandidateOutlineMaterial(Color color) => new()
+    {
+        AlbedoColor = color,
+        Metallic = 0.48f,
+        Roughness = 0.30f,
+        EmissionEnabled = true,
+        Emission = color * 0.34f,
     };
 
     private static CardBadgeReadabilityEvidence CreateBadgeEvidence(

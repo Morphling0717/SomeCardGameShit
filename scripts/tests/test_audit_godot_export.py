@@ -67,6 +67,44 @@ class GodotExportAuditTests(unittest.TestCase):
                 self.assertIn("SomeCardGameShit Gate 4B-R2", source)
                 self.assertNotIn("SomeCardGameShit Gate 3C", source)
 
+    def test_packaged_r3_launcher_has_distinct_human_and_ci_modes(self) -> None:
+        root = SCRIPTS.parent
+        launcher_path = root / "scripts/ci/PLAY_R3_VISUAL_SLICE.cmd"
+        launcher = launcher_path.read_text(encoding="utf-8")
+        finalize = (root / "scripts/ci/finalize_godot_export.py").read_text(
+            encoding="utf-8"
+        )
+        workflow = (root / ".github/workflows/ci.yml").read_text(
+            encoding="utf-8"
+        )
+
+        self.assertIn('if /I "%SCGS_R3_LAUNCHER_CI%"=="1" goto ci_mode', launcher)
+        self.assertIn(
+            'set "SCGS_R3_OUTPUT=%~dp0r3-visual-slice-output"', launcher
+        )
+        self.assertEqual(1, launcher.count("--r3-visual-slice-exit"))
+        self.assertIn("if not defined SCGS_R3_LAUNCHER_OUTPUT", launcher)
+        self.assertIn(
+            'set "SCGS_R3_OUTPUT=%SCGS_R3_LAUNCHER_OUTPUT%"', launcher
+        )
+        self.assertIn('"--r3-visual-slice=%SCGS_R3_OUTPUT%"', launcher)
+        self.assertIn("DisableDelayedExpansion", launcher)
+        self.assertIn("WINDOWS_R3_LAUNCHER", finalize)
+        self.assertIn('export.parent / "PLAY_R3_VISUAL_SLICE.cmd"', finalize)
+
+        packaged_step = workflow.split(
+            "- name: Round-trip launch packaged Windows R3 visual slice", 1
+        )[1].split(
+            "- name: Round-trip audit and launch packaged Windows default 3D client",
+            1,
+        )[0]
+        self.assertIn('$env:SCGS_R3_LAUNCHER_CI = "1"', packaged_step)
+        self.assertIn('$env:SCGS_R3_LAUNCHER_OUTPUT = $slice', packaged_step)
+        self.assertIn('-- "$env:ComSpec" /d /c call "$launcher"', packaged_step)
+        self.assertNotIn('-- "$export" --windowed', packaged_step)
+        self.assertIn("--expect-output-count 1", packaged_step)
+        self.assertIn("validate_r3_visual_slice.py", packaged_step)
+
     def test_ci_waits_for_cold_import_and_uses_official_macos_template_shape(
         self,
     ) -> None:
@@ -109,8 +147,8 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertEqual(8, workflow.count("validate_gate4a_report.py"))
         self.assertEqual(8, workflow.count("--scenario full-match"))
         self.assertEqual(9, workflow.count("--expect-output SCGS_GODOT_CI_SMOKE_OK"))
-        self.assertEqual(9, workflow.count("--expect-output-count 1"))
-        self.assertEqual(9, workflow.count("Unhandled exception"))
+        self.assertEqual(12, workflow.count("--expect-output-count 1"))
+        self.assertEqual(12, workflow.count("Unhandled exception"))
         self.assertEqual(4, workflow.count("gate4a-current-project-"))
         self.assertEqual(2, workflow.count("gate4a-export-"))
         self.assertEqual(2, workflow.count("gate4a-roundtrip-"))
@@ -280,6 +318,7 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertIn("Dotnet-Runtime-THIRD-PARTY-NOTICES.txt", LICENSE_MARKERS)
         self.assertIn("ASSET_NOTICES.md", LICENSE_MARKERS)
         self.assertIn("ASSET_MANIFEST.json", LICENSE_MARKERS)
+        self.assertIn("R3_ASSET_MANIFEST.json", LICENSE_MARKERS)
 
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

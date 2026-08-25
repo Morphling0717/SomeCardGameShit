@@ -210,6 +210,36 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/ci/validate_gate4a_report.py --report "$report" --scenario full-match --presentation legacy-2d
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Godot R3 candidate real-session visual slice
+        env:
+          GODOT4: ${{ steps.godot.outputs.godot }}
+        shell: pwsh
+        run: |
+          $native = (Resolve-Path "build/stage-msvc/bin/scgs_v04.dll").Path
+          $slice = Join-Path "${{ github.workspace }}" "artifacts/r3-visual-slice/windows-1600x900"
+          New-Item -ItemType Directory -Path $slice -Force | Out-Null
+          python scripts/ci/run_with_timeout.py `
+            --timeout 300 `
+            --expect-output SCGS_R3_VISUAL_SLICE_READY `
+            --expect-output-count 1 `
+            --forbid-output "SCRIPT ERROR:" `
+            --forbid-output "ERROR:" `
+            --forbid-output "Unhandled exception" `
+            -- "$env:GODOT4" --path client/godot --windowed --audio-driver Dummy `
+            --resolution "1600x900" -- `
+            "--r3-visual-slice=$slice" --r3-visual-slice-exit `
+            "--native-library=$native" "--ci-visual-viewport=1600x900"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/ci/validate_r3_visual_slice.py `
+            --report (Join-Path $slice "r3-visual-slice.json") `
+            --width 1600 --height 900
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: SomeCardGameShit-r3-candidate-windows-visual-slice
+          path: artifacts/r3-visual-slice
+          if-no-files-found: error
       - name: Godot Gate 4B-R2 display-backed visual and performance suite
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
@@ -330,15 +360,85 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/ci/validate_gate4a_report.py --report "$report" --scenario full-match --presentation 3d
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Launch exported Windows R3 candidate visual slice
+        shell: pwsh
+        run: |
+          $exportDirectory = Join-Path "${{ github.workspace }}" "artifacts/godot/windows-x86_64"
+          $export = Join-Path $exportDirectory "SomeCardGameShit.exe"
+          $slice = Join-Path "${{ github.workspace }}" "artifacts/r3-exported-visual-slice/windows-1600x900"
+          New-Item -ItemType Directory -Path $slice -Force | Out-Null
+          python scripts/ci/run_with_timeout.py `
+            --timeout 300 `
+            --cwd "$exportDirectory" `
+            --expect-output SCGS_R3_VISUAL_SLICE_READY `
+            --expect-output-count 1 `
+            --forbid-output "SCRIPT ERROR:" `
+            --forbid-output "ERROR:" `
+            --forbid-output "Unhandled exception" `
+            -- "$export" --windowed --audio-driver Dummy --resolution "1600x900" -- `
+            "--r3-visual-slice=$slice" --r3-visual-slice-exit "--ci-visual-viewport=1600x900"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/ci/validate_r3_visual_slice.py `
+            --report (Join-Path $slice "r3-visual-slice.json") `
+            --width 1600 --height 900
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package Windows client
         shell: pwsh
         run: |
           $packageDirectory = Join-Path "${{ github.workspace }}" "artifacts/packages"
+          $r2Package = Join-Path $packageDirectory "SomeCardGameShit-gate4b-r2-windows-x86_64.zip"
+          $r3Package = Join-Path $packageDirectory "SomeCardGameShit-gate4b-r3-visual-slice-windows-x86_64.zip"
           New-Item -ItemType Directory -Path $packageDirectory -Force | Out-Null
           Compress-Archive `
             -Path "artifacts/godot/windows-x86_64/*" `
-            -DestinationPath "$packageDirectory/SomeCardGameShit-gate4b-r2-windows-x86_64.zip" `
+            -DestinationPath $r2Package `
             -CompressionLevel Optimal
+          Copy-Item -LiteralPath $r2Package -Destination $r3Package
+      - name: Round-trip launch packaged Windows R3 visual slice
+        shell: pwsh
+        run: |
+          $package = Join-Path "${{ github.workspace }}" "artifacts/packages/SomeCardGameShit-gate4b-r3-visual-slice-windows-x86_64.zip"
+          $roundTrip = Join-Path "${{ github.workspace }}" "artifacts/roundtrip/r3-visual-slice-windows-x86_64"
+          $slice = Join-Path "${{ github.workspace }}" "artifacts/r3-packaged-visual-slice/windows-1600x900"
+          New-Item -ItemType Directory -Path $roundTrip -Force | Out-Null
+          New-Item -ItemType Directory -Path $slice -Force | Out-Null
+          Expand-Archive -LiteralPath $package -DestinationPath $roundTrip -Force
+          $export = Join-Path $roundTrip "SomeCardGameShit.exe"
+          $launcher = Join-Path $roundTrip "PLAY_R3_VISUAL_SLICE.cmd"
+          if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
+            throw "The R3 package round trip is missing PLAY_R3_VISUAL_SLICE.cmd."
+          }
+          $expectedLauncherHash = (Get-FileHash -LiteralPath "scripts/ci/PLAY_R3_VISUAL_SLICE.cmd" -Algorithm SHA256).Hash
+          $packagedLauncherHash = (Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash
+          if ($packagedLauncherHash -ne $expectedLauncherHash) {
+            throw "The packaged R3 launcher differs from the finalized source launcher."
+          }
+          python scripts/audit_godot_export.py --platform windows-x86_64 --export "$export"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $env:SCGS_R3_LAUNCHER_CI = "1"
+          $env:SCGS_R3_LAUNCHER_OUTPUT = $slice
+          $launcherExitCode = 0
+          try {
+            python scripts/ci/run_with_timeout.py `
+              --timeout 300 `
+              --cwd "$roundTrip" `
+              --expect-output SCGS_R3_VISUAL_SLICE_READY `
+              --expect-output-count 1 `
+              --forbid-output "SCRIPT ERROR:" `
+              --forbid-output "ERROR:" `
+              --forbid-output "Unhandled exception" `
+              -- "$env:ComSpec" /d /c call "$launcher"
+            $launcherExitCode = $LASTEXITCODE
+          }
+          finally {
+            Remove-Item Env:SCGS_R3_LAUNCHER_CI -ErrorAction SilentlyContinue
+            Remove-Item Env:SCGS_R3_LAUNCHER_OUTPUT -ErrorAction SilentlyContinue
+          }
+          if ($launcherExitCode -ne 0) { exit $launcherExitCode }
+          python scripts/ci/validate_r3_visual_slice.py `
+            --report (Join-Path $slice "r3-visual-slice.json") `
+            --width 1600 --height 900
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Round-trip audit and launch packaged Windows default 3D client
         shell: pwsh
         run: |
@@ -369,6 +469,21 @@ jobs:
         with:
           name: SomeCardGameShit-gate4b-r2-windows-x86_64
           path: artifacts/packages/SomeCardGameShit-gate4b-r2-windows-x86_64.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: SomeCardGameShit-gate4b-r3-visual-slice-windows-x86_64
+          path: artifacts/packages/SomeCardGameShit-gate4b-r3-visual-slice-windows-x86_64.zip
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: SomeCardGameShit-r3-candidate-windows-packaged-visual-slice
+          path: artifacts/r3-packaged-visual-slice
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: SomeCardGameShit-r3-candidate-windows-exported-visual-slice
+          path: artifacts/r3-exported-visual-slice
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:

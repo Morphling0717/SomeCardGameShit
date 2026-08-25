@@ -96,8 +96,23 @@ godot --path client/godot --windowed --audio-driver Dummy -- \
 
 ## 素材与许可证
 
-视觉目录为 29 个冻结 definition 各提供一张唯一原创临时卡图，并加入统一卡背、16:9 菜单背景、未知卡通用正面和 `midrange` / `advance` 两张头像，共 34 项。`assets/visual/ASSET_MANIFEST.json` 为每项记录路径、SHA-256、用途和生成摘要；导出审计要求每个新增 PNG/WebP/SVG 有且仅有一条清单记录。未知 definition 使用无身份通用正面，所有隐藏牌共享同一卡背，不绑定 definition-specific 纹理。
+视觉目录的 Gate 4B-R2 产品集为 29 个冻结 definition 各一张唯一原创临时卡图，加统一卡背、16:9 菜单背景、未知卡通用正面和 `midrange` / `advance` 两张头像，共 34 项；它们继续由冻结的 `assets/visual/ASSET_MANIFEST.json` 独立记录和供 R2 golden 哈希引用。R3.1 尚未批准的工业竞技场地坪单独登记在 `assets/visual/arena/R3_ASSET_MANIFEST.json`。联合审计要求两个清单合计 35 项，并要求每个新增 PNG/WebP/SVG 有且只有一条记录。未知 definition 使用无身份通用正面，所有隐藏牌共享同一卡背，不绑定 definition-specific 纹理。
 
 Noto Sans CJK SC 2.004 Regular 的许可证、NOTICE 和 SHA-256 在 `assets/fonts/` 中。桌面导出附带项目 GPL、Godot、.NET runtime、nlohmann/json、Noto、`ASSET_NOTICES.md` 与第三方声明；finalize 与制品审计会强制检查。
 
 Gate 4B-R2 聚焦手牌、数值徽章、镜头与战场/HUD 构图的第一轮实机验收，不包含最终商业卡图、音效/音乐、大型演出、独立正式表现 JSON、触摸/手柄、联机、Developer ID 签名/公证、Web 或 Linux 正式客户端。精细模型、机械场地材质、完整响应链/动作演出与菜单统一延后到后续视觉轮次；主战技、普通主动能力和同时触发人工排序也仍延后。
+
+## Gate 4B-R3.1 候选实机切片
+
+R3.1 不会在普通启动时替换 R2。开发树可用显示后端运行真实 1600×900 session：
+
+```text
+godot --path client/godot --windowed --resolution 1600x900 -- \
+  --r3-visual-slice=<绝对输出目录> \
+  --native-library=<scgs_v04.dll 的绝对路径> \
+  --ci-visual-viewport=1600x900
+```
+
+不带输出值的 `--r3-visual-slice` 会写入 `user://r3-visual-slice` 并保持窗口打开；自动化只有显式增加 `--r3-visual-slice-exit` 才会在三张产品实拍、`privacy-resolving` / `privacy-covered` 两张取证图和报告写完后退出。隐私取证会在真实 revision-0 调度前注入恶意 sentinel，验证两态节点清理、GPU 零泄露及 viewer read 计数不增长。
+
+Windows 制品名为 `SomeCardGameShit-gate4b-r3-visual-slice-windows-x86_64.zip`。必须先完整解压，再双击 ZIP 根目录的 `PLAY_R3_VISUAL_SLICE.cmd`；直接双击 `SomeCardGameShit.exe` 仍会进入默认 R2，不会启用候选。采集 READY 标记出现前会阻止 Esc/返回菜单释放真实 session，完成或失败时都恢复用户原有 VSync 模式；READY 后窗口保持可操作。CI 也必须实际经由打包后的脚本启动，而不是绕过它直启 EXE。导出包同时包含冻结 R2 主清单和独立 R3 候选清单，报告还绑定 commit、地坪、GLB、shader 与 launcher 的 SHA-256，并固定为 `pending_user_approval`；在用户批准前，不能用它覆盖 Gate 4B-R2 golden 或改成默认产品画面。

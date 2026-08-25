@@ -161,6 +161,34 @@ def _fixture_region(
 
 
 class VisualAssetAuditTests(unittest.TestCase):
+    def test_repo_keeps_r2_manifest_frozen_and_audits_r3_separately(self) -> None:
+        root = SCRIPTS.parent
+        result = audit(root)
+        product_manifest = root / "client/godot/assets/visual/ASSET_MANIFEST.json"
+        candidate_manifest = (
+            root / "client/godot/assets/visual/arena/R3_ASSET_MANIFEST.json"
+        )
+        golden_metadata = json.loads((
+            root
+            / "client/godot/tests/visual_goldens/gate4b/windows-1600x900/GOLDEN_METADATA.json"
+        ).read_text(encoding="utf-8"))
+
+        self.assertEqual(35, result["asset_count"])
+        self.assertEqual(34, result["product_asset_count"])
+        self.assertEqual(1, result["candidate_asset_count"])
+        self.assertEqual(
+            "550cee89ccb1b384149d85aa45725474371b022a646fbef8de28d4c9bbae8eac",
+            hashlib.sha256(product_manifest.read_bytes()).hexdigest(),
+        )
+        self.assertEqual(
+            golden_metadata["asset_manifest_sha256"],
+            result["product_manifest_sha256"],
+        )
+        self.assertEqual(
+            hashlib.sha256(candidate_manifest.read_bytes()).hexdigest(),
+            result["candidate_manifest_sha256"],
+        )
+
     def test_asset_inventory_rejects_unregistered_and_hash_drift(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -227,6 +255,67 @@ class VisualAssetAuditTests(unittest.TestCase):
             manifest["assets"] = [{**base, "path": "../escape.png"}]
             manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
             with self.assertRaisesRegex(VisualAssetAuditError, "normalized"):
+                audit(root, enforce_product_set=False)
+
+    def test_asset_inventory_requires_cross_manifest_unique_registration(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            visual = root / "client/godot/assets/visual"
+            arena = visual / "arena"
+            arena.mkdir(parents=True)
+            product = visual / "product.png"
+            candidate = arena / "r3_industrial_floor_albedo.png"
+            product.write_bytes(b"product")
+            candidate.write_bytes(b"candidate")
+
+            def entry(path: Path) -> dict[str, str]:
+                return {
+                    "path": path.relative_to(root).as_posix(),
+                    "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                    "purpose": "test asset",
+                    "generation_method": "test generator",
+                    "date": "2026-08-25",
+                    "prompt_summary": "test prompt",
+                }
+
+            product_manifest = {
+                "schema_version": 1,
+                "gate": "4B",
+                "assets": [entry(product)],
+            }
+            candidate_manifest = {
+                "schema_version": 1,
+                "gate": "4B-R3.1",
+                "assets": [entry(candidate)],
+            }
+            product_manifest_path = visual / "ASSET_MANIFEST.json"
+            candidate_manifest_path = arena / "R3_ASSET_MANIFEST.json"
+            product_manifest_path.write_text(
+                json.dumps(product_manifest), encoding="utf-8"
+            )
+            candidate_manifest_path.write_text(
+                json.dumps(candidate_manifest), encoding="utf-8"
+            )
+            result = audit(root, enforce_product_set=False)
+            self.assertEqual(2, result["asset_count"])
+            self.assertEqual(1, result["product_asset_count"])
+            self.assertEqual(1, result["candidate_asset_count"])
+
+            rogue_manifest_path = visual / "ROGUE_ASSET_MANIFEST.json"
+            rogue_manifest_path.write_text(
+                json.dumps(candidate_manifest), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(VisualAssetAuditError, "manifest set differs"):
+                audit(root, enforce_product_set=False)
+            rogue_manifest_path.unlink()
+
+            candidate_manifest["assets"] = [entry(product)]
+            candidate_manifest_path.write_text(
+                json.dumps(candidate_manifest), encoding="utf-8"
+            )
+            with self.assertRaisesRegex(
+                VisualAssetAuditError, "exactly one manifest"
+            ):
                 audit(root, enforce_product_set=False)
 
 

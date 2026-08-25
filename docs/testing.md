@@ -55,13 +55,21 @@ Windows/macOS job 还必须实际导出并启动产物；只在编辑器运行�
 
 Windows 在 1280×720、1600×900、2560×1440 和 2560×1600 四种真实窗口尺寸运行套件。四种尺寸都严格检查控件不越界/重叠、战场占物理安全矩形至少 92% 宽/78% 高、调度手牌/托盘分离、无全高不透明黑栏、隐藏调试文本和隐私。费用、攻击、生命和倒计时还必须同时提供真实 `Label3D`、高于底板至少 0.012 世界单位的深度证据和最终 GPU 徽章 ROI。1600×900 只与人工批准、显式更新的 committed golden 比较；macOS 保留资源、结构、ARM64、签名与真实启动检查，不与 Windows 做跨平台像素 golden。
 
-资产契约要求 `CardVisualCatalog` 对 29 个冻结 definition 全覆盖、路径和卡图唯一，卡背、菜单背景、fallback 正面与两张头像可加载，`ASSET_MANIFEST.json` 恰好包含 34 条并匹配实际 SHA-256。同牌组双席、未知牌组 fallback 和所有隐藏牌共享同一卡背也必须验证。
+Gate 4B-R2 冻结产品集仍要求 `CardVisualCatalog` 对 29 个 definition 全覆盖、路径和卡图唯一，卡背、菜单背景、fallback 正面与两张头像可加载，共 34 项；`ASSET_MANIFEST.json` 必须保持这组冻结内容及其已批准哈希。同牌组双席、未知牌组 fallback 和所有隐藏牌共享同一卡背也必须验证。未批准的 R3.1 地坪只登记在 `arena/R3_ASSET_MANIFEST.json`。联合审计要求主清单 34 项、候选清单 1 项，跨清单无重复并与实际 35 个 PNG/WebP/SVG 一一对应，所有 SHA-256 逐项匹配。
 
 性能 smoke 固定为 300 帧预热 + 300 帧测量；预热后 actor/material/texture 计数不得增长，无论渲染器类型都不能豁免。报告记录 `adapter_name`、`adapter_type`、`timing_budget_applicable`、p95 与 max。硬件适配器要求 p95 不高于 33.3 ms、max 低于 100 ms；只有 CPU 或名称明确为 Microsoft Basic Render Driver、llvmpipe、SwiftShader/software renderer 的设备可以 `timing_budget_applicable=false`。这仅不应用 GPU 时间阈值，仍要求 16 状态、功能/隐私、600 帧和资源零增长全部通过。
 
 ### legacy 兼容性
 
-`scgs_wire_frozen_golden` 固定验证 v1 消息长度、字节序、消息 ID 和金标字节。历史命名的 `SCGS_ENABLE_LEGACY_YGO2_TESTS` 当前控制整组 Python CTest：legacy overlay/协议、原生/Godot 制品与 34 项视觉素材审计、子进程超时、Gate 3B/3C/4A full-match 报告契约以及 Gate 4B-R2 visual-suite/golden 契约。它默认开启；开启时 CMake 必须找到 Python 3.10+，不能静默只注册部分测试。关闭会跳过整组 Python 契约，因此不能用于客户端 Gate 验收。
+`scgs_wire_frozen_golden` 固定验证 v1 消息长度、字节序、消息 ID 和金标字节。历史命名的 `SCGS_ENABLE_LEGACY_YGO2_TESTS` 当前控制整组 Python CTest：legacy overlay/协议、原生/Godot 制品与“R2 34 项＋R3 候选 1 项”联合视觉素材审计、子进程超时、Gate 3B/3C/4A full-match、Gate 4B-R2 visual-suite/golden 以及独立 R3.1 候选切片契约。它默认开启；开启时 CMake 必须找到 Python 3.10+，不能静默只注册部分测试。关闭会跳过整组 Python 契约，因此不能用于客户端 Gate 验收。
+
+### Gate 4B-R3.1 候选切片契约
+
+R3.1 使用单独的 schema 1，不修改 Gate 4B-R2 schema 4 或已批准 golden。Windows display-backed 运行必须固定 1600×900、seed `0xC0DEC0DE`、Player0 先手且不洗牌，通过真实 `IScgsGameSession` 和热座控制器完成双方调度，最终到达 Player0 revision 2 且至少有一个真实 `LegalAction`。
+
+报告的产品画面集合只能包含 `action-idle`、`hand-hover`、`source-selected` 三态，并固定 `approval_status=pending_user_approval`；隐私取证另写出 `privacy-resolving` 与 `privacy-covered` 两张证据图，不把它们冒充产品状态。报告 provenance 必须绑定 checkout commit/source/dirty 状态、冻结 R2 主清单、独立 R3 候选清单、地坪、GLB、shader 与 launcher 的 SHA-256，不能把两份素材清单拼成会改变 R2 golden 的总清单。每个产品态在安全 FX 和手牌 Transform 收敛后再等待连续两个稳定 `FramePostDraw`；三张产品 PNG 必须互不相同，也不能在画面上缘两角露出有限地坪的黑色外缘。
+
+隐私证据必须在 P0 revision-0 的真实调度提交前向当前 `MatchScreen` 注入恶意私密 sentinel，再实际经过 `Resolving → Covered`。两张证据图都必须没有 sentinel 像素；actor 的文字、metadata、身份材质、碰撞、drag token、tween 和 callback 必须已清除。独立计数器覆盖 `GetView`、合法行动/目标/格位/组件/支付/响应查询以及事件读取/游标读取；两个状态前后的 viewer-scoped read 总数与快照数都必须分别保持不变。detector 自测与这次真实注入要在报告中分开记录。初始完全遮挡、viewer 请求顺序 `[0,1,0]`、零提前 view 调用和对手手牌只用共享卡背仍是强制条件。正式 Windows EXE 与 ZIP 往返包必须由打包后的 `PLAY_R3_VISUAL_SLICE.cmd` 再执行相同切片，证明动态加载的 tscn、GLB、shader、纹理、双素材清单和 launcher 都进入导出。
 
 legacy 测试通过只证明历史兼容层仍可解析，不代表 YGOPro2/Unity 是现行客户端或已经实机可用。
 

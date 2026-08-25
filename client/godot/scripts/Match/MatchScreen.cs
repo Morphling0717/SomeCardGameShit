@@ -91,6 +91,7 @@ public sealed partial class MatchScreen : Control
     private bool _ciExternalStandbyDrag;
     private bool _showDebugUi;
     private MatchHudPresenter _hudPresenter = null!;
+    private BattlefieldVisualProfile _visualProfile = BattlefieldVisualProfile.Gate4BR2;
     private MatchVisualIdentity _visualIdentity = MatchVisualIdentity.FromDecks(
         MatchSetup.Defaults.Player0Deck,
         MatchSetup.Defaults.Player1Deck);
@@ -109,6 +110,8 @@ public sealed partial class MatchScreen : Control
     public bool IsPrivacyCoverVisible => _privacyOverlay.IsCovering;
 
     public int SnapshotRequestCount => _countingSession?.GetViewCallCount ?? 0;
+
+    public int ViewerReadRequestCount => _countingSession?.ViewerReadCallCount ?? 0;
 
     public int OpponentHandBackCount =>
         GetNodeOrNull<Container>("%OpponentHandBacks")?.GetChildren()
@@ -222,6 +225,8 @@ public sealed partial class MatchScreen : Control
 
     internal IReadOnlyCollection<ActionKind> CiSuccessfulActionKinds => _successfulActionKinds;
 
+    internal BattlefieldVisualProfile CiVisualProfile => _visualProfile;
+
     public override void _Ready()
     {
         _legacy2dBoard = OS.GetCmdlineUserArgs().Contains(
@@ -245,7 +250,11 @@ public sealed partial class MatchScreen : Control
         _resultOverlay = GetNode<ResultOverlay>("%ResultOverlay");
         _errorOverlay = GetNode<ErrorOverlay>("%ErrorOverlay");
         _hudPresenter = new MatchHudPresenter(this);
+        _hudPresenter.ConfigureVisualProfile(_visualProfile);
         _hudPresenter.ConfigureIdentity(_visualIdentity, LeaderPortraitCatalog.Shared);
+        _battlefield3d.ConfigureVisualProfile(_visualProfile);
+        _battlefield3d.ConfigureVisualIdentity(_visualIdentity);
+        ApplyVisualProfileTheme();
 
         _battlefield3d.Visible = !_legacy2dBoard;
         _battlefieldDetails.Visible = !_legacy2dBoard;
@@ -310,6 +319,8 @@ public sealed partial class MatchScreen : Control
         ColorRect background = GetNode<ColorRect>("Background");
         background.Color = _legacy2dBoard
             ? new Color(0.028f, 0.045f, 0.075f, 1.0f)
+            : _visualProfile == BattlefieldVisualProfile.R3Candidate
+                ? new Color(0.012f, 0.014f, 0.016f, 0.08f)
             : new Color(0.028f, 0.045f, 0.075f, 0.16f);
         SetLegacyBoardPanelsVisible(_legacy2dBoard);
         GetNode<Button>("%SurrenderButton").Visible = _legacy2dBoard;
@@ -325,6 +336,15 @@ public sealed partial class MatchScreen : Control
             _battlefieldControlRail.OffsetRight = -18.0f;
             _dock.OffsetLeft = -400.0f;
             _dock.OffsetRight = -18.0f;
+        }
+    }
+
+    private void ApplyVisualProfileTheme()
+    {
+        _directActions.ConfigureVisualProfile(_visualProfile);
+        if (_visualProfile == BattlefieldVisualProfile.R3Candidate)
+        {
+            TacticalHudTheme.R3Candidate.Apply(this);
         }
     }
 
@@ -505,7 +525,11 @@ public sealed partial class MatchScreen : Control
         CardView? card = FindCard(view, knownId);
         if (card is not null && !CardPresentation.IsIdentityHidden(card))
         {
-            ActiveCardDetails.ShowCard(card, "卡牌详情（右键固定）");
+            ActiveCardDetails.ShowCard(
+                card,
+                _visualProfile == BattlefieldVisualProfile.R3Candidate
+                    ? "卡牌详情"
+                    : "卡牌详情（右键固定）");
             return;
         }
 
@@ -540,7 +564,11 @@ public sealed partial class MatchScreen : Control
 
         _detailsPinned = true;
         _pinnedCardId = knownId;
-        ActiveCardDetails.ShowCard(card, "已固定卡牌详情（再次右键取消）");
+        ActiveCardDetails.ShowCard(
+            card,
+            _visualProfile == BattlefieldVisualProfile.R3Candidate
+                ? "卡牌详情 · 已固定"
+                : "已固定卡牌详情（再次右键取消）");
     }
 
     private bool IsGuiBlockingBattlefield(Vector2 position)
@@ -730,6 +758,39 @@ public sealed partial class MatchScreen : Control
     public void Begin(IScgsGameSession session, PlayerId initialViewer) =>
         Begin(session, initialViewer, _visualIdentity);
 
+    /// <summary>
+    /// Selects a presentation-only profile before a match begins. Preview and
+    /// product entry points use this boundary instead of reaching through the
+    /// screen to presentation internals.
+    /// </summary>
+    internal void UseVisualProfile(BattlefieldVisualProfile profile)
+    {
+        ArenaVisualProfile.Resolve(profile);
+        if (_controller is not null || _countingSession is not null)
+        {
+            throw new InvalidOperationException(
+                "The battlefield visual profile must be selected before Begin.");
+        }
+        if (_visualProfile != BattlefieldVisualProfile.Gate4BR2 &&
+            profile != _visualProfile)
+        {
+            throw new InvalidOperationException(
+                "A MatchScreen profile is selected once; create a fresh screen to return to R2.");
+        }
+
+        _visualProfile = profile;
+        if (!IsNodeReady())
+        {
+            return;
+        }
+
+        _battlefield3d.ConfigureVisualProfile(profile);
+        _hudPresenter.ConfigureVisualProfile(profile);
+        ApplyVisualProfileTheme();
+        ConfigurePresentationLayout();
+        ApplyHudLayout();
+    }
+
     public void Begin(
         IScgsGameSession session,
         PlayerId initialViewer,
@@ -748,6 +809,7 @@ public sealed partial class MatchScreen : Control
         DisposeController();
         _visualIdentity = visualIdentity;
         _hudPresenter.ConfigureIdentity(_visualIdentity, LeaderPortraitCatalog.Shared);
+        _battlefield3d.ConfigureVisualIdentity(_visualIdentity);
         ResetCiMetrics();
         _countingSession = new CountingSession(session);
         _controller = new HotseatMatchController(_countingSession);
@@ -959,6 +1021,80 @@ public sealed partial class MatchScreen : Control
                 RenderState(_controller.State);
             }
         }
+    }
+
+    internal bool SelectLegalSourceForR3(LegalAction action)
+    {
+        ArgumentNullException.ThrowIfNull(action);
+        if (_legacy2dBoard || _controller?.State is not
+            {
+                Mode: HotseatUiMode.Action,
+                Snapshot: { } snapshot,
+                Interaction.Step: HotseatSelectionStep.None,
+            } before ||
+            action.Command.Source == 0 ||
+            action.Command.ExpectedRevision != snapshot.Revision ||
+            !before.LegalActions.Any(candidate =>
+                CommandsEquivalent(candidate.Command, action.Command)))
+        {
+            return false;
+        }
+
+        _ciSuppressAutoPrepare = true;
+        try
+        {
+            if (!TryClickBattlefieldSourceForCi(action.Command.Source))
+            {
+                return false;
+            }
+
+            RenderState(_controller.State);
+            HotseatUiState selected = _controller.State;
+            return selected.Mode == HotseatUiMode.Action &&
+                   selected.Snapshot?.Revision == snapshot.Revision &&
+                   selected.Interaction.Revision == snapshot.Revision &&
+                   selected.Interaction.Source == action.Command.Source &&
+                   selected.Interaction.Step != HotseatSelectionStep.None;
+        }
+        finally
+        {
+            // The R3 collector intentionally captures the retained source
+            // selection. Restoring auto-prepare must not cancel that state.
+            _ciSuppressAutoPrepare = false;
+        }
+    }
+
+    internal bool SetNearHandHoverForR3(int index, bool hovered)
+    {
+        if (_legacy2dBoard || _controller?.State is not
+            {
+                Mode: HotseatUiMode.Action,
+                Snapshot: { } view,
+                Interaction.Step: HotseatSelectionStep.None,
+            } ||
+            index < 0 || index >= view.Players[(int)view.Viewer].Hand.Length)
+        {
+            return false;
+        }
+
+        CardView card = view.Players[(int)view.Viewer].Hand[index];
+        if (card.InstanceId is not { } instanceId ||
+            !_battlefield3d.CiSetNearHandHover(index, hovered))
+        {
+            return false;
+        }
+
+        BattlefieldSurfaceRef? surface = hovered
+            ? new BattlefieldSurfaceRef(
+                BattlefieldSurfaceKind.HandCard,
+                view.Viewer,
+                index,
+                instanceId)
+            : null;
+        OnBattlefieldSurfaceHovered(
+            _battlefield3d,
+            new BattlefieldSurfaceHoverEventArgs(surface, null, Vector3.Zero));
+        return !hovered || _battlefieldDetails.ShowsKnownCardForSmoke(card);
     }
 
     private bool TryClickBattlefieldSourceForCi(ulong source)
@@ -2508,7 +2644,9 @@ public sealed partial class MatchScreen : Control
                         autoPrepareWhenReady: true);
                 }
                 _directActions.Present(
-                    "点击亮起的具体格位，或把牌拖到该格位。",
+                    _visualProfile == BattlefieldVisualProfile.R3Candidate
+                        ? "选择亮起格位 · 可直接拖放"
+                        : "点击亮起的具体格位，或把牌拖到该格位。",
                     noSlotKey is null ? [] : [("不指定格位 / 直接发动", noSlotKey)],
                     payment,
                     context.CanStepBack);
@@ -2582,10 +2720,17 @@ public sealed partial class MatchScreen : Control
         {
             _directActions.SetCompactMode(compact);
             Vector2 minimum = _directActions.GetCombinedMinimumSize();
-            float preferredWidth = compact ? 196.0f : 360.0f;
+            float preferredWidth = _visualProfile == BattlefieldVisualProfile.R3Candidate
+                ? compact ? 176.0f : 300.0f
+                : compact ? 196.0f : 360.0f;
             return new Vector2(
                 Math.Min(availableWidth, Math.Max(preferredWidth, minimum.X)),
-                Mathf.Clamp(minimum.Y, compact ? 64.0f : 76.0f, 156.0f));
+                Mathf.Clamp(
+                    minimum.Y,
+                    _visualProfile == BattlefieldVisualProfile.R3Candidate
+                        ? compact ? 50.0f : 58.0f
+                        : compact ? 64.0f : 76.0f,
+                    _visualProfile == BattlefieldVisualProfile.R3Candidate ? 104.0f : 156.0f));
         }
 
         Vector2 panelSize = MeasurePanel(compact: false);
@@ -5254,6 +5399,8 @@ public sealed partial class MatchScreen : Control
 
         internal int GetViewCallCount { get; private set; }
 
+        internal int ViewerReadCallCount { get; private set; }
+
         internal int PrematureViewerCallCount { get; private set; }
 
         internal void RequireReveal(PlayerId viewer)
@@ -5278,44 +5425,44 @@ public sealed partial class MatchScreen : Control
 
         public MatchView GetView(PlayerId viewer)
         {
-            VerifyViewerAccess(viewer);
+            RecordViewerRead(viewer);
             GetViewCallCount++;
             return _inner.GetView(viewer);
         }
 
         public LegalActionsResult ListLegalActions(ActionQueryRequest query)
         {
-            VerifyViewerAccess(query.Player);
+            RecordViewerRead(query.Player);
             return _inner.ListLegalActions(query);
         }
 
         public ValidTargetsResult ListValidTargets(ActionQueryRequest query)
         {
-            VerifyViewerAccess(query.Player);
+            RecordViewerRead(query.Player);
             return _inner.ListValidTargets(query);
         }
 
         public ValidSlotsResult ListValidSlots(ActionQueryRequest query)
         {
-            VerifyViewerAccess(query.Player);
+            RecordViewerRead(query.Player);
             return _inner.ListValidSlots(query);
         }
 
         public ValidDonorsResult ListValidDonors(ActionQueryRequest query)
         {
-            VerifyViewerAccess(query.Player);
+            RecordViewerRead(query.Player);
             return _inner.ListValidDonors(query);
         }
 
         public PaymentResult PreviewPayment(GameCommandRequest command)
         {
-            VerifyViewerAccess(command.Player);
+            RecordViewerRead(command.Player);
             return _inner.PreviewPayment(command);
         }
 
         public ReactionContext GetReactionContext(PlayerId viewer)
         {
-            VerifyViewerAccess(viewer);
+            RecordViewerRead(viewer);
             return _inner.GetReactionContext(viewer);
         }
 
@@ -5327,20 +5474,26 @@ public sealed partial class MatchScreen : Control
 
         public EventBatch ReadEvents(PlayerId viewer, ulong afterSequence)
         {
-            VerifyViewerAccess(viewer);
+            RecordViewerRead(viewer);
             return _inner.ReadEvents(viewer, afterSequence);
         }
 
         public EventBatch ReadNewEvents(PlayerId viewer)
         {
-            VerifyViewerAccess(viewer);
+            RecordViewerRead(viewer);
             return _inner.ReadNewEvents(viewer);
         }
 
         public ulong GetEventCursor(PlayerId viewer)
         {
-            VerifyViewerAccess(viewer);
+            RecordViewerRead(viewer);
             return _inner.GetEventCursor(viewer);
+        }
+
+        private void RecordViewerRead(PlayerId viewer)
+        {
+            ViewerReadCallCount++;
+            VerifyViewerAccess(viewer);
         }
 
         private void VerifyViewerAccess(PlayerId viewer)

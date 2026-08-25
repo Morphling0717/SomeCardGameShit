@@ -164,6 +164,12 @@ Player0 与 Player1 的 cursor 独立。未完成渲染前不得 ACK；重读同
 - 结构契约检查控件不越界、HUD 不重叠、正常模式无调试标签、战场物理安全区占比、调度托盘不遮手牌，并为桌面、主战者、手牌、HUD 与数值徽章记录最终 GPU 像素证据；每张图等待连续两个内容一致的 `FramePostDraw`。1600×900 golden 只能在人工审阅后显式更新，CI 不自动批准新 golden。
 - 最大场面经过 300 帧预热和 300 帧测量，要求 actor/material/texture 数零增长。硬件加速 renderer 还必须满足 p95 ≤ 33.3 ms 且单帧 < 100 ms；被明确识别的纯软件 renderer 只豁免 GPU 时间阈值，11 状态功能、截图、布局、隐私、600 帧和资源零增长仍全部强制，其 timing 不作为硬件性能证据。
 
+## Gate 4B-R3.1 候选 profile
+
+`BattlefieldVisualProfile` 把正常产品的 `Gate4BR2` 与待批准的 `R3Candidate` 隔离：菜单、普通 EXE 启动、整局 smoke 和 R2 golden 都不能隐式切入候选。只有 `--r3-visual-slice` 可启用候选，并且报告必须保持 `approval_status=pending_user_approval`。
+
+候选不增加新的热座状态，也不改变上面的隐私状态机。它在真实 revision-0 调度前注入恶意私密 sentinel，实际经历 `Resolving → Covered`，分别验证 viewer read 计数不增长和节点/GPU 清理；之后通过双方真实调度回到 revision 2 的 `Action`，捕获三张候选展示图。R2 的 34 项产品素材与 R3 的 1 项候选地坪分清单审计，批准前不得把候选当成默认状态皮肤。
+
 ## 发布前人工硬门
 
 Gate 4B-R2 的实现、四分辨率 16 状态 visual suite、导出和 CI 尚须由同提交实测证明；即使自动化完成，也不能替代以下三项发布硬门：

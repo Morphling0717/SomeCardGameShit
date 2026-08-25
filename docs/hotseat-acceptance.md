@@ -105,6 +105,18 @@ Gate 3B 的历史通过不能证明 Gate 3C 的交互或公共投影安全；Gat
 
 Gate 4B-R1 的实现提交四项 CI 已绿；包含本文修改的最终文档尖端仍须按既有矩阵复验，准确 run、断言数量和制品摘要只写入 `TEST_REPORT.md`。
 
+## Gate 4B-R3.1 未批准视觉切片
+
+- [x] 普通启动和 Gate 4B-R2 schema 4/golden 仍使用 `Gate4BR2`，候选只能由 `--r3-visual-slice` 显式启动；
+- [x] 80×60 工业地面在四角延伸到镜头外，没有周界框、半场色板、有限地坪黑边或平铺的候选图；
+- [x] 空位只保留浅凹槽/短角标，机械位于逻辑对局 footprint 外；场内头像终端只读取公开牌组身份；
+- [x] 近端手牌为相机相对弧线，费用/身材与卡面使用真实深度遮挡，悬停/选择不存在跨卡串字；
+- [x] 1600×900 三态实拍来自同一真实 native session、两次真实调度和 revision 2 的 17 个合法行动；
+- [x] 报告固定 `pending_user_approval`，记录 `[0,1,0]` viewer 顺序、零提前读取、共享隐藏牌背、稳定手牌 Transform/FramePostDraw，并绑定 commit、双素材清单、地坪、GLB、shader 与 launcher 的 SHA-256；
+- [x] P0 revision-0 调度前向真实 `MatchScreen` 注入恶意私密 sentinel；独立 `privacy-resolving` / `privacy-covered` 证据图、节点清理检查和覆盖快照/查询/事件的 viewer read 总计数证明实际迁移零泄露，detector 自测不冒充真实取证；
+- [ ] 实现与最终文档尖端四项 CI 全绿，正式 Windows EXE/ZIP 往返候选实启和制品摘要已写入 `TEST_REPORT.md`；
+- [ ] 用户双击导出包中的 `PLAY_R3_VISUAL_SLICE.cmd` 并明确批准这套构图、配色、手牌、主战者和 HUD；批准前不得推广到默认产品与完整状态。
+
 ## 发布标签前仍未完成的三项硬门
 
 - [ ] 物理 Apple Silicon Mac 完成整局、退出和重开；

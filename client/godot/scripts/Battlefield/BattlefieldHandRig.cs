@@ -13,33 +13,33 @@ public sealed class BattlefieldHandRig
 {
     public const float ReferenceNearPixelHeight = 184.0f;
     public const float ReferenceFarPixelHeight = 76.0f;
-    private const float NearNominalSpacing = 104.0f;
-    private const float FarNominalSpacing = 48.0f;
-    private const float NearMaximumRoll = 8.0f;
-    private const float FarMaximumRoll = 4.5f;
     private const float NearCameraDepth = 7.2f;
     private const float FarCameraDepth = 9.2f;
-    private const float HoverScale = 1.12f;
-    private const float SelectedScale = 1.07f;
-    private const float HoverLiftPixels = 40.0f;
-    private const float SelectedLiftPixels = 22.0f;
     private const float HoverForward = 0.52f;
     private const float SelectedForward = 0.28f;
-    private const float FocusNeighborSpread = 26.0f;
-    private const float DepthStep = 0.008f;
+    private const float Gate4BR2DepthStep = 0.008f;
+    private const float R3CandidateDepthStep = 0.135f;
 
     private readonly Camera3D _camera;
     private BattlefieldViewportLayout _layout;
+    private ArenaVisualProfile _visualProfile;
 
-    public BattlefieldHandRig(Camera3D camera, BattlefieldViewportLayout layout)
+    public BattlefieldHandRig(
+        Camera3D camera,
+        BattlefieldViewportLayout layout,
+        BattlefieldVisualProfile visualProfile = BattlefieldVisualProfile.Gate4BR2)
     {
         _camera = camera ?? throw new ArgumentNullException(nameof(camera));
         _layout = layout;
+        _visualProfile = ArenaVisualProfile.Resolve(visualProfile);
     }
 
     public BattlefieldViewportLayout Layout => _layout;
 
     public void SetViewportLayout(BattlefieldViewportLayout layout) => _layout = layout;
+
+    public void SetVisualProfile(BattlefieldVisualProfile profile) =>
+        _visualProfile = ArenaVisualProfile.Resolve(profile);
 
     public HandCardPose CreatePose(
         PlayerId player,
@@ -69,10 +69,19 @@ public sealed class BattlefieldHandRig
         bool hovered = near && hoveredIndex == index;
         bool selected = near && selectedIndex == index;
         int? focusIndex = hoveredIndex ?? selectedIndex;
+        HandVisualProfile hand = _visualProfile.Hand;
         float basePixelHeight = near
-            ? NearPixelHeightFor(_layout.ViewportSize.Y)
-            : FarPixelHeightFor(_layout.ViewportSize.Y);
-        float focusScale = hovered ? HoverScale : selected ? SelectedScale : 1.0f;
+            ? PixelHeightFor(
+                _layout.ViewportSize.Y,
+                hand.NearHeightRatio,
+                hand.NearMinimumHeight,
+                hand.NearMaximumHeight)
+            : PixelHeightFor(
+                _layout.ViewportSize.Y,
+                hand.FarHeightRatio,
+                hand.FarMinimumHeight,
+                hand.FarMaximumHeight);
+        float focusScale = hovered ? hand.HoverScale : selected ? hand.SelectedScale : 1.0f;
         float pixelHeight = basePixelHeight * focusScale;
         float pixelWidth = pixelHeight * BattlefieldPerspective.CardWidth /
                            BattlefieldPerspective.CardDepth;
@@ -81,8 +90,9 @@ public sealed class BattlefieldHandRig
         float normalized = count == 1 ? 0.0f : offset / MathF.Max(1.0f, center);
 
         Rect2 safe = _layout.SafeRect;
-        float maximumSpan = safe.Size.X * (near ? 0.82f : 0.52f);
-        float nominalSpacing = near ? NearNominalSpacing : FarNominalSpacing;
+        float maximumSpan = safe.Size.X *
+                            (near ? hand.NearMaximumSpanRatio : hand.FarMaximumSpanRatio);
+        float nominalSpacing = near ? hand.NearNominalSpacing : hand.FarNominalSpacing;
         float spacing = count == 1
             ? 0.0f
             : MathF.Min(
@@ -95,7 +105,7 @@ public sealed class BattlefieldHandRig
         {
             int direction = Math.Sign(index - focusIndex.Value);
             float distanceWeight = 1.0f / MathF.Max(1.0f, Math.Abs(index - focusIndex.Value));
-            screenX += direction * FocusNeighborSpread * distanceWeight;
+            screenX += direction * hand.FocusNeighborSpread * distanceWeight;
         }
 
         float edgeArc = MathF.Pow(MathF.Abs(normalized), 1.55f) * (near ? 17.0f : 7.0f);
@@ -106,17 +116,31 @@ public sealed class BattlefieldHandRig
         float screenY = near ? baseY - edgeArc : baseY + edgeArc;
         if (hovered)
         {
-            screenY -= HoverLiftPixels;
+            screenY -= hand.HoverLiftPixels;
         }
         else if (selected)
         {
-            screenY -= SelectedLiftPixels;
+            screenY -= hand.SelectedLiftPixels;
         }
 
-        float rollDegrees = normalized * (near ? NearMaximumRoll : -FarMaximumRoll);
+        float rollDegrees = normalized *
+                            (near ? hand.NearMaximumRoll : -hand.FarMaximumRoll);
+        float depthStep = _visualProfile.Id == BattlefieldVisualProfile.R3Candidate
+            ? R3CandidateDepthStep
+            : Gate4BR2DepthStep;
+        // A candidate card's labels sit roughly 0.10 world units above its
+        // face. Each following card must therefore advance beyond that
+        // relief, and a focused card must advance beyond the entire fan.
+        bool candidateFocused =
+            _visualProfile.Id == BattlefieldVisualProfile.R3Candidate &&
+            (hovered || selected);
+        float focusForward = candidateFocused
+            ? BattlefieldPerspective.MaximumHandCards * depthStep +
+              (hovered ? 0.22f : 0.12f)
+            : hovered ? HoverForward : selected ? SelectedForward : 0.0f;
         float cameraDepth = (near ? NearCameraDepth : FarCameraDepth) -
-                            (index * DepthStep) -
-                            (hovered ? HoverForward : selected ? SelectedForward : 0.0f);
+                            (index * depthStep) -
+                            focusForward;
         Vector2 screenCenter = new(screenX, screenY);
         Rect2 screenBounds = RotatedBounds(screenCenter, pixelWidth, pixelHeight, rollDegrees);
         float topLimit = near ? 0.0f : _layout.TopReservedPixels;
@@ -159,6 +183,12 @@ public sealed class BattlefieldHandRig
 
     public static float FarPixelHeightFor(float viewportHeight) =>
         Mathf.Clamp(viewportHeight * 0.085f, 60.0f, 104.0f);
+
+    private static float PixelHeightFor(
+        float viewportHeight,
+        float ratio,
+        float minimum,
+        float maximum) => Mathf.Clamp(viewportHeight * ratio, minimum, maximum);
 
     private Transform3D CreateCameraFacingTransform(
         Vector2 screenCenter,

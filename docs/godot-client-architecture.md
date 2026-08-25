@@ -114,11 +114,23 @@ CastSpell 的显式顺序固定为“选择手牌法术 → 选择己方空策�
 
 `CardVisualCatalog` 对 29 个现有 definition 提供唯一原创临时卡图，并暴露未知卡的无身份 fallback 正面和所有隐藏牌共享的卡背。`LeaderPortraitCatalog` 仅根据对局开始前公开的 `midrange` / `advance` 选择建立 `MatchVisualIdentity`；同牌组双席可以使用同一头像，席位标签和活动光环仍会区分玩家。未知牌组使用中性 fallback。
 
-`ASSET_MANIFEST.json` 严格记录 34 项视觉资产：29 张卡图、1 张卡背、1 张菜单背景、1 个 fallback 正面和 2 张头像。目录层只负责路径、阵营、框体与纹理选择；不推导卡牌费用、类型、效果或合法性。
+Gate 4B-R2 的冻结产品视觉集仍是 34 项：29 张卡图、1 张卡背、1 张菜单背景、1 个 fallback 正面和 2 张头像；原始 `ASSET_MANIFEST.json` 及其 SHA-256 不因候选资产变化。Gate 4B-R3.1 的 1 张尚未批准竞技场地坪只登记在 `arena/R3_ASSET_MANIFEST.json`。联合审计要求两份清单合计 35 项、跨清单无重复且完整覆盖实际媒体；候选地坪不能被解释为 R2 golden 已批准的产品素材。目录层只负责路径、阵营、框体与纹理选择，不推导卡牌费用、类型、效果或合法性。
 
 `GlassHudTheme` 管理 1280×720 以上的响应式安全矩形，`MatchHudPresenter` 只消费观看者安全 `MatchView`、`HotseatPublicBoardView` 和公开视觉身份。它将卡牌详情放在左侧 248/288/320 px 自适应抽屉，无卡时收窄；两个玩家状态舱独立悬浮在右上，阶段胶囊、结束回合、暂停和日志不构成全高侧栏。开发诊断只在 F3 或 `--show-debug-ui` 显示。
 
 同一 viewport 只实例化一个 `BackBufferCopy`，共享 screen-reading CanvasItem shader 对顶层玻璃控件做背景模糊、半透明渐变、圆角遮罩、柔和高光和细描边。普通玻璃合成保持可读而不形成全高不透明黑栏；完全不透明仅用于 `Covered` 物理交接。基础 FX 队列只消费安全 DTO、公开事件与公共投影，revision/viewer/mode 变化时取消旧 tween 和回调。
+
+## Gate 4B-R3.1 未批准视觉切片
+
+`BattlefieldVisualProfile` 把已交付的 `Gate4BR2` 与 `R3Candidate` 明确分开。正常菜单、对局和既有 schema 4 visual suite 始终使用前者；只有 `--r3-visual-slice` 显式启动候选。候选报告固定写入 `approval_status="pending_user_approval"`，在用户批准前不能成为默认产品路径，也不能替换 R2 golden。
+
+R3 候选场景使用 80×60 的连续中性工业地面；原创地坪图只在中央 46×34 世界区域采样一次，向外渐隐到程序化钢板，不平铺、不显示有限外缘。机械构件位于不可见的 19.8×16.6 对局 footprint 之外，没有包围场地的框、半场色板或可交互碰撞。单位/策略位空闲时只显示浅凹槽与短角标，阵营色限制在卡框、主战者终端和交互反馈。
+
+`ArenaVisualProfile`、`HandVisualProfile` 与 `TacticalHudTheme` 只更换材质、构图、卡牌遮挡顺序和 HUD 皮肤；`MatchScreen` 仍掌握 session、隐私状态和提交时序。R3 手牌保持相机相对前景姿态，并为每张卡建立足以遮住自身凸起徽章的深度层；悬停/选中卡再越过完整手牌层级，避免相邻费用或身材跨卡穿透。场内主战者头像只来自公开的 `MatchVisualIdentity`，隐藏牌仍只绑定共享卡背。
+
+独立的 `GateR3VisualSlice` 通过真实 `IScgsGameSession` 完成 P0、P1 两次调度，再回到 P0 的 revision 2 行动状态；它捕获 `action-idle`、`hand-hover`、`source-selected` 三张 1600×900 display-backed 产品实拍。P0 revision-0 的调度提交前还会向真实 `MatchScreen` 注入恶意私密 sentinel，并分别捕获 `privacy-resolving`、`privacy-covered`：两态必须清空 actor 文字、metadata、身份材质、碰撞、drag token、tween 与 callback，viewer read 计数不得增长，最终 GPU 画面不得出现 sentinel。detector 自测和这次真实状态迁移在报告中分开记账。
+
+R3 schema 1 严格记录真实 seed/先手/洗牌、viewer 请求顺序、合法行动、共享牌背、两次稳定 `FramePostDraw`，并把 checkout commit/source/dirty 状态、冻结 R2 主清单、独立 R3 候选清单、地坪、GLB、shader 与 launcher 的 SHA-256 一并绑定；它不复用或放宽 Gate 4B-R2 schema 4。
 
 ## Resolving 公共投影与交接遮挡
 
@@ -172,7 +184,7 @@ Gate 4A full-match 仍使用严格 schema version 3 验证 signal 两局、`Acti
 
 display-backed 视觉套件在 1280×720、1600×900、2560×1440 和 2560×1600 捕获原有 11 种产品状态，并新增单张/五张/十张手牌、悬停手牌和场上可读性，共 16 种状态。每个 capture 必须等待连续两个内容一致的 `FramePostDraw`，并记录桌面、双方主战者、手牌和 HUD 的像素锚点，以及费用、攻击、生命与倒计时的最终 GPU ROI。1600×900 感知 golden 只能显式更新并人工审阅。600 帧稳态证据由 300 帧预热 + 300 帧测量组成，预热后 actor/material/texture 数不得增长。
 
-报告同时记录 `adapter_name`、`adapter_type` 和 `timing_budget_applicable`。硬件适配器要求 p95 不高于 33.3 ms、单帧低于 100 ms；CPU 或明确的 Microsoft Basic Render Driver/llvmpipe/SwiftShader/software renderer 只不应用 GPU 时间预算，仍必须完成全部功能、截图结构、隐私哨兵、600 帧和资源零增长验证。34 项资产的路径、唯一性和哈希也是导出契约。自动化与导出验收状态以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准，不以本文替代测试报告。
+报告同时记录 `adapter_name`、`adapter_type` 和 `timing_budget_applicable`。硬件适配器要求 p95 不高于 33.3 ms、单帧低于 100 ms；CPU 或明确的 Microsoft Basic Render Driver/llvmpipe/SwiftShader/software renderer 只不应用 GPU 时间预算，仍必须完成全部功能、截图结构、隐私哨兵、600 帧和资源零增长验证。R2 的 34 项主清单路径、唯一性和冻结哈希仍是既有导出/golden 契约；独立 R3 候选清单再提供第 35 项，联合审计跨两份清单校验唯一性与完整性。自动化与导出验收状态以 [`../TEST_REPORT.md`](../TEST_REPORT.md) 为准，不以本文替代测试报告。
 
 以下仍是发布标签前的硬门，不能因 headless 或 CI smoke 通过而省略：
 

@@ -22,7 +22,15 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
     private readonly List<HandCardPose> _farHandPoses = [];
     private readonly Dictionary<BattlefieldSurfaceRef, IBattlefieldPickTarget> _surfaceActors = [];
     private readonly List<BattlefieldSurfaceRef> _keyboardSurfaces = [];
+    private readonly Dictionary<ulong, Godot.Environment?> _arenaEnvironments = [];
     private ICardVisualCatalog _visualCatalog = CardVisualCatalog.Shared;
+    private BattlefieldVisualProfile _visualProfile = BattlefieldVisualProfile.Gate4BR2;
+    private ArenaVisualProfile _arenaVisualProfile = ArenaVisualProfile.Gate4BR2;
+    private MatchVisualIdentity _visualIdentity = MatchVisualIdentity.FromDecks(
+        LeaderPortraitCatalog.MidrangeDeckId,
+        LeaderPortraitCatalog.AdvanceDeckId);
+    private Node3D? _gate4BR2Arena;
+    private Node3D? _r3CandidateArena;
     private BattlefieldCameraRig _camera = null!;
     private BattlefieldHandRig _handRig = null!;
     private BattlefieldRaycastInput _raycastInput = null!;
@@ -63,11 +71,36 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
 
     public event EventHandler? ProjectionChanged;
 
+    [Export]
+    public BattlefieldVisualProfile VisualProfile
+    {
+        get => _visualProfile;
+        set
+        {
+            ArenaVisualProfile.Resolve(value);
+            if (_visualProfile == value)
+            {
+                return;
+            }
+
+            if (_built)
+            {
+                ConfigureVisualProfile(value);
+                return;
+            }
+
+            _visualProfile = value;
+            _arenaVisualProfile = ArenaVisualProfile.Resolve(value);
+        }
+    }
+
     public bool InputEnabled => _raycastInput?.InputEnabled == true;
 
     public ulong Revision { get; private set; }
 
     public PlayerId PerspectiveViewer { get; private set; }
+
+    internal BattlefieldVisualProfile CiVisualProfile => _visualProfile;
 
     public int CiCardPoolSize => _cardPool.Count;
 
@@ -105,6 +138,16 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         }
     }
 
+    /// <summary>
+    /// Screen bounds of the actual gameplay topology. R2 retains its historical
+    /// framed-board contract; the open R3 arena measures slots, leaders and
+    /// piles instead of inventing a perimeter which is no longer rendered.
+    /// </summary>
+    public Rect2 CiProjectedGameplayRect =>
+        _visualProfile == BattlefieldVisualProfile.Gate4BR2
+            ? CiProjectedBoardRect
+            : ProjectGameplayTopologyRect();
+
     public Rect2 CiOwnHandScreenRect
     {
         get
@@ -129,6 +172,22 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
     internal IReadOnlyList<HandCardPose> CiNearHandPoses => _nearHandPoses.ToArray();
 
     internal IReadOnlyList<HandCardPose> CiFarHandPoses => _farHandPoses.ToArray();
+
+    internal string CiArenaProfile => _visualProfile switch
+    {
+        BattlefieldVisualProfile.Gate4BR2 => "gate4b-r2",
+        BattlefieldVisualProfile.R3Candidate => "r3-candidate",
+        _ => throw new InvalidOperationException("The battlefield visual profile is unknown."),
+    };
+
+    internal int CiHiddenHandCardCount =>
+        _handBindings.Count(binding => !binding.Near && binding.Actor.Visible);
+
+    internal bool CiHiddenHandUsesSharedBack =>
+        CiHiddenHandCardCount > 0 &&
+        _handBindings
+            .Where(binding => !binding.Near && binding.Actor.Visible)
+            .All(binding => binding.Actor.CiUsesSharedCardBack);
 
     public int CiStableSurfaceLookupCount =>
         _surfaceActors.Keys.Count(surface => surface.InstanceId.HasValue);
@@ -172,6 +231,65 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
     {
         EnsureBuilt();
         return _camera.SetZoom(zoom);
+    }
+
+    internal void ConfigureVisualProfile(BattlefieldVisualProfile profile)
+    {
+        EnsureBuilt();
+        if (_privateRender || _handBindings.Count != 0 ||
+            _cardPool.Any(actor => actor.Visible) ||
+            _slotPool.Any(actor => actor.Visible))
+        {
+            throw new InvalidOperationException(
+                "The battlefield visual profile can only change while every actor is pooled.");
+        }
+
+        ArenaVisualProfile resolved = ArenaVisualProfile.Resolve(profile);
+        _visualProfile = profile;
+        _arenaVisualProfile = resolved;
+        ActivateArenaProfile(resolved);
+        _handRig.SetVisualProfile(profile);
+        foreach (CardActor3D actor in _cardPool)
+        {
+            actor.ConfigureVisualProfile(profile);
+        }
+        foreach (SlotActor3D actor in _slotPool)
+        {
+            actor.ConfigureVisualProfile(profile);
+        }
+    }
+
+    internal void ConfigureVisualIdentity(MatchVisualIdentity identity)
+    {
+        ArgumentNullException.ThrowIfNull(identity);
+        EnsureBuilt();
+        if (_privateRender || _handBindings.Count != 0)
+        {
+            throw new InvalidOperationException(
+                "The battlefield visual identity must be selected before a private snapshot is rendered.");
+        }
+
+        _visualIdentity = identity;
+    }
+
+    internal bool CiSetNearHandHover(int index, bool hovered)
+    {
+        EnsureBuilt();
+        HandActorBinding? target = _handBindings.SingleOrDefault(binding =>
+            binding.Near && binding.Index == index);
+        if (!_privateRender || target is null)
+        {
+            return false;
+        }
+
+        if (hovered && _hoveredHandActor is { } previous &&
+            !ReferenceEquals(previous, target.Actor))
+        {
+            previous.SetPointerHovered(false);
+        }
+        target.Actor.SetPointerHovered(hovered);
+        return _nearHandPoses.Any(pose =>
+            pose.Index == index && pose.Hovered == hovered);
     }
 
     public void SetVisualCatalog(ICardVisualCatalog visualCatalog)
@@ -1358,13 +1476,16 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         BattlefieldSurfaceRef? surface = interactive
             ? new BattlefieldSurfaceRef(BattlefieldSurfaceKind.Leader, player)
             : null;
+        LeaderPortraitEntry leaderIdentity = _visualIdentity.ForPlayer(player);
         SlotActor3D actor = RentSlot();
         actor.BindLeader(
             BattlefieldPerspective.LeaderTransform(player, viewer),
             health,
             maximumHealth,
             BattlefieldPerspective.IsNear(player, viewer),
-            surface);
+            surface,
+            leaderIdentity.Faction,
+            LeaderPortraitCatalog.Shared.LoadPortrait(leaderIdentity.DeckId));
         Register(surface, actor);
     }
 
@@ -1481,6 +1602,7 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         {
             var actor = new CardActor3D { Name = $"CardActor{_cardPool.Count}" };
             actor.ConfigureVisualCatalog(_visualCatalog);
+            actor.ConfigureVisualProfile(_visualProfile);
             actor.PointerHoverChanged += OnHandActorPointerHoverChanged;
             _cardPool.Add(actor);
             AddChild(actor);
@@ -1494,6 +1616,7 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         if (_slotCursor == _slotPool.Count)
         {
             var actor = new SlotActor3D { Name = $"SlotActor{_slotPool.Count}" };
+            actor.ConfigureVisualProfile(_visualProfile);
             _slotPool.Add(actor);
             AddChild(actor);
         }
@@ -1654,6 +1777,75 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         }
     }
 
+    private void ActivateArenaProfile(ArenaVisualProfile profile)
+    {
+        _gate4BR2Arena ??= GetNodeOrNull<Node3D>("AuthoredArena");
+        bool useCandidate = profile.Id == BattlefieldVisualProfile.R3Candidate;
+        if (useCandidate && _gate4BR2Arena is not null)
+        {
+            SetArenaActive(_gate4BR2Arena, active: false);
+        }
+        if (profile.AuthoredArenaScenePath is { } scenePath &&
+            _r3CandidateArena is null)
+        {
+            PackedScene scene = GD.Load<PackedScene>(scenePath) ??
+                throw new InvalidOperationException(
+                    $"The authored arena scene could not be loaded: {scenePath}");
+            Node3D candidate = scene.Instantiate<Node3D>();
+            if (candidate.Name != "AuthoredArena")
+            {
+                candidate.Free();
+                throw new InvalidOperationException(
+                    $"The authored arena root must be named AuthoredArena: {scenePath}");
+            }
+
+            // Keep the approved R2 authored arena resident and reversible. The
+            // candidate receives a distinct runtime name only after validating
+            // its authored root contract, so direct scene tests remain useful.
+            candidate.Name = "R3CandidateArena";
+            SetArenaActive(candidate, active: false);
+            AddChild(candidate);
+            MoveChild(candidate, 0);
+            _r3CandidateArena = candidate;
+        }
+
+        if (_r3CandidateArena is not null && GodotObject.IsInstanceValid(_r3CandidateArena))
+        {
+            SetArenaActive(_r3CandidateArena, useCandidate);
+        }
+        if (_gate4BR2Arena is not null && GodotObject.IsInstanceValid(_gate4BR2Arena))
+        {
+            SetArenaActive(_gate4BR2Arena, !useCandidate);
+        }
+    }
+
+    private void SetArenaActive(Node3D arena, bool active)
+    {
+        arena.Visible = active;
+        foreach (WorldEnvironment world in EnumerateDescendants(arena).OfType<WorldEnvironment>())
+        {
+            ulong id = world.GetInstanceId();
+            if (!_arenaEnvironments.TryGetValue(id, out Godot.Environment? environment))
+            {
+                environment = world.Environment;
+                _arenaEnvironments[id] = environment;
+            }
+            world.Environment = active ? environment : null;
+        }
+    }
+
+    private static IEnumerable<Node> EnumerateDescendants(Node parent)
+    {
+        foreach (Node child in parent.GetChildren())
+        {
+            yield return child;
+            foreach (Node descendant in EnumerateDescendants(child))
+            {
+                yield return descendant;
+            }
+        }
+    }
+
     private void EnsureBuilt()
     {
         if (_built)
@@ -1665,9 +1857,12 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         // Product scenes author the static arena, materials and lights in the
         // editor. Keep the procedural fallback for direct test construction and
         // downstream embedders which instantiate the presenter without its scene.
-        if (GetNodeOrNull<Node3D>("AuthoredArena") is null)
+        _gate4BR2Arena = GetNodeOrNull<Node3D>("AuthoredArena");
+        if (_gate4BR2Arena is null)
         {
-            BuildTable();
+            _gate4BR2Arena = new Node3D { Name = "AuthoredArena" };
+            AddChild(_gate4BR2Arena);
+            BuildTable(_gate4BR2Arena);
         }
 
         _camera = new BattlefieldCameraRig { Name = "BattlefieldCamera" };
@@ -1675,7 +1870,7 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         Vector2 viewportSize = GetViewport()?.GetVisibleRect().Size ??
                                new Vector2(1600.0f, 900.0f);
         _viewportLayout = BattlefieldViewportLayout.Product(viewportSize);
-        _handRig = new BattlefieldHandRig(_camera, _viewportLayout);
+        _handRig = new BattlefieldHandRig(_camera, _viewportLayout, _visualProfile);
         _camera.SetViewportLayout(_viewportLayout);
         _camera.ProjectionChanged += OnCameraProjectionChanged;
 
@@ -1715,6 +1910,7 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
             Visible = false,
         };
         AddChild(_fxLabel);
+        ActivateArenaProfile(_arenaVisualProfile);
     }
 
     private void CancelFxTween()
@@ -1727,8 +1923,9 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         _fxTween = null;
     }
 
-    private void BuildTable()
+    private void BuildTable(Node3D arenaRoot)
     {
+        ArgumentNullException.ThrowIfNull(arenaRoot);
         var worldEnvironment = new WorldEnvironment
         {
             Name = "BattlefieldEnvironment",
@@ -1742,7 +1939,7 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
                 ReflectedLightSource = Godot.Environment.ReflectionSource.Bg,
             },
         };
-        AddChild(worldEnvironment);
+        arenaRoot.AddChild(worldEnvironment);
 
         var table = new MeshInstance3D
         {
@@ -1762,13 +1959,15 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
                 Roughness = 0.82f,
             },
         };
-        AddChild(table);
+        arenaRoot.AddChild(table);
 
         AddTerritorySurface(
+            arenaRoot,
             "OpponentTerritory",
             -1.0f,
             new Color("172f3b"));
         AddTerritorySurface(
+            arenaRoot,
             "ViewerTerritory",
             1.0f,
             new Color("183d43"));
@@ -1789,7 +1988,7 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
             },
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         };
-        AddChild(centerLine);
+        arenaRoot.AddChild(centerLine);
 
         var keyLight = new DirectionalLight3D
         {
@@ -1799,7 +1998,7 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
             LightEnergy = 1.25f,
             ShadowEnabled = true,
         };
-        AddChild(keyLight);
+        arenaRoot.AddChild(keyLight);
 
         var fillLight = new OmniLight3D
         {
@@ -1810,10 +2009,14 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
             LightEnergy = 3.2f,
             ShadowEnabled = false,
         };
-        AddChild(fillLight);
+        arenaRoot.AddChild(fillLight);
     }
 
-    private void AddTerritorySurface(string name, float side, Color color)
+    private static void AddTerritorySurface(
+        Node3D arenaRoot,
+        string name,
+        float side,
+        Color color)
     {
         float halfDepth = (BattlefieldPerspective.BoardDepth / 2.0f) - 0.09f;
         var territory = new MeshInstance3D
@@ -1839,7 +2042,7 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
             },
             CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
         };
-        AddChild(territory);
+        arenaRoot.AddChild(territory);
     }
 
     private void OnSurfaceClicked(ulong revision, BattlefieldSurfaceRef source)
@@ -2066,6 +2269,81 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
     private static HotseatPublicPlayerView FindPlayer(
         HotseatPublicBoardView view,
         PlayerId player) => view.Players.Single(item => item.Player == player);
+
+    private Rect2 ProjectGameplayTopologyRect()
+    {
+        if (_camera is null || !GodotObject.IsInstanceValid(_camera))
+        {
+            return new Rect2();
+        }
+
+        var points = new List<Vector2>(96);
+        foreach (PlayerId player in Enum.GetValues<PlayerId>())
+        {
+            for (int slot = 0; slot < BattlefieldPerspective.UnitSlotCount; ++slot)
+            {
+                AddProjectedFootprint(
+                    points,
+                    BattlefieldPerspective.UnitTransform(player, PerspectiveViewer, slot),
+                    BattlefieldPerspective.SlotWidth,
+                    BattlefieldPerspective.SlotDepth);
+            }
+
+            for (int slot = 0; slot < BattlefieldPerspective.TacticSlotCount; ++slot)
+            {
+                AddProjectedFootprint(
+                    points,
+                    BattlefieldPerspective.TacticTransform(player, PerspectiveViewer, slot),
+                    BattlefieldPerspective.SlotWidth,
+                    BattlefieldPerspective.SlotDepth);
+            }
+
+            AddProjectedFootprint(
+                points,
+                BattlefieldPerspective.LeaderTransform(player, PerspectiveViewer),
+                1.92f,
+                2.52f);
+            AddProjectedFootprint(
+                points,
+                BattlefieldPerspective.StandbyPileTransform(player, PerspectiveViewer),
+                BattlefieldPerspective.SlotWidth,
+                BattlefieldPerspective.SlotDepth);
+            foreach (Zone zone in new[] { Zone.Deck, Zone.Graveyard, Zone.Archive })
+            {
+                AddProjectedFootprint(
+                    points,
+                    BattlefieldPerspective.PileTransform(player, PerspectiveViewer, zone),
+                    BattlefieldPerspective.SlotWidth,
+                    BattlefieldPerspective.SlotDepth);
+            }
+        }
+
+        float minimumX = points.Min(static point => point.X);
+        float minimumY = points.Min(static point => point.Y);
+        float maximumX = points.Max(static point => point.X);
+        float maximumY = points.Max(static point => point.Y);
+        return new Rect2(
+            new Vector2(minimumX, minimumY),
+            new Vector2(maximumX - minimumX, maximumY - minimumY));
+    }
+
+    private void AddProjectedFootprint(
+        ICollection<Vector2> destination,
+        Transform3D transform,
+        float width,
+        float depth)
+    {
+        float halfWidth = width * 0.5f;
+        float halfDepth = depth * 0.5f;
+        foreach (float x in new[] { -halfWidth, halfWidth })
+        {
+            foreach (float z in new[] { -halfDepth, halfDepth })
+            {
+                destination.Add(_camera.UnprojectPosition(
+                    transform * new Vector3(x, 0.0f, z)));
+            }
+        }
+    }
 
     private static int CheckedDisplayCount(ulong value) =>
         value > int.MaxValue ? int.MaxValue : (int)value;

@@ -7,6 +7,12 @@ SomeCardGameShit with OpenAI's built-in image generation workflow on
 production artwork. Their prompts request no third-party logos, trademarks,
 text, watermarks, or copied game assets.
 
+The neutral industrial floor albedo under `assets/visual/arena/` was created
+with the same built-in workflow on 2026-08-25 for the Gate 4B-R3.1 visual
+candidate. It deliberately contains no perimeter frame, gameplay slots,
+faction split, text, logo, watermark, or reference-game imagery. The candidate
+arena meshes and shaders are original repository-authored assets.
+
 Original interface frames, badges, symbols, and fallback graphics are authored
 in this repository as Godot resources or SVG components. YGOPro2 screenshots
 were used only as a clean-room reference for general information density and
@@ -14,4 +20,6 @@ interaction rhythm; no YGOPro2/Yu-Gi-Oh code, coordinates, materials, Prefabs,
 art, logos, audio, or wording are included in this package.
 
 Exact file paths, SHA-256 digests, purposes, generation methods, dates, and
-prompt summaries are recorded in `assets/visual/ASSET_MANIFEST.json`.
+prompt summaries are recorded in the frozen R2
+`assets/visual/ASSET_MANIFEST.json` and the isolated R3 candidate
+`assets/visual/arena/R3_ASSET_MANIFEST.json`.

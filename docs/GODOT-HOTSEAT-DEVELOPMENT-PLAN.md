@@ -1355,4 +1355,26 @@ Gate 4B-R2 使用 `codex/godot-hotseat-gate4b-r2-battle-presentation`，基线�
 
 第一次实机验收通过后，R3 再处理精细卡体、机械场地模型、材质灯光、完整响应链/动作演出、弹层和菜单统一。
 
+## 十九、Gate 4B-R3.1：无边界工业竞技场视觉切片
+
+R2 的第一次实机反馈否决了包围场地的大框、蓝紫发光半场和原型式配色，因此 R3.1 先建立一个可运行、可回退、待用户批准的垂直切片。它基于 `codex/godot-hotseat-gate4b-r2-battle-presentation@4dfc16d`，不修改 C++ 规则、DTO、`IScgsGameSession`、C ABI、schema 1、14 个导出、固定牌组或 legacy wire。
+
+### 候选边界
+
+- 正常启动仍使用 `Gate4BR2`；只有 `--r3-visual-slice` 启用 `R3Candidate`，并固定报告 `pending_user_approval`；
+- 80×60 中性工业地面连续延伸到镜头之外，原创地坪只在中央 46×34 世界区域采样一次并渐隐到程序化钢板；不得出现周界框、半场板、有限地坪黑角或纹理平铺；
+- 机械只布置在 19.8×16.6 逻辑 footprint 外，空格位只保留浅凹槽、短角标和选择反馈；
+- 手牌使用克制金属卡框、相机相对弧线和真实深度遮挡；费用/身材不得跨卡穿透，悬停详情必须来自真实 `CardView`；
+- HUD 为无全高侧栏的中性战术终端，场内主战者使用公开牌组身份对应的头像指挥终端；隐藏牌仍只使用共享卡背；
+- 29 张卡图、卡背、菜单背景、fallback 和两张头像不重画；R2 主清单保持冻结的 34 项与 golden 哈希，仅增加的 1 张原创候选地坪登记在独立 `R3_ASSET_MANIFEST.json`，联合审计总数为 35；
+- Blender 只用于从提交的 Python 源确定性重建原创场外机械 GLB，不是构建、CI 或运行依赖。
+
+### 真实切片与批准门
+
+Windows display-backed 切片固定 1600×900、seed `0xC0DEC0DE`、Player0 先手且关闭洗牌。驱动必须通过真实 `IScgsGameSession` 完成 Player0、Player1 两次调度，记录 viewer 请求 `[0,1,0]`，并在 revision 2、至少一个真实 `LegalAction` 的 Player0 行动状态捕获 `action-idle`、`hand-hover` 和 `source-selected`。每次产品捕获先等待安全 FX 和所有近端手牌 Transform 收敛，再记录两个稳定 `FramePostDraw`；报告还检查共享牌背、零提前 viewer 读取和上缘两角无有限地坪外露。
+
+隐私取证必须在 P0 revision-0 的真实调度提交前向 `MatchScreen` 注入恶意私密 sentinel，并额外捕获 `privacy-resolving` 与 `privacy-covered`。两态都要证明 sentinel 不在 GPU 画面，actor 的文字、metadata、身份材质、碰撞、drag token、tween 和 callback 已清空，且切换前后快照以及全部 viewer-scoped 查询/事件读取计数分别不变；detector 自测必须与真实注入分开记录。provenance 同时绑定 checkout commit/source/dirty 状态、冻结 R2 主清单、独立 R3 候选清单、地坪、GLB、shader 和 launcher 的 SHA-256。
+
+源码工程、正式 Windows EXE 和 ZIP 往返包都必须运行候选。导出目录附带 `PLAY_R3_VISUAL_SLICE.cmd`，用户双击后进入真实可继续操作的切片；CI 自动模式另加 `--r3-visual-slice-exit`。R3 schema 1 与 Gate 4B-R2 schema 4/golden 完全分离，自动化通过不等于视觉批准。只有用户明确接受后，才允许把 profile 推广到调度、响应、结算、结果、菜单和默认产品路径。
+
 **历史决策与持续约束：Gate 0+1 先完成文档纠偏、规则回归和客户端查询接口，再进入 UI；后续也必须保持 Godot 只是表现层，不让 C# 逐步长成第二套规则引擎。**

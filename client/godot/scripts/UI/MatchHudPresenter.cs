@@ -1,5 +1,6 @@
 using Godot;
 using Scgs.Client;
+using Scgs.GodotClient.Battlefield;
 using Scgs.GodotClient.Visuals;
 using Scgs.Hotseat;
 
@@ -15,6 +16,7 @@ public sealed class MatchHudPresenter
     private ILeaderPortraitCatalog? _portraitCatalog;
     private MatchVisualIdentity? _identity;
     private PlayerId? _perspectiveViewer;
+    private BattlefieldVisualProfile _visualProfile = BattlefieldVisualProfile.Gate4BR2;
 
     public MatchHudPresenter()
     {
@@ -44,6 +46,9 @@ public sealed class MatchHudPresenter
             BindPortraits(_perspectiveViewer.Value);
         }
     }
+
+    internal void ConfigureVisualProfile(BattlefieldVisualProfile profile) =>
+        _visualProfile = profile;
 
     /// <summary>Renders only viewer-safe snapshot values.</summary>
     public void Render(MatchView view)
@@ -115,7 +120,7 @@ public sealed class MatchHudPresenter
         ArgumentNullException.ThrowIfNull(interactionDock);
         ArgumentNullException.ThrowIfNull(endTurnButton);
 
-        MatchHudMetrics metrics = GlassHudTheme.MetricsFor(viewportSize);
+        MatchHudMetrics metrics = TacticalHudTheme.MetricsFor(_visualProfile, viewportSize);
         float width = Mathf.Max(viewportSize.X, GlassHudTheme.MinimumWidth);
         float height = Mathf.Max(viewportSize.Y, GlassHudTheme.MinimumHeight);
         float safeLeft = metrics.EdgeInset + metrics.DetailWidth + GlassHudTheme.CompactGap;
@@ -211,9 +216,13 @@ public sealed class MatchHudPresenter
         seat.Text = FormatCompactSeat(own, player, health, maximumHealth);
         bool isActive = player == activePlayer;
         active.Visible = isActive;
-        pod.Modulate = isActive
-            ? new Color(1.0f, 1.0f, 1.0f, 1.0f)
-            : new Color(0.78f, 0.84f, 0.9f, 0.88f);
+        pod.Modulate = _visualProfile == BattlefieldVisualProfile.R3Candidate
+            ? isActive
+                ? new Color(1.0f, 0.97f, 0.9f, 1.0f)
+                : new Color(0.72f, 0.72f, 0.69f, 0.84f)
+            : isActive
+                ? new Color(1.0f, 1.0f, 1.0f, 1.0f)
+                : new Color(0.78f, 0.84f, 0.9f, 0.88f);
         int safeMaximum = Math.Max(maximumHealth, 1);
         healthBar.MaxValue = safeMaximum;
         healthBar.Value = Math.Clamp(health, 0, safeMaximum);

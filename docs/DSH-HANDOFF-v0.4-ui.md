@@ -191,6 +191,14 @@ Gate 4B-R2 使用独立 schema 4 visual suite：保留历史 11 状态并增加 
 
 Gate 4B-R2 导出制品使用 `SomeCardGameShit-gate4b-r2-windows-x86_64` 与 `SomeCardGameShit-gate4b-r2-macos-arm64`，Windows 另上传四尺寸 visual-suite。实现尖端 `cca04b5` 的 run `32766050188` 已 4/4 jobs 全绿并上传 7 个制品；包含本轮文档修改的最终分支尖端仍须重新满足完整矩阵，不能沿用该 run 冒充文档尖端通过。
 
+### Gate 4B-R3.1 待批准视觉切片
+
+正常菜单、直接启动 EXE 与 Gate 4B-R2 schema 4/golden 继续使用 `Gate4BR2`。只有显式参数 `--r3-visual-slice` 才启用 `R3Candidate`，报告固定为 `pending_user_approval`；用户批准前不得把候选扩散到默认路径或覆盖 R2 golden。R3.1 使用无周界框的 80×60 工业竞技场、场外机械、浅凹槽格位、相机相对手牌与中性战术 HUD，验证构图而不是声称整局视觉已经迁移完成。
+
+R2 的 34 项产品素材清单保持冻结；唯一新增候选地坪登记在独立 `assets/visual/arena/R3_ASSET_MANIFEST.json`，联合审计为 34＋1。Windows 候选 CI 分别运行源码工程、压缩前正式 EXE 与 ZIP 解包后的正式 EXE；最后一条必须实际调用包内 `PLAY_R3_VISUAL_SLICE.cmd`。用户试玩时必须完整解压 `SomeCardGameShit-gate4b-r3-visual-slice-windows-x86_64.zip` 并双击该脚本；直接运行 EXE 仍是 R2。
+
+R3 schema 1 的三张产品实拍之外还有 `privacy-resolving` / `privacy-covered` 两张真实注入证据。调度前恶意 sentinel 必须在节点、材质、碰撞、拖拽、动画、回调与 GPU 画面中被清除，两个隐私状态的 viewer read 计数不得增长。自动报告只能证明切片契约，不能替代本轮用户主观批准。
+
 ## 8. 接手者必须完成的发布前硬门
 
 Gate 4B-R2 的视觉、隐私、资源、性能与第一次实机包自动交付已经完成，但以下四项硬门仍必须由真实证据关闭：

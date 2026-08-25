@@ -1,5 +1,6 @@
 using Godot;
 using Scgs.Client;
+using Scgs.GodotClient.Battlefield;
 using Scgs.GodotClient.Ci;
 using Scgs.GodotClient.Match;
 using Scgs.GodotClient.Native;
@@ -32,6 +33,10 @@ public sealed partial class BootstrapController : Control
     private string? _ciReportPath;
     private string? _ciVisualSuitePath;
     private Gate4BVisualSuite? _ciVisualSuite;
+    private string? _r3VisualSlicePath;
+    private bool _r3VisualSliceExit;
+    private bool _r3VisualSliceRunStarted;
+    private bool _r3VisualSliceCaptureComplete;
     private bool _ciSmoke;
     private bool _ciRunStarted;
     private bool _ciTerminalSignaled;
@@ -48,7 +53,12 @@ public sealed partial class BootstrapController : Control
         _ciSmoke = arguments.Contains("--ci-smoke", StringComparer.Ordinal) ||
                    arguments.Any(argument => argument.StartsWith(
                        "--ci-visual-suite=",
-                       StringComparison.Ordinal));
+                       StringComparison.Ordinal)) ||
+                   arguments.Contains("--r3-visual-slice", StringComparer.Ordinal) ||
+                   arguments.Any(argument => argument.StartsWith(
+                       "--r3-visual-slice=",
+                       StringComparison.Ordinal)) ||
+                   arguments.Contains("--r3-visual-slice-exit", StringComparer.Ordinal);
         ShowMainMenu();
 
         try
@@ -57,6 +67,8 @@ public sealed partial class BootstrapController : Control
             _ciActionScreenshotPath = ResolveCiActionScreenshotPath(arguments);
             _ciReportPath = ResolveCiReportPath(arguments);
             _ciVisualSuitePath = ResolveCiVisualSuitePath(arguments);
+            (_r3VisualSlicePath, _r3VisualSliceExit) =
+                ResolveR3VisualSliceOptions(arguments);
             if (_ciVisualSuitePath is not null)
             {
                 _ciVisualSuite = new Gate4BVisualSuite(this, _ciVisualSuitePath);
@@ -109,7 +121,11 @@ public sealed partial class BootstrapController : Control
 
         if (_ciSmoke)
         {
-            if (_ciVisualSuite is not null)
+            if (_r3VisualSlicePath is not null)
+            {
+                Callable.From(RunR3VisualSlice).CallDeferred();
+            }
+            else if (_ciVisualSuite is not null)
             {
                 Callable.From(RunCiVisualSuitePrelude).CallDeferred();
             }
@@ -124,6 +140,12 @@ public sealed partial class BootstrapController : Control
     {
         if (!@event.IsActionPressed("ui_cancel"))
         {
+            return;
+        }
+
+        if (_r3VisualSlicePath is not null && !_r3VisualSliceCaptureComplete)
+        {
+            GetViewport().SetInputAsHandled();
             return;
         }
 
@@ -165,6 +187,11 @@ public sealed partial class BootstrapController : Control
     }
 
     private void RunCiSmoke()
+    {
+        StartMatch(MatchSetup.Defaults, deterministic: true);
+    }
+
+    private void RunR3VisualSlice()
     {
         StartMatch(MatchSetup.Defaults, deterministic: true);
     }
@@ -227,8 +254,18 @@ public sealed partial class BootstrapController : Control
             _match = MatchScene.Instantiate<MatchScreen>();
             _match.ExitRequested += ReturnToMenu;
             _match.RestartRequested += RestartMatch;
-            _match.FirstSnapshotPresented += deterministic ? OnCiSnapshotPresented : OnFirstSnapshotPresented;
+            if (_r3VisualSlicePath is null)
+            {
+                _match.FirstSnapshotPresented += deterministic
+                    ? OnCiSnapshotPresented
+                    : OnFirstSnapshotPresented;
+            }
             ReplaceScreen(_match);
+
+            if (_r3VisualSlicePath is not null)
+            {
+                _match.UseVisualProfile(BattlefieldVisualProfile.R3Candidate);
+            }
 
             // Gate 3C keeps the deterministic mulligan privacy order:
             // player 0 is covered first. Begin() must not call GetView.
@@ -248,7 +285,14 @@ public sealed partial class BootstrapController : Control
 
             if (deterministic)
             {
-                Callable.From(_match.RevealForCiSmoke).CallDeferred();
+                if (_r3VisualSlicePath is not null)
+                {
+                    Callable.From(RunR3VisualSliceDriver).CallDeferred();
+                }
+                else
+                {
+                    Callable.From(_match.RevealForCiSmoke).CallDeferred();
+                }
             }
         }
         catch (Exception exception)
@@ -648,8 +692,116 @@ public sealed partial class BootstrapController : Control
         return Path.GetFullPath(values[0]);
     }
 
+    private static (string? OutputDirectory, bool ExitWhenReady)
+        ResolveR3VisualSliceOptions(IReadOnlyList<string> arguments)
+    {
+        const string option = "--r3-visual-slice";
+        const string prefix = "--r3-visual-slice=";
+        const string exitOption = "--r3-visual-slice-exit";
+        string[] modes = arguments
+            .Where(argument => argument == option ||
+                               argument.StartsWith(prefix, StringComparison.Ordinal))
+            .ToArray();
+        int exitCount = arguments.Count(argument => argument == exitOption);
+        if (modes.Length == 0)
+        {
+            if (exitCount != 0)
+            {
+                throw new InvalidOperationException(
+                    "--r3-visual-slice-exit requires --r3-visual-slice.");
+            }
+            return (null, false);
+        }
+        if (modes.Length != 1)
+        {
+            throw new InvalidOperationException(
+                "--r3-visual-slice may be specified only once.");
+        }
+        if (exitCount > 1)
+        {
+            throw new InvalidOperationException(
+                "--r3-visual-slice-exit may be specified only once.");
+        }
+        if (arguments.Contains("--ci-smoke", StringComparer.Ordinal) ||
+            arguments.Any(argument => argument.StartsWith(
+                "--ci-visual-suite=",
+                StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException(
+                "--r3-visual-slice cannot be combined with the Gate 4B-R2 CI modes.");
+        }
+        if (arguments.Contains("--legacy-2d-board", StringComparer.Ordinal))
+        {
+            throw new InvalidOperationException(
+                "--r3-visual-slice requires the default 3D presentation.");
+        }
+
+        string path;
+        if (modes[0] == option)
+        {
+            path = ProjectSettings.GlobalizePath("user://r3-visual-slice");
+        }
+        else
+        {
+            path = modes[0][prefix.Length..];
+            if (string.IsNullOrWhiteSpace(path) || !Path.IsPathFullyQualified(path))
+            {
+                throw new InvalidOperationException(
+                    "--r3-visual-slice=<directory> requires one absolute output directory.");
+            }
+        }
+
+        return (Path.GetFullPath(path), exitCount == 1);
+    }
+
+    private async void RunR3VisualSliceDriver()
+    {
+        if (_r3VisualSliceRunStarted)
+        {
+            FailCiSmoke("The R3 visual-slice driver was started more than once.");
+            return;
+        }
+        _r3VisualSliceRunStarted = true;
+
+        try
+        {
+            MatchScreen match = _match ??
+                throw new InvalidOperationException("The R3 match screen is unavailable.");
+            IScgsGameSession session = _session ??
+                throw new InvalidOperationException("The R3 native session is unavailable.");
+            string outputDirectory = _r3VisualSlicePath ??
+                throw new InvalidOperationException("The R3 output directory is unavailable.");
+            var collector = new GateR3VisualSlice(
+                this,
+                match,
+                session,
+                outputDirectory,
+                NextProcessFrameAsync);
+            string reportPath = await collector.RunAsync();
+            _r3VisualSliceCaptureComplete = true;
+            GD.Print(
+                $"SCGS_R3_VISUAL_SLICE_READY report={reportPath} " +
+                "approval_status=pending_user_approval");
+            if (_r3VisualSliceExit)
+            {
+                _ciTerminalSignaled = true;
+                DisposeSession();
+                GetTree().Quit(0);
+            }
+        }
+        catch (Exception exception)
+        {
+            FailCiSmoke(exception.Message);
+        }
+    }
+
     private void ReturnToMenu()
     {
+        if (_r3VisualSlicePath is not null && !_r3VisualSliceCaptureComplete)
+        {
+            return;
+        }
+
         DisposeSession();
         ShowMainMenu();
     }

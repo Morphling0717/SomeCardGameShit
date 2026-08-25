@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using Godot;
 using Scgs.Client;
+using Scgs.GodotClient.Visuals;
 
 namespace Scgs.GodotClient.Battlefield;
 
@@ -34,6 +35,14 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
     };
 
     private static readonly MultiMesh CornerBracketMesh = CreateCornerBrackets();
+    private static readonly BoxMesh PilePlinthMesh = new()
+    {
+        Size = new Vector3(1.76f, 0.09f, 2.34f),
+    };
+    private static readonly BoxMesh PileLipMesh = new()
+    {
+        Size = new Vector3(1.72f, 0.07f, 0.13f),
+    };
     private static readonly CylinderMesh LeaderPlatformMesh = new()
     {
         TopRadius = 0.88f,
@@ -54,6 +63,28 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         Height = 0.68f,
         RadialSegments = 32,
         Rings = 16,
+    };
+    private static readonly CylinderMesh LeaderOuterRingMesh = new()
+    {
+        TopRadius = 0.83f,
+        BottomRadius = 0.83f,
+        Height = 0.035f,
+        RadialSegments = 40,
+    };
+    private static readonly CylinderMesh LeaderInnerRingMesh = new()
+    {
+        TopRadius = 0.50f,
+        BottomRadius = 0.50f,
+        Height = 0.045f,
+        RadialSegments = 40,
+    };
+    private static readonly BoxMesh LeaderTerminalFrameMesh = new()
+    {
+        Size = new Vector3(0.88f, 0.80f, 0.07f),
+    };
+    private static readonly QuadMesh LeaderPortraitMesh = new()
+    {
+        Size = new Vector2(0.70f, 0.70f),
     };
 
     private static readonly StandardMaterial3D IdleUnitMaterial =
@@ -84,6 +115,28 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         Metallic = 0.78f,
         Roughness = 0.26f,
     };
+    private static readonly ArenaVisualProfile R3Profile = ArenaVisualProfile.R3Candidate;
+    private static readonly StandardMaterial3D R3UnitMaterial =
+        CreateCandidateInlayMaterial(R3Profile.UnitInlay);
+    private static readonly StandardMaterial3D R3TacticMaterial =
+        CreateCandidateInlayMaterial(R3Profile.TacticInlay);
+    private static readonly StandardMaterial3D R3PileMaterial =
+        CreateCandidateInlayMaterial(R3Profile.PileInlay);
+    private static readonly StandardMaterial3D R3NeutralMetalMaterial =
+        CreateCandidateMetalMaterial(R3Profile.NeutralMetal);
+    private static readonly StandardMaterial3D R3LegalMaterial =
+        CreateCandidateAffordanceMaterial(R3Profile.FunctionalAccent);
+    private static readonly StandardMaterial3D R3DestinationMaterial =
+        CreateCandidateAffordanceMaterial(R3Profile.DestinationAccent);
+    private static readonly StandardMaterial3D R3SelectedMaterial =
+        CreateCandidateAffordanceMaterial(R3Profile.SelectedAccent);
+    private static readonly StandardMaterial3D R3MidrangeCoreMaterial =
+        CreateCandidateCoreMaterial(new Color("66818b"));
+    private static readonly StandardMaterial3D R3AdvanceCoreMaterial =
+        CreateCandidateCoreMaterial(new Color("806a75"));
+    private static readonly StandardMaterial3D R3NeutralCoreMaterial =
+        CreateCandidateCoreMaterial(new Color("988568"));
+    private static readonly Dictionary<ulong, StandardMaterial3D> LeaderPortraitMaterials = [];
 
     private MeshInstance3D _trayMesh = null!;
     private MeshInstance3D _fillMesh = null!;
@@ -91,12 +144,20 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
     private MeshInstance3D _leaderPlatform = null!;
     private MeshInstance3D _leaderHalo = null!;
     private MeshInstance3D _leaderCore = null!;
+    private MeshInstance3D _pilePlinth = null!;
+    private MeshInstance3D _pileFrontLip = null!;
+    private MeshInstance3D _leaderOuterRing = null!;
+    private MeshInstance3D _leaderInnerRing = null!;
+    private Node3D _leaderTerminal = null!;
+    private MeshInstance3D _leaderTerminalFrame = null!;
+    private MeshInstance3D _leaderPortrait = null!;
     private Label3D _label = null!;
     private CollisionShape3D _collision = null!;
     private BattlefieldHighlightKind _highlight;
     private VisualMode _visualMode;
     private StandardMaterial3D _idleMaterial = IdleUnitMaterial;
     private StandardMaterial3D _leaderCoreMaterial = CyanCoreMaterial;
+    private ArenaVisualProfile _visualProfile = ArenaVisualProfile.Gate4BR2;
     private string _baseLabel = string.Empty;
     private string _slotGlyph = string.Empty;
 
@@ -133,6 +194,20 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         ClearSensitive();
     }
 
+    internal void ConfigureVisualProfile(BattlefieldVisualProfile profile)
+    {
+        if (Visible && Surface.HasValue)
+        {
+            throw new InvalidOperationException("Visual profiles can only change while a slot actor is pooled.");
+        }
+
+        _visualProfile = ArenaVisualProfile.Resolve(profile);
+        if (_fillMesh is not null)
+        {
+            ApplyPooledVisualDefaults();
+        }
+    }
+
     public void Bind(Transform3D transform, string label, BattlefieldSurfaceRef? surface)
     {
         EnsureBuilt();
@@ -140,15 +215,19 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         _baseLabel = label;
         bool tactic = label.Contains("策略", StringComparison.Ordinal);
         _slotGlyph = tactic ? "△" : "◇";
-        _idleMaterial = tactic ? IdleTacticMaterial : IdleUnitMaterial;
-        _trayMesh.MaterialOverride = tactic ? IdleTacticTrayMaterial : IdleUnitTrayMaterial;
-        _trayMesh.Visible = true;
+        _idleMaterial = _visualProfile.UsesOpenArena
+            ? tactic ? R3TacticMaterial : R3UnitMaterial
+            : tactic ? IdleTacticMaterial : IdleUnitMaterial;
+        _trayMesh.MaterialOverride = _visualProfile.UsesOpenArena
+            ? R3NeutralMetalMaterial
+            : tactic ? IdleTacticTrayMaterial : IdleUnitTrayMaterial;
+        _trayMesh.Visible = !_visualProfile.UsesOpenArena;
         _fillMesh.MaterialOverride = _idleMaterial;
         _brackets.MaterialOverride = _idleMaterial;
         _fillMesh.Visible = false;
         _brackets.Visible = true;
         _label.Text = _slotGlyph;
-        _label.Visible = true;
+        _label.Visible = !_visualProfile.UsesOpenArena;
     }
 
     public void BindPile(Transform3D transform, string title, ulong count)
@@ -157,13 +236,19 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         PrepareBinding(transform, surface: null, VisualMode.Pile);
         _baseLabel = title;
         _slotGlyph = "▱";
-        _idleMaterial = PileMaterial;
-        _trayMesh.MaterialOverride = PileTrayMaterial;
-        _trayMesh.Visible = true;
-        _fillMesh.MaterialOverride = PileMaterial;
-        _brackets.MaterialOverride = PileMaterial;
+        _idleMaterial = _visualProfile.UsesOpenArena ? R3PileMaterial : PileMaterial;
+        _trayMesh.MaterialOverride = _visualProfile.UsesOpenArena
+            ? R3NeutralMetalMaterial
+            : PileTrayMaterial;
+        _trayMesh.Visible = !_visualProfile.UsesOpenArena;
+        _fillMesh.MaterialOverride = _idleMaterial;
+        _brackets.MaterialOverride = _idleMaterial;
         _fillMesh.Visible = false;
         _brackets.Visible = true;
+        _pilePlinth.MaterialOverride = R3NeutralMetalMaterial;
+        _pileFrontLip.MaterialOverride = R3PileMaterial;
+        _pilePlinth.Visible = _visualProfile.UsesOpenArena;
+        _pileFrontLip.Visible = _visualProfile.UsesOpenArena;
         _label.Text = $"{title}  {count}";
         _label.Visible = true;
     }
@@ -173,22 +258,53 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         int health,
         int maximumHealth,
         bool near,
-        BattlefieldSurfaceRef? surface)
+        BattlefieldSurfaceRef? surface,
+        CardVisualFaction faction = CardVisualFaction.Neutral,
+        Texture2D? portrait = null)
     {
         EnsureBuilt();
         PrepareBinding(transform, surface, VisualMode.Leader);
         _baseLabel = $"{health}/{maximumHealth}";
-        _leaderCoreMaterial = near ? CyanCoreMaterial : VioletCoreMaterial;
+        _leaderCoreMaterial = _visualProfile.UsesOpenArena
+            ? CandidateLeaderCoreMaterial(faction)
+            : near ? CyanCoreMaterial : VioletCoreMaterial;
         _trayMesh.Visible = false;
+        _leaderPlatform.MaterialOverride = _visualProfile.UsesOpenArena
+            ? R3NeutralMetalMaterial
+            : LeaderPlatformMaterial;
         _leaderCore.MaterialOverride = _leaderCoreMaterial;
         _leaderPlatform.Visible = true;
         _leaderCore.Visible = true;
         _leaderHalo.Visible = true;
         _leaderHalo.MaterialOverride = _leaderCoreMaterial;
+        _leaderOuterRing.MaterialOverride = _visualProfile.UsesOpenArena
+            ? R3NeutralMetalMaterial
+            : LeaderPlatformMaterial;
+        _leaderInnerRing.MaterialOverride = _leaderCoreMaterial;
+        _leaderOuterRing.Visible = _visualProfile.UsesOpenArena;
+        _leaderInnerRing.Visible = _visualProfile.UsesOpenArena;
+        _leaderCore.Position = _visualProfile.UsesOpenArena
+            ? new Vector3(0.0f, 0.27f, near ? -0.30f : 0.30f)
+            : new Vector3(0.0f, 0.38f, 0.0f);
+        _leaderCore.Scale = _visualProfile.UsesOpenArena
+            ? Vector3.One * 0.62f
+            : Vector3.One;
+        _leaderTerminal.Visible = _visualProfile.UsesOpenArena;
+        _leaderTerminal.Position = new Vector3(0.0f, 0.52f, near ? 0.27f : -0.27f);
+        _leaderTerminal.RotationDegrees = new Vector3(-18.0f, near ? 0.0f : 180.0f, 0.0f);
+        _leaderTerminalFrame.MaterialOverride = R3NeutralMetalMaterial;
+        Texture2D safePortrait = portrait ??
+            LeaderPortraitCatalog.Shared.LoadPortrait("unknown");
+        _leaderPortrait.MaterialOverride = LeaderPortraitMaterial(safePortrait);
+        _leaderPortrait.Visible = _visualProfile.UsesOpenArena;
         _label.Text = _baseLabel;
-        _label.Position = new Vector3(0.0f, 0.13f, 0.73f);
-        _label.FontSize = 34;
-        _label.Modulate = near ? new Color("b9ffff") : new Color("ead3ff");
+        _label.Position = _visualProfile.UsesOpenArena
+            ? new Vector3(0.0f, 0.15f, near ? 0.98f : -0.98f)
+            : new Vector3(0.0f, 0.13f, 0.73f);
+        _label.FontSize = _visualProfile.UsesOpenArena ? 30 : 34;
+        _label.Modulate = _visualProfile.UsesOpenArena
+            ? new Color("eee5d5")
+            : near ? new Color("b9ffff") : new Color("ead3ff");
         _label.Visible = true;
     }
 
@@ -197,19 +313,19 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         EnsureBuilt();
         _highlight = highlight;
         CanActivate = Surface.HasValue && highlight != BattlefieldHighlightKind.None;
-        StandardMaterial3D highlightMaterial = highlight switch
-        {
-            BattlefieldHighlightKind.Legal => LegalMaterial,
-            BattlefieldHighlightKind.Destination => DestinationMaterial,
-            BattlefieldHighlightKind.Selected => SelectedMaterial,
-            _ => _idleMaterial,
-        };
+        StandardMaterial3D highlightMaterial = HighlightMaterial(highlight);
 
         if (_visualMode == VisualMode.Leader)
         {
             _leaderHalo.MaterialOverride = highlight == BattlefieldHighlightKind.None
                 ? _leaderCoreMaterial
                 : highlightMaterial;
+            if (_visualProfile.UsesOpenArena)
+            {
+                _leaderInnerRing.MaterialOverride = highlight == BattlefieldHighlightKind.None
+                    ? _leaderCoreMaterial
+                    : highlightMaterial;
+            }
             _label.Text = highlight switch
             {
                 BattlefieldHighlightKind.Legal => $"{_baseLabel}\n●",
@@ -232,6 +348,9 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
                 BattlefieldHighlightKind.Selected => $"{_slotGlyph}\n◆",
                 _ => _visualMode == VisualMode.Pile ? _label.Text : _slotGlyph,
             };
+            _label.Visible = !_visualProfile.UsesOpenArena ||
+                             _visualMode == VisualMode.Pile ||
+                             highlight != BattlefieldHighlightKind.None;
         }
 
         if (Surface.HasValue)
@@ -265,16 +384,35 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         _label.FontSize = 30;
         _label.Modulate = new Color(0.65f, 0.78f, 0.84f, 0.76f);
         _trayMesh.Visible = false;
-        _trayMesh.MaterialOverride = IdleUnitTrayMaterial;
+        _trayMesh.MaterialOverride = _visualProfile.UsesOpenArena
+            ? R3NeutralMetalMaterial
+            : IdleUnitTrayMaterial;
         _fillMesh.Visible = false;
-        _fillMesh.MaterialOverride = IdleUnitMaterial;
+        _fillMesh.MaterialOverride = _visualProfile.UsesOpenArena
+            ? R3UnitMaterial
+            : IdleUnitMaterial;
         _brackets.Visible = false;
-        _brackets.MaterialOverride = IdleUnitMaterial;
+        _brackets.MaterialOverride = _visualProfile.UsesOpenArena
+            ? R3UnitMaterial
+            : IdleUnitMaterial;
         _leaderPlatform.Visible = false;
         _leaderHalo.Visible = false;
         _leaderCore.Visible = false;
-        _leaderHalo.MaterialOverride = CyanCoreMaterial;
-        _leaderCore.MaterialOverride = CyanCoreMaterial;
+        _pilePlinth.Visible = false;
+        _pileFrontLip.Visible = false;
+        _leaderOuterRing.Visible = false;
+        _leaderInnerRing.Visible = false;
+        _leaderTerminal.Visible = false;
+        _leaderPortrait.Visible = false;
+        _leaderPortrait.MaterialOverride = null;
+        _leaderTerminal.Position = Vector3.Zero;
+        _leaderTerminal.Rotation = Vector3.Zero;
+        _leaderCore.Position = new Vector3(0.0f, 0.38f, 0.0f);
+        _leaderCore.Scale = Vector3.One;
+        _leaderHalo.MaterialOverride = _visualProfile.UsesOpenArena
+            ? R3NeutralCoreMaterial
+            : CyanCoreMaterial;
+        _leaderCore.MaterialOverride = _leaderHalo.MaterialOverride;
         Transform = Transform3D.Identity;
         Scale = Vector3.One;
         _collision.Disabled = true;
@@ -311,6 +449,17 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         _leaderPlatform.Visible = false;
         _leaderHalo.Visible = false;
         _leaderCore.Visible = false;
+        _pilePlinth.Visible = false;
+        _pileFrontLip.Visible = false;
+        _leaderOuterRing.Visible = false;
+        _leaderInnerRing.Visible = false;
+        _leaderTerminal.Visible = false;
+        _leaderTerminal.Position = Vector3.Zero;
+        _leaderTerminal.Rotation = Vector3.Zero;
+        _leaderPortrait.Visible = false;
+        _leaderPortrait.MaterialOverride = null;
+        _leaderCore.Position = new Vector3(0.0f, 0.38f, 0.0f);
+        _leaderCore.Scale = Vector3.One;
         _label.Position = new Vector3(0.0f, 0.045f, 0.0f);
         _label.FontSize = 30;
         _label.Modulate = new Color(0.65f, 0.78f, 0.84f, 0.76f);
@@ -368,6 +517,28 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         };
         AddChild(_brackets);
 
+        _pilePlinth = new MeshInstance3D
+        {
+            Name = "PilePlinth",
+            Mesh = PilePlinthMesh,
+            Position = new Vector3(0.0f, -0.015f, 0.0f),
+            MaterialOverride = R3NeutralMetalMaterial,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.On,
+            Visible = false,
+        };
+        AddChild(_pilePlinth);
+
+        _pileFrontLip = new MeshInstance3D
+        {
+            Name = "PileFrontLip",
+            Mesh = PileLipMesh,
+            Position = new Vector3(0.0f, 0.045f, 1.08f),
+            MaterialOverride = R3PileMaterial,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+            Visible = false,
+        };
+        AddChild(_pileFrontLip);
+
         _leaderPlatform = new MeshInstance3D
         {
             Name = "LeaderPlatform",
@@ -400,6 +571,54 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         };
         AddChild(_leaderCore);
 
+        _leaderOuterRing = new MeshInstance3D
+        {
+            Name = "LeaderOuterRing",
+            Mesh = LeaderOuterRingMesh,
+            Position = new Vector3(0.0f, 0.105f, 0.0f),
+            MaterialOverride = R3NeutralMetalMaterial,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.On,
+            Visible = false,
+        };
+        AddChild(_leaderOuterRing);
+
+        _leaderInnerRing = new MeshInstance3D
+        {
+            Name = "LeaderInnerRing",
+            Mesh = LeaderInnerRingMesh,
+            Position = new Vector3(0.0f, 0.13f, 0.0f),
+            MaterialOverride = R3NeutralCoreMaterial,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+            Visible = false,
+        };
+        AddChild(_leaderInnerRing);
+
+        _leaderTerminal = new Node3D
+        {
+            Name = "LeaderCommandTerminal",
+            Visible = false,
+        };
+        AddChild(_leaderTerminal);
+
+        _leaderTerminalFrame = new MeshInstance3D
+        {
+            Name = "TerminalFrame",
+            Mesh = LeaderTerminalFrameMesh,
+            MaterialOverride = R3NeutralMetalMaterial,
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.On,
+        };
+        _leaderTerminal.AddChild(_leaderTerminalFrame);
+
+        _leaderPortrait = new MeshInstance3D
+        {
+            Name = "PublicLeaderPortrait",
+            Mesh = LeaderPortraitMesh,
+            Position = new Vector3(0.0f, 0.0f, 0.041f),
+            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
+            Visible = false,
+        };
+        _leaderTerminal.AddChild(_leaderPortrait);
+
         _collision = new CollisionShape3D
         {
             Name = "PickShape",
@@ -431,6 +650,81 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         InputRayPickable = true;
         Monitoring = false;
         Monitorable = false;
+    }
+
+    private StandardMaterial3D HighlightMaterial(BattlefieldHighlightKind highlight) =>
+        (_visualProfile.Id, highlight) switch
+        {
+            (BattlefieldVisualProfile.R3Candidate, BattlefieldHighlightKind.Legal) =>
+                R3LegalMaterial,
+            (BattlefieldVisualProfile.R3Candidate, BattlefieldHighlightKind.Destination) =>
+                R3DestinationMaterial,
+            (BattlefieldVisualProfile.R3Candidate, BattlefieldHighlightKind.Selected) =>
+                R3SelectedMaterial,
+            (_, BattlefieldHighlightKind.Legal) => LegalMaterial,
+            (_, BattlefieldHighlightKind.Destination) => DestinationMaterial,
+            (_, BattlefieldHighlightKind.Selected) => SelectedMaterial,
+            _ => _idleMaterial,
+        };
+
+    private static StandardMaterial3D CandidateLeaderCoreMaterial(
+        CardVisualFaction faction) => faction switch
+        {
+            CardVisualFaction.Midrange => R3MidrangeCoreMaterial,
+            CardVisualFaction.Advance => R3AdvanceCoreMaterial,
+            _ => R3NeutralCoreMaterial,
+        };
+
+    private static StandardMaterial3D LeaderPortraitMaterial(Texture2D texture)
+    {
+        ulong textureId = texture.GetInstanceId();
+        if (LeaderPortraitMaterials.TryGetValue(
+                textureId,
+                out StandardMaterial3D? material))
+        {
+            return material;
+        }
+
+        material = new StandardMaterial3D
+        {
+            AlbedoTexture = texture,
+            AlbedoColor = Colors.White,
+            Metallic = 0.0f,
+            Roughness = 0.42f,
+            ShadingMode = BaseMaterial3D.ShadingModeEnum.Unshaded,
+            CullMode = BaseMaterial3D.CullModeEnum.Disabled,
+            TextureFilter = BaseMaterial3D.TextureFilterEnum.LinearWithMipmapsAnisotropic,
+        };
+        LeaderPortraitMaterials[textureId] = material;
+        return material;
+    }
+
+    private void ApplyPooledVisualDefaults()
+    {
+        _trayMesh.MaterialOverride = _visualProfile.UsesOpenArena
+            ? R3NeutralMetalMaterial
+            : IdleUnitTrayMaterial;
+        _fillMesh.MaterialOverride = _visualProfile.UsesOpenArena
+            ? R3UnitMaterial
+            : IdleUnitMaterial;
+        _brackets.MaterialOverride = _visualProfile.UsesOpenArena
+            ? R3UnitMaterial
+            : IdleUnitMaterial;
+        _leaderPlatform.MaterialOverride = _visualProfile.UsesOpenArena
+            ? R3NeutralMetalMaterial
+            : LeaderPlatformMaterial;
+        _leaderHalo.MaterialOverride = _visualProfile.UsesOpenArena
+            ? R3NeutralCoreMaterial
+            : CyanCoreMaterial;
+        _leaderCore.MaterialOverride = _leaderHalo.MaterialOverride;
+        _pilePlinth.MaterialOverride = R3NeutralMetalMaterial;
+        _pileFrontLip.MaterialOverride = R3PileMaterial;
+        _leaderOuterRing.MaterialOverride = R3NeutralMetalMaterial;
+        _leaderInnerRing.MaterialOverride = R3NeutralCoreMaterial;
+        _leaderTerminalFrame.MaterialOverride = R3NeutralMetalMaterial;
+        _leaderTerminal.Visible = false;
+        _leaderPortrait.Visible = false;
+        _leaderPortrait.MaterialOverride = null;
     }
 
     private static MultiMesh CreateCornerBrackets()
@@ -510,6 +804,47 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
             Roughness = 0.34f,
             EmissionEnabled = true,
             Emission = color * 0.08f,
+        };
+
+    private static StandardMaterial3D CreateCandidateInlayMaterial(Color color) =>
+        new()
+        {
+            AlbedoColor = new Color(color, 0.42f),
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+            Metallic = 0.46f,
+            Roughness = 0.46f,
+            EmissionEnabled = true,
+            Emission = color * 0.035f,
+        };
+
+    private static StandardMaterial3D CreateCandidateMetalMaterial(Color color) =>
+        new()
+        {
+            AlbedoColor = color,
+            Metallic = 0.82f,
+            Roughness = 0.39f,
+        };
+
+    private static StandardMaterial3D CreateCandidateAffordanceMaterial(Color color) =>
+        new()
+        {
+            AlbedoColor = new Color(color, 0.94f),
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+            Metallic = 0.36f,
+            Roughness = 0.28f,
+            EmissionEnabled = true,
+            Emission = color * 0.42f,
+        };
+
+    private static StandardMaterial3D CreateCandidateCoreMaterial(Color color) =>
+        new()
+        {
+            AlbedoColor = new Color(color, 0.94f),
+            Transparency = BaseMaterial3D.TransparencyEnum.Alpha,
+            Metallic = 0.64f,
+            Roughness = 0.27f,
+            EmissionEnabled = true,
+            Emission = color * 0.24f,
         };
 
     private static void ScrubMetadata(Node node)

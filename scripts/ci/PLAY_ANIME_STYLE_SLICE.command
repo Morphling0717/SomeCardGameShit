@@ -15,9 +15,10 @@ if [ "${SCGS_ANIME_LAUNCHER_CI:-0}" = "1" ]; then
     echo "SCGS_ANIME_LAUNCHER_OUTPUT is required when SCGS_ANIME_LAUNCHER_CI=1." >&2
     exit 2
   fi
-  exec "$executable" --windowed --audio-driver Dummy --resolution 1600x900 -- \
+  exec "$executable" --windowed --audio-driver Dummy --resolution 1024x684 -- \
     "--anime-style-slice=${SCGS_ANIME_LAUNCHER_OUTPUT}" \
-    --anime-style-slice-exit "--ci-visual-viewport=1600x900"
+    --anime-style-slice-exit "--ci-visual-viewport=1024x684" \
+    --ci-anime-runner-viewport
 fi
 
 # Finder double-clicks use the same standalone, no-native path as source runs.

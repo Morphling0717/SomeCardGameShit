@@ -793,7 +793,7 @@ jobs:
         run: |
           export_directory="${GITHUB_WORKSPACE}/artifacts/godot/macos-arm64"
           launcher="${export_directory}/PLAY_ANIME_STYLE_SLICE.command"
-          slice="${GITHUB_WORKSPACE}/artifacts/anime-exported-visual-slice/macos-1600x900"
+          slice="${GITHUB_WORKSPACE}/artifacts/anime-exported-visual-slice/macos-runner-1024x684"
           mkdir -p "$slice"
           export SCGS_ANIME_LAUNCHER_CI=1
           export SCGS_ANIME_LAUNCHER_OUTPUT="$slice"
@@ -809,7 +809,8 @@ jobs:
           unset SCGS_ANIME_LAUNCHER_CI SCGS_ANIME_LAUNCHER_OUTPUT
           python scripts/ci/validate_anime_visual_slice.py \
             "$slice/anime-visual-slice.json" \
-            --expected-viewport 1600x900
+            --expected-viewport 1024x684 \
+            --allow-ci-runner-viewport
       - name: Package macOS client
         run: |
           export_directory="${GITHUB_WORKSPACE}/artifacts/godot/macos-arm64"
@@ -829,7 +830,7 @@ jobs:
         run: |
           package="${GITHUB_WORKSPACE}/artifacts/packages/SomeCardGameShit-product-runtime-foundation-anime-slice-macos-arm64.zip"
           round_trip="${GITHUB_WORKSPACE}/artifacts/roundtrip/anime-visual-slice-macos-arm64"
-          slice="${GITHUB_WORKSPACE}/artifacts/anime-packaged-visual-slice/macos-1600x900"
+          slice="${GITHUB_WORKSPACE}/artifacts/anime-packaged-visual-slice/macos-runner-1024x684"
           mkdir -p "$round_trip" "$slice"
           ditto -x -k "$package" "$round_trip"
           app="$round_trip/SomeCardGameShit.app"
@@ -852,7 +853,8 @@ jobs:
           unset SCGS_ANIME_LAUNCHER_CI SCGS_ANIME_LAUNCHER_OUTPUT
           python scripts/ci/validate_anime_visual_slice.py \
             "$slice/anime-visual-slice.json" \
-            --expected-viewport 1600x900
+            --expected-viewport 1024x684 \
+            --allow-ci-runner-viewport
       - name: Round-trip audit and launch packaged macOS default 3D client
         run: |
           package="${GITHUB_WORKSPACE}/artifacts/packages/SomeCardGameShit-gate4b-r2-macos-arm64.app.zip"

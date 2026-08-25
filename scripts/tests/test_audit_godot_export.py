@@ -152,6 +152,8 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertIn('application="$launcher_directory/SomeCardGameShit.app"', macos_launcher)
         self.assertEqual(1, macos_launcher.count("--anime-style-slice-exit"))
         self.assertIn("SCGS_ANIME_LAUNCHER_OUTPUT", macos_launcher)
+        self.assertIn("--ci-visual-viewport=1024x684", macos_launcher)
+        self.assertIn("--ci-anime-runner-viewport", macos_launcher)
         self.assertNotIn('"$@"', macos_launcher)
         self.assertIn(
             "scripts/ci/PLAY_ANIME_STYLE_SLICE.command text eol=lf",

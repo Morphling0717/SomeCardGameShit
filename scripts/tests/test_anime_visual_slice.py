@@ -447,6 +447,8 @@ class AnimeVisualSliceSourceContractTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn('-Viewports "1024x684"', workflow)
         self.assertIn("-AllowCiRunnerViewport", workflow)
+        self.assertEqual(2, workflow.count("--expected-viewport 1024x684"))
+        self.assertEqual(2, workflow.count("--allow-ci-runner-viewport"))
 
         suite = (ROOT / "client/godot/scripts/Ci/AnimeVisualSliceSuite.cs").read_text(encoding="utf-8")
         policy = (ROOT / "client/godot/scripts/Preview/AnimeSliceMotionProfile.cs").read_text(encoding="utf-8")

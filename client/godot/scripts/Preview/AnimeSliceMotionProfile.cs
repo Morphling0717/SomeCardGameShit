@@ -127,4 +127,33 @@ internal static class AnimeVisualSliceViewportPolicy
         }
         return requested;
     }
+
+    internal static AnimeSliceViewportSize CorrectWindowSizeForFramebuffer(
+        AnimeSliceViewportSize requestedWindow,
+        AnimeSliceViewportSize observedFramebuffer,
+        AnimeSliceViewportSize targetFramebuffer)
+    {
+        ValidatePositive(requestedWindow, nameof(requestedWindow));
+        ValidatePositive(observedFramebuffer, nameof(observedFramebuffer));
+        ValidatePositive(targetFramebuffer, nameof(targetFramebuffer));
+
+        int width = checked(
+            requestedWindow.Width + targetFramebuffer.Width - observedFramebuffer.Width);
+        int height = checked(
+            requestedWindow.Height + targetFramebuffer.Height - observedFramebuffer.Height);
+        if (width <= 0 || height <= 0)
+        {
+            throw new InvalidOperationException(
+                "Framebuffer compensation produced a non-positive window size.");
+        }
+        return new AnimeSliceViewportSize(width, height);
+    }
+
+    private static void ValidatePositive(AnimeSliceViewportSize size, string parameterName)
+    {
+        if (size.Width <= 0 || size.Height <= 0)
+        {
+            throw new ArgumentOutOfRangeException(parameterName);
+        }
+    }
 }

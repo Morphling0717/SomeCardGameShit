@@ -663,6 +663,7 @@ class AnimeCardBodySliceValidatorTests(unittest.TestCase):
         self.assertIn("SetGpuValueLabelsVisibleForActor(actorName, false)", suite)
         self.assertIn("SetGpuNameLabelVisibleForActor(actorName, false)", suite)
         self.assertIn("SetProductFaceLayersVisibleForActor(actorName, false)", suite)
+        self.assertIn("WindowSetMinSize(Vector2I.Zero)", suite)
         self.assertIn("framesWithoutActorProductLayers.TryGetValue", screen)
         self.assertIn("CiProductSilhouetteGpuProbes(_camera)", screen)
         self.assertIn("CiProductInteriorGpuPosition(_camera)", screen)

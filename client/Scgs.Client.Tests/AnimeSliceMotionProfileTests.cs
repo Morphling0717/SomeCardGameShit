@@ -66,4 +66,42 @@ public sealed class AnimeSliceMotionProfileTests
         Assert.Throws<InvalidOperationException>(() =>
             AnimeVisualSliceViewportPolicy.Resolve(["--ci-anime-runner-viewport"]));
     }
+
+    [TestMethod]
+    public void WindowRequestCompensatesForObservedMacFramebufferInset()
+    {
+        AnimeSliceViewportSize corrected =
+            AnimeVisualSliceViewportPolicy.CorrectWindowSizeForFramebuffer(
+                new AnimeSliceViewportSize(1024, 684),
+                new AnimeSliceViewportSize(1024, 681),
+                AnimeVisualSliceViewportPolicy.CiRunnerViewport);
+
+        Assert.AreEqual(new AnimeSliceViewportSize(1024, 687), corrected);
+        Assert.AreEqual(
+            corrected,
+            AnimeVisualSliceViewportPolicy.CorrectWindowSizeForFramebuffer(
+                corrected,
+                AnimeVisualSliceViewportPolicy.CiRunnerViewport,
+                AnimeVisualSliceViewportPolicy.CiRunnerViewport));
+    }
+
+    [TestMethod]
+    public void WindowRequestCompensationRejectsInvalidDimensions()
+    {
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() =>
+            AnimeVisualSliceViewportPolicy.CorrectWindowSizeForFramebuffer(
+                new AnimeSliceViewportSize(0, 684),
+                new AnimeSliceViewportSize(1024, 681),
+                AnimeVisualSliceViewportPolicy.CiRunnerViewport));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() =>
+            AnimeVisualSliceViewportPolicy.CorrectWindowSizeForFramebuffer(
+                new AnimeSliceViewportSize(1024, 684),
+                new AnimeSliceViewportSize(1024, 0),
+                AnimeVisualSliceViewportPolicy.CiRunnerViewport));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() =>
+            AnimeVisualSliceViewportPolicy.CorrectWindowSizeForFramebuffer(
+                new AnimeSliceViewportSize(1024, 684),
+                new AnimeSliceViewportSize(1024, 681),
+                new AnimeSliceViewportSize(1024, 0)));
+    }
 }

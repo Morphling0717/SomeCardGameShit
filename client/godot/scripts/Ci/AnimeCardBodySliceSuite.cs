@@ -10,8 +10,10 @@ namespace Scgs.GodotClient.Ci;
 internal sealed class AnimeCardBodySliceSuite
 {
     private const int MaximumStableFramePairAttempts = 30;
+    private const int MaximumViewportConvergenceAttempts = 8;
     private readonly AnimeCardBodySliceScreen _screen;
     private readonly string _outputDirectory;
+    private readonly AnimeSliceViewportSize? _captureViewport;
 
     internal AnimeCardBodySliceSuite(AnimeCardBodySliceScreen screen, string outputDirectory)
     {
@@ -27,11 +29,16 @@ internal sealed class AnimeCardBodySliceSuite
         }
         _outputDirectory = Path.GetFullPath(outputDirectory);
         Directory.CreateDirectory(_outputDirectory);
-        if (AnimeVisualSliceViewportPolicy.Resolve(OS.GetCmdlineUserArgs()) is { } viewport)
+        _captureViewport = AnimeVisualSliceViewportPolicy.Resolve(OS.GetCmdlineUserArgs());
+        if (_captureViewport is { } viewport)
         {
             // Capture the requested client area rather than an outer decorated
             // window. This matters at 2560x1600, where a Windows title bar
-            // otherwise reduces the captured viewport to 1570 px high.
+            // otherwise reduces the captured viewport to 1570 px high. The
+            // product minimum is 1280x720, but the hosted macOS display is the
+            // explicitly isolated 1024x684 CI exception; release that minimum
+            // before sizing so AppKit does not clamp the drawable height.
+            DisplayServer.WindowSetMinSize(Vector2I.Zero);
             DisplayServer.WindowSetFlag(DisplayServer.WindowFlags.Borderless, true);
             DisplayServer.WindowSetPosition(Vector2I.Zero);
             DisplayServer.WindowSetSize(new Vector2I(viewport.Width, viewport.Height));
@@ -40,6 +47,7 @@ internal sealed class AnimeCardBodySliceSuite
 
     internal async Task<string> RunAsync()
     {
+        await EnsureExactCaptureViewportAsync();
         var captures = new List<AnimeCardBodyCapture>();
         int sequence = 0;
         foreach (string state in AnimeCardBodySliceLaunch.States)
@@ -172,6 +180,59 @@ internal sealed class AnimeCardBodySliceSuite
         string json = JsonSerializer.Serialize(report, new JsonSerializerOptions { WriteIndented = true });
         File.WriteAllText(reportPath, json + System.Environment.NewLine, new UTF8Encoding(false));
         return reportPath;
+    }
+
+    private async Task EnsureExactCaptureViewportAsync()
+    {
+        if (_captureViewport is not { } target)
+        {
+            return;
+        }
+
+        AnimeSliceViewportSize requestedWindow = target;
+        string lastObservation = "no framebuffer sampled";
+        for (int attempt = 1; attempt <= MaximumViewportConvergenceAttempts; attempt++)
+        {
+            using Image firstFrame = await ReadCompletedFrameAsync();
+            using Image secondFrame = await ReadCompletedFrameAsync();
+            var firstObserved = new AnimeSliceViewportSize(
+                firstFrame.GetWidth(),
+                firstFrame.GetHeight());
+            var observed = new AnimeSliceViewportSize(
+                secondFrame.GetWidth(),
+                secondFrame.GetHeight());
+            Vector2I actualWindow = DisplayServer.WindowGetSize();
+            lastObservation =
+                $"attempt={attempt}, requested-window={requestedWindow.Width}x{requestedWindow.Height}, " +
+                $"actual-window={actualWindow.X}x{actualWindow.Y}, " +
+                $"framebuffers={firstObserved.Width}x{firstObserved.Height}," +
+                $"{observed.Width}x{observed.Height}";
+            if (firstObserved != observed)
+            {
+                continue;
+            }
+            if (observed == target)
+            {
+                GD.Print(
+                    $"SCGS_ANIME_CARD_BODY_VIEWPORT_OK target={target.Width}x{target.Height} " +
+                    $"window={actualWindow.X}x{actualWindow.Y} attempts={attempt}");
+                return;
+            }
+
+            requestedWindow =
+                AnimeVisualSliceViewportPolicy.CorrectWindowSizeForFramebuffer(
+                    requestedWindow,
+                    observed,
+                    target);
+            DisplayServer.WindowSetPosition(Vector2I.Zero);
+            DisplayServer.WindowSetSize(
+                new Vector2I(requestedWindow.Width, requestedWindow.Height));
+        }
+
+        throw new InvalidOperationException(
+            $"AnimeV1 card-body capture could not converge to exact framebuffer " +
+            $"{target.Width}x{target.Height} within {MaximumViewportConvergenceAttempts} " +
+            $"complete frames; last observation: {lastObservation}.");
     }
 
     private static void Validate(

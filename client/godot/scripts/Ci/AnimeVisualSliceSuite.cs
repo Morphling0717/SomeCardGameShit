@@ -203,11 +203,22 @@ internal sealed class AnimeVisualSliceSuite
             foreach (AnimeCardPreview card in hand)
             {
                 Rect2 cardRect = card.VisualScreenRect;
+                Rect2 costBadgeRect = card.CostBadgeScreenRect;
                 bool cardInside = Contains(safeArea, cardRect);
                 if (!cardInside || card.BadgeFontPixelSize < 16)
                 {
                     throw new InvalidOperationException(
-                        $"AnimeV1 hand readability failed for {card.Name} in {state}.");
+                        $"AnimeV1 hand readability failed for {card.Name} in {state}: " +
+                        $"inside={cardInside}, badge-font={card.BadgeFontPixelSize}, " +
+                        $"rect=({cardRect.Position.X:F2},{cardRect.Position.Y:F2}," +
+                        $"{cardRect.Size.X:F2},{cardRect.Size.Y:F2}), " +
+                        $"safe=({safeArea.Position.X:F2},{safeArea.Position.Y:F2}," +
+                        $"{safeArea.Size.X:F2},{safeArea.Size.Y:F2}), " +
+                        $"size=({card.Size.X:F2},{card.Size.Y:F2}), " +
+                        $"cost-roi=({costBadgeRect.Position.X:F2}," +
+                        $"{costBadgeRect.Position.Y:F2}," +
+                        $"{costBadgeRect.Size.X:F2},{costBadgeRect.Size.Y:F2}), " +
+                        $"rotation={card.RotationDegrees:F2}.");
                 }
                 handCards.Add(new AnimeSliceHandCardEvidence
                 {

@@ -515,7 +515,12 @@ public sealed partial class AnimeStyleSliceScreen : Control
 
     private void BuildNearHand(float centerX, float viewportHeight, bool hovered)
     {
-        float cardHeight = Math.Clamp(viewportHeight * 0.205f, 142.0f, 190.0f);
+        // Noto Serif's real ascent/descent is taller than the placeholder font
+        // used by the original slice. Keep the canonical five-card hand large
+        // enough that the shared numeric text sockets retain a true 16 px
+        // fitted badge at the 1600x900 logical canvas (184 px after the formal
+        // 1280x720 stretch), rather than weakening the readability contract.
+        float cardHeight = Math.Clamp(viewportHeight * 0.255f, 184.0f, 230.0f);
         float cardWidth = cardHeight / 1.50f;
         float spacing = Math.Clamp(cardWidth * 0.78f, 76.0f, 102.0f);
         (string Id, string Name, AnimeCardKind Kind, AnimeFaction Faction, int Cost, int? Attack, int? Health, int? Countdown)[] cards =

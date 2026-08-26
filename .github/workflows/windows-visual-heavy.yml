@@ -1,6 +1,8 @@
 name: Windows visual compatibility
 
 on:
+  # Self-validate changes to this heavy lane once. Ordinary product and
+  # documentation pushes do not enter the legacy visual/performance matrix.
   push:
     paths:
       - ".github/workflows/windows-visual-heavy.yml"

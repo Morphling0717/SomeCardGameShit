@@ -25,6 +25,8 @@
              Link="GodotContracts\AnimeSliceMotionProfile.cs" />
     <Compile Include="..\godot\scripts\Preview\AnimeCardBodySliceLaunch.cs"
              Link="GodotContracts\AnimeCardBodySliceLaunch.cs" />
+    <Compile Include="..\godot\scripts\Preview\AnimeCardBodyHandLayoutPolicy.cs"
+             Link="GodotContracts\AnimeCardBodyHandLayoutPolicy.cs" />
     <Compile Include="..\godot\scripts\Ci\AnimeCardBodyFrameStability.cs"
              Link="GodotContracts\AnimeCardBodyFrameStability.cs" />
     <Compile Include="..\godot\scripts\Ci\AnimeCardBodyGpuReadabilityContract.cs"

@@ -1062,14 +1062,28 @@ public sealed partial class AnimeCardBodySliceScreen : Control
 
     private void BuildHand(int count, int? hoveredIndex)
     {
+        AnimeSliceViewportSize? captureViewport =
+            AnimeVisualSliceViewportPolicy.Resolve(OS.GetCmdlineUserArgs());
+        bool usesCiRunnerViewport =
+            captureViewport == AnimeVisualSliceViewportPolicy.CiRunnerViewport;
         _camera.Position = new Vector3(0.0f, 0.0f, 14.0f);
-        _camera.LookAt(new Vector3(0.0f, -0.55f, 0.0f), Vector3.Up);
+        _camera.LookAt(
+            new Vector3(0.0f, usesCiRunnerViewport ? -1.25f : -0.55f, 0.0f),
+            Vector3.Up);
         // The approval slice must not make the ten-card stress case smaller
         // than the product hand rig. At 1280x720, 1.22 renders roughly the
         // locked 158 px near-hand height; modest overlap keeps all ten full
         // silhouettes inside the viewport while preserving readable sockets.
-        float spacing = count switch { >= 9 => 1.90f, >= 5 => 1.55f, _ => 2.2f };
-        float restingScale = count >= 9 ? 1.22f : 1.16f;
+        // Narrower capture aspects retain most or all of the 720p-relative
+        // card height while providing less horizontal room. The pure policy
+        // compresses only dense-hand spacing; its product-locked scale stays
+        // unchanged and 16:9 framing remains exactly 1.90.
+        AnimeCardBodyHandLayout handLayout = AnimeCardBodyHandLayoutPolicy.Resolve(
+            count,
+            captureViewport?.Width ?? 1600,
+            captureViewport?.Height ?? 900);
+        float spacing = handLayout.Spacing;
+        float restingScale = handLayout.RestingScale;
         for (int index = 0; index < count; index++)
         {
             bool hovered = hoveredIndex == index;

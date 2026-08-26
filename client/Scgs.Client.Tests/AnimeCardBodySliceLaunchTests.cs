@@ -79,6 +79,42 @@ public sealed class AnimeCardBodySliceLaunchTests
     }
 
     [TestMethod]
+    public void DenseHandLayoutCompressesSpacingWithoutShrinkingCards()
+    {
+        AnimeCardBodyHandLayout runner =
+            AnimeCardBodyHandLayoutPolicy.Resolve(10, 1024, 684);
+        AnimeCardBodyHandLayout minimum =
+            AnimeCardBodyHandLayoutPolicy.Resolve(10, 1280, 720);
+        AnimeCardBodyHandLayout reference =
+            AnimeCardBodyHandLayoutPolicy.Resolve(10, 1600, 900);
+        AnimeCardBodyHandLayout tall =
+            AnimeCardBodyHandLayoutPolicy.Resolve(10, 2560, 1600);
+        AnimeCardBodyHandLayout standard =
+            AnimeCardBodyHandLayoutPolicy.Resolve(5, 1024, 684);
+
+        Assert.AreEqual(1.52f, runner.Spacing, 0.01f);
+        Assert.AreEqual(1.90f, minimum.Spacing, 0.0001f);
+        Assert.AreEqual(1.90f, reference.Spacing, 0.0001f);
+        Assert.AreEqual(1.66f, tall.Spacing, 0.01f);
+        Assert.AreEqual(AnimeCardBodyHandLayoutPolicy.DenseHandRestingScale, runner.RestingScale);
+        Assert.AreEqual(AnimeCardBodyHandLayoutPolicy.DenseHandRestingScale, minimum.RestingScale);
+        Assert.AreEqual(AnimeCardBodyHandLayoutPolicy.DenseHandRestingScale, reference.RestingScale);
+        Assert.AreEqual(AnimeCardBodyHandLayoutPolicy.DenseHandRestingScale, tall.RestingScale);
+        Assert.AreEqual(AnimeCardBodyHandLayoutPolicy.StandardHandRestingScale, standard.RestingScale);
+    }
+
+    [TestMethod]
+    public void HandLayoutRejectsInvalidCountsAndViewportDimensions()
+    {
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() =>
+            AnimeCardBodyHandLayoutPolicy.Resolve(0, 1280, 720));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() =>
+            AnimeCardBodyHandLayoutPolicy.Resolve(10, 0, 720));
+        Assert.ThrowsExactly<ArgumentOutOfRangeException>(() =>
+            AnimeCardBodyHandLayoutPolicy.Resolve(10, 1280, 0));
+    }
+
+    [TestMethod]
     public void FrameFingerprintRequiresExactConsecutivePixelIdentity()
     {
         byte[] pixels = [0, 1, 2, 3, 4, 5, 6, 7];

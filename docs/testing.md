@@ -53,11 +53,11 @@ Windows/macOS job 还必须实际导出并启动产物；只在编辑器运行�
 
 **Gate 4B-R2 visual-suite schema version 4** 是 display-backed 截图/性能报告，不是上述 Gate 4A full-match schema version 3；字段白名单、场景证据和 validator 完全独立。视觉报告必须捕获且仅捕获原有 11 种产品状态 `menu`、`match-setup`、`covered`、`mulligan`、`action`、`source-selection`、`slot-or-target-selection`、`reaction`、`resolving`、`result`、`error`，以及 `hand-one`、`hand-five`、`hand-ten`、`hand-hover`、`field-readability`，共 16 种。每张截图必须等待连续两个内容一致的 `FramePostDraw`，记录 state/viewer/revision/viewport/资产清单哈希、桌面/双方主战者/手牌/HUD 像素锚点与区域哈希，并扫描 GPU 最终画面中的恶意洋红私密纹理哨兵。
 
-Windows 在 1280×720、1600×900、2560×1440 和 2560×1600 四种真实窗口尺寸运行套件。四种尺寸都严格检查控件不越界/重叠、战场占物理安全矩形至少 92% 宽/78% 高、调度手牌/托盘分离、无全高不透明黑栏、隐藏调试文本和隐私。费用、攻击、生命和倒计时还必须同时提供真实 `Label3D`、高于底板至少 0.012 世界单位的深度证据和最终 GPU 徽章 ROI。1600×900 只与人工批准、显式更新的 committed golden 比较；macOS 保留资源、结构、ARM64、签名与真实启动检查，不与 Windows 做跨平台像素 golden。
+Windows 的历史 Gate 4B-R2 视觉兼容证据由夜间／手动全量工作流维护；日常 push/PR 不再为每个提交重复这条约 74 分钟的旧产品路径。夜间托管 runner 固定在 1600×900 运行完整 16 态、committed golden 和 300＋300 帧资源稳定检查；四种正式尺寸的当前 AnimeV1 审批矩阵仍留在日常工作流。费用、攻击、生命和倒计时继续要求真实 `Label3D`、高于底板至少 0.012 世界单位的深度证据和最终 GPU 徽章 ROI。macOS 保留资源、结构、ARM64、签名与真实启动检查，不与 Windows 做跨平台像素 golden。
 
 Gate 4B-R2 冻结产品集仍要求 `CardVisualCatalog` 对 29 个 definition 全覆盖、路径和卡图唯一，卡背、菜单背景、fallback 正面与两张头像可加载，共 34 项；`ASSET_MANIFEST.json` 必须保持这组冻结内容及其已批准哈希。同牌组双席、未知牌组 fallback 和所有隐藏牌共享同一卡背也必须验证。未批准的 R3.1 地坪只登记在 `arena/R3_ASSET_MANIFEST.json`。联合审计要求主清单 34 项、候选清单 1 项，跨清单无重复并与实际 35 个 PNG/WebP/SVG 一一对应，所有 SHA-256 逐项匹配。
 
-性能 smoke 固定为 300 帧预热 + 300 帧测量；预热后 actor/material/texture 计数不得增长，无论渲染器类型都不能豁免。报告记录 `adapter_name`、`adapter_type`、`timing_budget_applicable`、p95 与 max。硬件适配器要求 p95 不高于 33.3 ms、max 低于 100 ms；只有 CPU 或名称明确为 Microsoft Basic Render Driver、llvmpipe、SwiftShader/software renderer 的设备可以 `timing_budget_applicable=false`。这仅不应用 GPU 时间阈值，仍要求 16 状态、功能/隐私、600 帧和资源零增长全部通过。
+性能 smoke 固定为 300 帧预热 + 300 帧测量；预热后 actor/material/texture 计数不得增长，无论渲染器类型都不能豁免。报告继续记录适配器与帧时间，但 GitHub Windows 的 ANGLE/WARP 软件渲染结果只作为资源稳定证据，不宣称通过真实 GPU 帧预算。硬件 p95／单帧预算只由明确使用真实 GPU 的本地或发布候选实机脚本裁决。
 
 ### Gate 5A 产品牌组设计契约
 
@@ -144,9 +144,13 @@ ctest --preset asan
 git diff --check
 ```
 
-Windows MSVC 使用 `scripts/test.ps1` 或等价的 Release 配置。CI 在 GCC Release、Clang ASan/UBSan、MSVC Release 和 macOS ARM64 Release 四个 job 中固定 Python 版本，并显式设置 `SCGS_ENABLE_LEGACY_YGO2_TESTS=ON`。每个平台还安装并审计原生库，上传仅供 CI 验收的暂存 artifact。
+Windows MSVC 使用 `scripts/test.ps1` 或等价的 Release 配置。日常 `.github/workflows/ci.yml` 在 GCC Release、Clang ASan/UBSan、MSVC Release 和 macOS ARM64 Release 四个 job 中固定 Python 版本，并显式设置 `SCGS_ENABLE_LEGACY_YGO2_TESTS=ON`。每个平台还安装并审计原生库，上传仅供 CI 验收的暂存 artifact。
 
-Linux 两个 job 保持纯原生，但现在同时安装、C11 package-smoke 并审计 v04 与 v05。Windows 与 macOS job 在双版本原生安装审计之后追加 locked managed restore/build/test、等待冷资源扫描完成的 Godot `--import`、Gate 6A 四尺寸样片矩阵、默认 3D 与 legacy 2D 源码 smoke、目标平台默认 3D 导出、导出包启动与 ZIP 往返审计。Windows 仍跑四尺寸 display-backed Gate 4B-R2 visual suite、1600×900 golden 和 600 帧性能/资源验证；macOS 从已校验的官方 universal template 临时派生 arm64 release template，并要求最终 bundle 只有一套 arm64 托管数据且所有 Mach-O 均为 arm64-only。这不构成 Web 或 Linux 客户端支持声明。
+Linux 两个 job 保持纯原生，但同时安装、C11 package-smoke 并审计 v04 与 v05。日常 Windows 保留 MSVC/CTest、双 ABI、managed、Godot import、当前 AnimeV1 四尺寸结构矩阵、默认 3D 源码 smoke，以及一次正式导出、实际启动和单 ZIP 往返；不再生成三个内容相同、仅名字不同的包。历史 legacy 2D、R2 视觉/golden/600 帧、R3 候选及两个迁移期 launcher 的 ZIP 往返移入 `.github/workflows/windows-visual-heavy.yml`，固定每天 20:17 UTC 运行，也可手动触发。
+
+日常工作流先由仓库内 `classify_ci_changes.py` 读取事件 base/head 的真实 Git 路径；纯说明性 Markdown 改动只运行牌组 Schema、生成目录、视觉 manifest、CI 路由和 whitespace 契约。会被原样复制进桌面包的许可证、NOTICE、素材 provenance 与两份样片 README 明确不属于 docs-only，必须重跑导出和审计。任何空、非法或无法判定的路径都 fail closed 到完整矩阵。并发键按事件和 SHA 隔离，既不让同 SHA 的 push／PR 互相取消，也不允许后续 docs-only 提交取消父提交的完整矩阵证据；仓库内已由 push 覆盖的 `codex/`、`prototype/`、`feature/` 分支 PR 不再重复全跑，外部 fork PR 仍执行完整门禁。
+
+macOS 仍从已校验的官方 universal template 临时派生 arm64 release template，并要求最终 bundle 只有一套 arm64 托管数据且所有 Mach-O 均为 arm64-only。这不构成 Web 或 Linux 客户端支持声明。
 
 Gate 4B-R1 实现由 GitHub Actions run `32719076472` 验证，最终 R1 基线 `1370491` 又由 run `32732554577` 复验；这些历史 run 都不能证明 Gate 4B-R2。R2 实现尖端 `cca04b5` 已由 run `32766050188` 的四项完整矩阵验证。R3.1 被测实现尖端 `3d4012f` 又由 run `32808917410` 验证：四项 job 全绿，Windows 源码、正式 EXE 与 ZIP 内 launcher 候选实启，R2 四尺寸 schema 4/golden 回归不变。精确 job、测试数量、截图取证和制品 digest 记录在 [`TEST_REPORT.md`](../TEST_REPORT.md)。包含报告的后续文档尖端仍必须在自身 commit 上复跑，不能沿用实现尖端 run 冒充通过。
 

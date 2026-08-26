@@ -23,8 +23,12 @@ R3_CANDIDATE_MANIFEST_RELATIVE_PATH = Path(
 ANIME_V1_MANIFEST_RELATIVE_PATH = Path(
     "client/godot/assets/visual/anime_v1/slice/ASSET_MANIFEST.json"
 )
+CARD_BODY_MANIFEST_RELATIVE_PATH = Path(
+    "client/godot/assets/visual/anime_v1/card_body/CARD_BODY_ASSET_MANIFEST.json"
+)
 VISUAL_ROOT = Path("client/godot/assets/visual")
 ANIME_V1_ROOT = VISUAL_ROOT / "anime_v1/slice"
+CARD_BODY_ROOT = VISUAL_ROOT / "anime_v1/card_body"
 MEDIA_SUFFIXES = {".png", ".webp", ".svg"}
 CARD_ART_ROOT = VISUAL_ROOT / "cards/art"
 EXPECTED_CARD_ART_NAMES = {
@@ -72,6 +76,32 @@ EXPECTED_ANIME_V1_PATHS = (
     | ANIME_V1_LEADER_PATHS
     | {ANIME_V1_CARD_BACK, ANIME_V1_MENU, ANIME_V1_ARENA}
 )
+EXPECTED_CARD_BODY_PATHS = {
+    (CARD_BODY_ROOT / "crests" / name).as_posix()
+    for name in ("neutral.svg", "oathguard.svg", "pactmage.svg")
+} | {
+    (CARD_BODY_ROOT / "frames" / name).as_posix()
+    for name in ("amulet.svg", "field.svg", "follower.svg", "spell.svg", "trap.svg")
+} | {
+    (CARD_BODY_ROOT / "gems" / name).as_posix()
+    for name in ("attack.svg", "cost.svg", "countdown.svg", "health.svg")
+} | {
+    (CARD_BODY_ROOT / "materials" / name).as_posix()
+    for name in ("engraved-metal-v1.png", "legendary-foil-v1.png")
+} | {
+    (CARD_BODY_ROOT / "nameplates" / name).as_posix()
+    for name in ("neutral.svg", "oathguard.svg", "pactmage.svg")
+} | {
+    (CARD_BODY_ROOT / "rarity" / name).as_posix()
+    for name in ("common.svg", "epic.svg", "legendary.svg", "rare.svg")
+} | {
+    (CARD_BODY_ROOT / "variants" / name).as_posix()
+    for name in ("evolved.svg", "token.svg")
+}
+CARD_BODY_RASTER_PATHS = {
+    (CARD_BODY_ROOT / "materials" / name).as_posix()
+    for name in ("engraved-metal-v1.png", "legendary-foil-v1.png")
+}
 ANIME_V1_MAX_RESIDENT_TEXTURES = 24
 ANIME_V1_MAX_ESTIMATED_VRAM_BYTES = 96 * 1024 * 1024
 ANIME_V1_MAX_SOURCE_PAYLOAD_BYTES = 64 * 1024 * 1024
@@ -259,6 +289,11 @@ def audit(
     ).resolve()
     if not explicit_manifest and anime_manifest_path.is_file():
         manifest_paths.append(anime_manifest_path)
+    card_body_manifest_path = (
+        repo_root / CARD_BODY_MANIFEST_RELATIVE_PATH
+    ).resolve()
+    if not explicit_manifest and card_body_manifest_path.is_file():
+        manifest_paths.append(card_body_manifest_path)
     if not explicit_manifest:
         discovered_manifest_paths = {
             path.resolve()
@@ -268,8 +303,8 @@ def audit(
         expected_manifest_paths = set(manifest_paths)
         if discovered_manifest_paths != expected_manifest_paths:
             raise VisualAssetAuditError(
-                "visual manifest set differs from the frozen product manifest plus "
-                "the isolated R3 candidate manifest; "
+                "visual manifest set differs from the frozen product manifests plus "
+                "the isolated R3, AnimeV1 and card-body candidate manifests; "
                 "missing="
                 f"{sorted(str(path) for path in expected_manifest_paths - discovered_manifest_paths)}, "
                 "unexpected="
@@ -298,6 +333,8 @@ def audit(
         expected_gate = (
             "4B-R3.1"
             if current_manifest_path == candidate_manifest_path
+            else "6A-R1"
+            if current_manifest_path == card_body_manifest_path
             else "6A"
             if current_manifest_path == anime_manifest_path
             else "4B"
@@ -379,6 +416,9 @@ def audit(
     product_registered = registered_by_manifest[product_manifest_path]
     candidate_registered = registered_by_manifest.get(candidate_manifest_path, set())
     anime_registered = registered_by_manifest.get(anime_manifest_path, set())
+    card_body_registered = registered_by_manifest.get(
+        card_body_manifest_path, set()
+    )
 
     actual = {
         path.relative_to(repo_root).as_posix()
@@ -438,6 +478,39 @@ def audit(
                 f"missing={sorted(EXPECTED_ANIME_V1_PATHS - anime_registered)}, "
                 f"unexpected={sorted(anime_registered - EXPECTED_ANIME_V1_PATHS)}"
             )
+        if card_body_registered != EXPECTED_CARD_BODY_PATHS:
+            raise VisualAssetAuditError(
+                "Gate 6A-R1 card-body manifest must contain the exact 23-item "
+                "approval asset set; "
+                f"missing={sorted(EXPECTED_CARD_BODY_PATHS - card_body_registered)}, "
+                f"unexpected={sorted(card_body_registered - EXPECTED_CARD_BODY_PATHS)}"
+            )
+        for relative in sorted(CARD_BODY_RASTER_PATHS):
+            import_path = repo_root / f"{relative}.import"
+            try:
+                import_text = import_path.read_text(encoding="utf-8")
+            except (FileNotFoundError, UnicodeDecodeError) as error:
+                raise VisualAssetAuditError(
+                    f"Gate 6A-R1 material is missing a valid Godot import sidecar: {relative}"
+                ) from error
+            expected_source = "res://" + relative.removeprefix("client/godot/")
+            required_import_settings = {
+                '"vram_texture": true',
+                "compress/mode=2",
+                "compress/high_quality=true",
+                "mipmaps/generate=true",
+                f'source_file="{expected_source}"',
+            }
+            missing_settings = sorted(
+                setting
+                for setting in required_import_settings
+                if setting not in import_text
+            )
+            if missing_settings:
+                raise VisualAssetAuditError(
+                    "Gate 6A-R1 card-frame materials must use desktop VRAM "
+                    f"compression and mipmaps for {relative}; missing={missing_settings}"
+                )
         for relative in sorted(card_art | {(VISUAL_ROOT / "shared/card_back.png").as_posix()}):
             width, height = _png_dimensions(repo_root / relative)
             if width * 3 != height * 2:
@@ -537,12 +610,14 @@ def audit(
         "product_asset_count": len(product_registered),
         "candidate_asset_count": len(candidate_registered),
         "anime_asset_count": len(anime_registered),
+        "card_body_asset_count": len(card_body_registered),
         "anime_estimated_vram_bytes": anime_estimated_vram_bytes,
         "anime_source_payload_bytes": anime_source_payload_bytes,
         "manifest_sha256": manifest_hashes[product_manifest_path],
         "product_manifest_sha256": manifest_hashes[product_manifest_path],
         "candidate_manifest_sha256": manifest_hashes.get(candidate_manifest_path),
         "anime_manifest_sha256": manifest_hashes.get(anime_manifest_path),
+        "card_body_manifest_sha256": manifest_hashes.get(card_body_manifest_path),
         "paths": sorted(registered),
     }
 
@@ -561,11 +636,14 @@ def main() -> int:
         f"audited {result['product_asset_count']} Gate 4B-R2 product assets and "
         f"{result['candidate_asset_count']} R3 candidate assets and "
         f"{result['anime_asset_count']} Gate 6A AnimeV1 assets; "
+        f"{result['card_body_asset_count']} Gate 6A-R1 card-body assets; "
         f"anime_estimated_vram_bytes={result['anime_estimated_vram_bytes']}; "
         f"anime_source_payload_bytes={result['anime_source_payload_bytes']}; "
         f"product_manifest_sha256={result['product_manifest_sha256']}; "
         f"candidate_manifest_sha256={result['candidate_manifest_sha256'] or 'none'}; "
         f"anime_manifest_sha256={result['anime_manifest_sha256'] or 'none'}"
+        f"; card_body_manifest_sha256="
+        f"{result['card_body_manifest_sha256'] or 'none'}"
     )
     return 0
 

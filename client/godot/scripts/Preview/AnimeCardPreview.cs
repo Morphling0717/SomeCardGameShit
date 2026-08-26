@@ -1,73 +1,158 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
+using System.Globalization;
 using Godot;
+using Scgs.GodotClient.CardFaces;
 
 namespace Scgs.GodotClient.Preview;
 
+/// <summary>
+/// Lightweight approval renderer for the AnimeV1 face composition. It consumes
+/// the same catalog, layout anchors and art crop as the real 3D card actor; it
+/// deliberately never receives a composition for a hidden card.
+/// </summary>
 internal sealed partial class AnimeCardPreview : Control
 {
+    private static readonly Font CardDisplayFont = LoadCardDisplayFont();
+    private static readonly Shader ArtworkMaskShader = new()
+    {
+        ResourceName = "AnimeV1 preview silhouette mask",
+        Code = """
+            shader_type canvas_item;
+            render_mode unshaded;
+
+            uniform sampler2D source_texture : source_color, filter_linear_mipmap_anisotropic;
+            uniform sampler2D frame_mask : source_color, filter_linear_mipmap_anisotropic;
+            uniform vec4 source_crop = vec4(0.0, 0.0, 1.0, 1.0);
+            uniform vec4 frame_region = vec4(0.0, 0.0, 1.0, 1.0);
+
+            void fragment() {
+                vec4 tint = COLOR;
+                vec2 source_uv = source_crop.xy + (UV * source_crop.zw);
+                vec2 mask_uv = frame_region.xy + (UV * frame_region.zw);
+                vec4 source = texture(source_texture, source_uv);
+                float silhouette = texture(frame_mask, mask_uv).a;
+                COLOR = vec4(
+                    source.rgb * tint.rgb,
+                    source.a * tint.a * smoothstep(0.04, 0.10, silhouette));
+            }
+            """,
+    };
+    private static readonly CardFaceRect FullFace = new(0.0f, 0.0f, 1.0f, 1.0f);
+
     private string _designId = string.Empty;
-    private string _displayName = string.Empty;
-    private AnimeCardKind _kind;
-    private AnimeFaction _faction;
-    private int _cost;
-    private int? _attack;
-    private int? _health;
-    private int? _countdown;
+    private AnimeCardKind? _kind;
     private bool _hidden;
-    private bool _evolved;
+    private CardFaceComposition? _composition;
     private Texture2D? _art;
+    private Texture2D? _material;
+    private Texture2D? _foil;
+    private Texture2D? _silhouette;
+    private Texture2D? _crest;
+    private Texture2D? _namePlate;
+    private Texture2D? _rarity;
+    private Texture2D? _variant;
+    private Texture2D? _costGem;
+    private Texture2D? _attackGem;
+    private Texture2D? _healthGem;
+    private Texture2D? _countdownGem;
+    private TextureRect? _maskedArtwork;
+    private TextureRect? _maskedMaterial;
+    private TextureRect? _maskedFoil;
+    private Control? _faceOverlay;
 
     internal string DesignId => _designId;
-    internal bool ShowsIdentity => !_hidden;
+    internal bool ShowsIdentity =>
+        _designId.Length != 0 || _kind.HasValue || _composition is not null;
     internal bool UsesExpectedRaster => _art is not null;
+    internal bool UsesFoil => !_hidden && _foil is not null;
     internal bool IsHidden => _hidden;
-    internal AnimeCardKind Kind => _kind;
+    internal AnimeCardKind Kind => _kind ?? throw new InvalidOperationException(
+        "Hidden cards do not expose a card-kind identity.");
     internal bool IsOwnHandCard => Name.ToString().StartsWith("NearHand", StringComparison.Ordinal);
-    internal string TypeMarkerGlyph => _kind switch
-    {
-        AnimeCardKind.Follower => "随",
-        AnimeCardKind.Spell => "法",
-        AnimeCardKind.Amulet => "护",
-        AnimeCardKind.Trap => "伏",
-        AnimeCardKind.Field => "场",
-        _ => "?",
-    };
-    internal string TypeMarkerShape => _kind switch
-    {
-        AnimeCardKind.Follower => "shield",
-        AnimeCardKind.Spell => "star",
-        AnimeCardKind.Amulet => "ring",
-        AnimeCardKind.Trap => "inverted_triangle",
-        AnimeCardKind.Field => "gate",
-        _ => "unknown",
-    };
-    internal int BadgeFontPixelSize => Math.Max(13, (int)MathF.Round(20.0f * CardScale));
+    internal CardFaceComposition? Composition => _composition;
+    internal CardFrameStyleKey? StyleKey => _composition?.FrameStyle.Key;
+    internal string TypeMarkerGlyph => _kind is { } kind
+        ? kind switch
+        {
+            AnimeCardKind.Follower => "随",
+            AnimeCardKind.Spell => "法",
+            AnimeCardKind.Amulet => "护",
+            AnimeCardKind.Trap => "伏",
+            AnimeCardKind.Field => "场",
+            _ => "?",
+        }
+        : string.Empty;
+    internal string TypeMarkerShape => _kind is { } kind
+        ? kind switch
+        {
+            AnimeCardKind.Follower => "shield",
+            AnimeCardKind.Spell => "star",
+            AnimeCardKind.Amulet => "ring",
+            AnimeCardKind.Trap => "inverted_triangle",
+            AnimeCardKind.Field => "gate",
+            _ => "unknown",
+        }
+        : string.Empty;
+    internal int BadgeFontPixelSize => _composition is { } composition
+        ? FitText(
+            composition.ViewModel.Cost.ToString(CultureInfo.InvariantCulture),
+            SocketRect(composition.Layout.CostText),
+            MaximumBadgeFontSize,
+            minimumFontSize: 7,
+            outlineSize: BadgeOutlineSize).FontSize
+        : 0;
     internal Rect2 VisualScreenRect => TransformLocalRect(new Rect2(Vector2.Zero, Size));
-    internal Rect2 CostBadgeScreenRect => TransformLocalRect(BadgeLocalRect(CostBadgeCenter, 14.0f * CardScale));
-    internal Rect2? AttackBadgeScreenRect => !_hidden && _attack.HasValue
-        ? TransformLocalRect(BadgeLocalRect(AttackBadgeCenter, 13.0f * CardScale))
-        : null;
-    internal Rect2? HealthBadgeScreenRect => !_hidden && _health.HasValue
-        ? TransformLocalRect(BadgeLocalRect(RightStatBadgeCenter, 13.0f * CardScale))
-        : null;
-    internal Rect2? CountdownBadgeScreenRect => !_hidden && !_health.HasValue && _countdown.HasValue
-        ? TransformLocalRect(BadgeLocalRect(RightStatBadgeCenter, 13.0f * CardScale))
-        : null;
-    internal Rect2 TypeMarkerScreenRect => TransformLocalRect(TypeMarkerLocalRect);
+    internal Rect2 NamePlateScreenRect =>
+        TransformLocalRect(SocketRect(_composition?.Layout.NamePlate));
+    internal Rect2 NameTextScreenRect =>
+        TransformLocalRect(SocketRect(_composition?.Layout.NameText));
+    internal Rect2 CostSocketScreenRect =>
+        TransformLocalRect(SocketRect(_composition?.Layout.CostGem));
+    internal Rect2 CostBadgeScreenRect => TransformLocalRect(SocketRect(_composition?.Layout.CostText));
+    internal Rect2? AttackSocketScreenRect =>
+        _composition?.ViewModel.Attack.HasValue == true
+            ? SocketScreenRect(_composition.Layout.AttackGem)
+            : null;
+    internal Rect2? AttackBadgeScreenRect =>
+        _composition?.ViewModel.Attack.HasValue == true
+            ? SocketScreenRect(_composition.Layout.AttackText)
+            : null;
+    internal Rect2? HealthBadgeScreenRect =>
+        _composition?.ViewModel.Health.HasValue == true
+            ? SocketScreenRect(_composition.Layout.HealthText)
+            : null;
+    internal Rect2? HealthSocketScreenRect =>
+        _composition?.ViewModel.Health.HasValue == true
+            ? SocketScreenRect(_composition.Layout.HealthGem)
+            : null;
+    internal Rect2? CountdownBadgeScreenRect =>
+        _composition?.ViewModel.Countdown.HasValue == true
+            ? SocketScreenRect(_composition.Layout.CountdownText)
+            : null;
+    internal Rect2? CountdownSocketScreenRect =>
+        _composition?.ViewModel.Countdown.HasValue == true
+            ? SocketScreenRect(_composition.Layout.CountdownGem)
+            : null;
+    internal Rect2 TypeMarkerScreenRect
+    {
+        get
+        {
+            Rect2 marker = TransformLocalRect(SocketRect(_composition?.Layout.TypeCrest));
+            Rect2 card = VisualScreenRect;
+            Vector2 size = new(
+                MathF.Min(card.Size.X, MathF.Max(24.0f, marker.Size.X)),
+                MathF.Min(card.Size.Y, MathF.Max(24.0f, marker.Size.Y)));
+            Vector2 position = marker.GetCenter() - (size * 0.5f);
+            position = new Vector2(
+                Math.Clamp(position.X, card.Position.X, card.End.X - size.X),
+                Math.Clamp(position.Y, card.Position.Y, card.End.Y - size.Y));
+            return new Rect2(position, size);
+        }
+    }
 
-    private float CardScale => MathF.Min(Size.X / 120.0f, Size.Y / 180.0f);
-    private Vector2 CostBadgeCenter => new(17.0f * CardScale, 18.0f * CardScale);
-    private Vector2 AttackBadgeCenter => new(
-        IsOwnHandCard ? Size.X * 0.28f : 17.0f * CardScale,
-        Size.Y - (17.0f * CardScale));
-    private Vector2 RightStatBadgeCenter => new(
-        IsOwnHandCard ? Size.X * 0.65f : Size.X - (17.0f * CardScale),
-        Size.Y - (17.0f * CardScale));
-    private float TypeMarkerRadius => MathF.Max(12.0f, 16.0f * CardScale);
-    private Vector2 TypeMarkerCenter => new(Size.X * 0.62f, TypeMarkerRadius + (5.0f * CardScale));
-    private Rect2 TypeMarkerLocalRect => new(
-        TypeMarkerCenter - (Vector2.One * TypeMarkerRadius),
-        Vector2.One * TypeMarkerRadius * 2.0f);
+    private float CardScale => MathF.Min(Size.X / 120.0f, Size.Y / 160.0f);
+    private int MaximumBadgeFontSize => Math.Max(10, (int)MathF.Round(20.0f * CardScale));
+    private int BadgeOutlineSize => Math.Max(1, (int)MathF.Round(CardScale));
 
     internal void Configure(
         string designId,
@@ -81,22 +166,70 @@ internal sealed partial class AnimeCardPreview : Control
         bool hidden = false,
         bool evolved = false)
     {
-        _designId = designId;
-        _displayName = displayName;
-        _kind = kind;
-        _faction = faction;
-        _cost = cost;
-        _attack = attack;
-        _health = health;
-        _countdown = countdown;
+        _designId = hidden ? string.Empty : designId;
+        _kind = hidden ? null : kind;
         _hidden = hidden;
-        _evolved = evolved;
-        string artId = evolved ? $"{designId}-EVOLVED" : designId;
-        _art = hidden
-            ? AnimeVisualAssetCatalog.TryLoad(AnimeVisualAssetCatalog.CardBack)
-            : AnimeVisualAssetCatalog.Card(artId);
+        EnsureFaceLayers();
+        ClearFaceResources();
         MouseFilter = MouseFilterEnum.Ignore;
-        QueueRedraw();
+
+        if (hidden)
+        {
+            // Privacy invariant: hidden cards never touch the product face catalog.
+            _art = AnimeVisualAssetCatalog.TryLoad(AnimeVisualAssetCatalog.CardBack);
+            RefreshFaceLayers();
+            return;
+        }
+
+        ProductCardVisualEntry entry = ProductCardVisualCatalog.Shared.Resolve(designId);
+        CardFrameVariant variant = evolved
+            ? CardFrameVariant.Evolved
+            : designId == "LO-T01" ? CardFrameVariant.Token : CardFrameVariant.Normal;
+        string artPath = ProductCardVisualCatalog.Shared.ResolveArtPath(entry, variant);
+        Texture2D? candidateArt = LoadTexture(artPath);
+        var viewModel = new CardFaceViewModel
+        {
+            DesignId = designId,
+            DisplayName = displayName,
+            Kind = ToProductKind(kind),
+            Faction = ToProductFaction(faction),
+            Rarity = entry.Rarity,
+            Cost = cost,
+            Attack = attack,
+            Health = health,
+            Countdown = countdown,
+            Variant = variant,
+            ArtPixelWidth = Math.Max(1, candidateArt?.GetWidth() ?? 1024),
+            ArtPixelHeight = Math.Max(1, candidateArt?.GetHeight() ?? 1536),
+            ArtFocusX = entry.ArtFocusX,
+            ArtFocusY = entry.ArtFocusY,
+        };
+        _composition = CardFaceComposer.Compose(
+            viewModel,
+            ResolveContext(),
+            ProductCardVisualCatalog.Shared,
+            CardFrameStyleCatalog.Shared);
+        _art = candidateArt ?? LoadTexture(_composition.ArtPath);
+        CardFrameStyle style = _composition.FrameStyle;
+        _material = LoadTexture(style.MaterialTexturePath);
+        _foil = LoadTexture(style.FoilTexturePath);
+        _silhouette = LoadTexture(style.SilhouettePath);
+        _crest = LoadTexture(style.CrestPath);
+        _namePlate = LoadTexture(style.NamePlatePath);
+        _rarity = LoadTexture(style.RarityOverlayPath);
+        _variant = LoadTexture(style.VariantOverlayPath);
+        _costGem = LoadTexture(style.CostGemPath);
+        _attackGem = LoadTexture(style.AttackGemPath);
+        _healthGem = LoadTexture(style.HealthGemPath);
+        _countdownGem = LoadTexture(style.CountdownGemPath);
+        RefreshFaceLayers();
+    }
+
+    public override void _Ready()
+    {
+        EnsureFaceLayers();
+        RefreshFaceLayers();
+        Resized += RefreshFaceLayers;
     }
 
     public override void _Draw()
@@ -107,270 +240,452 @@ internal sealed partial class AnimeCardPreview : Control
             return;
         }
 
-        float scale = MathF.Min(bounds.Size.X / 120.0f, bounds.Size.Y / 180.0f);
-        float outer = MathF.Max(2.0f, 4.0f * scale);
-        float inner = MathF.Max(2.0f, 5.0f * scale);
-        Color faction = AnimeVisualTheme.FactionColor(_faction);
-        Color baseColor = _hidden
-            ? AnimeVisualTheme.DeepIndigo.Darkened(0.18f)
-            : faction.Darkened(0.64f);
-
-        StyleBoxFlat shadow = AnimeVisualTheme.Panel(AnimeVisualTheme.Ink, 0.62f, (int)(13 * scale), 0);
-        shadow.ShadowSize = (int)MathF.Max(4.0f, 10.0f * scale);
-        DrawStyleBox(shadow, bounds.Grow(-1.0f));
-
-        StyleBoxFlat frame = AnimeVisualTheme.Panel(baseColor, 0.98f, (int)(12 * scale), (int)MathF.Max(1.0f, 2.0f * scale));
-        frame.BorderColor = _evolved
-            ? new Color(AnimeVisualTheme.PaleGold, 1.0f)
-            : new Color(faction.Lightened(0.32f), 0.95f);
-        frame.ShadowSize = 0;
-        DrawStyleBox(frame, bounds.Grow(-outer * 0.35f));
-
-        Rect2 artRect = new(
-            new Vector2(inner + outer, inner + outer),
-            new Vector2(
-                bounds.Size.X - ((inner + outer) * 2.0f),
-                bounds.Size.Y - (39.0f * scale) - ((inner + outer) * 1.65f)));
-        artRect.Size = new Vector2(
-            MathF.Max(4.0f, artRect.Size.X),
-            MathF.Max(8.0f, artRect.Size.Y));
-        DrawRect(artRect, new Color(baseColor.Lightened(0.18f), 1.0f));
-        if (_art is not null)
-        {
-            DrawTextureRect(_art, artRect, tile: false);
-        }
-        else
-        {
-            DrawFallbackArtwork(artRect, faction, scale);
-        }
-
-        DrawOrnaments(bounds, artRect, faction, scale);
         if (_hidden)
         {
-            DrawHiddenSigil(artRect, scale);
+            DrawCardShadow(bounds);
+            DrawHiddenFace(bounds);
+            return;
+        }
+        if (_composition is null)
+        {
+            DrawRect(bounds.Grow(-2.0f), AnimeVisualTheme.DeepIndigo);
             return;
         }
 
-        DrawTypeMarker(scale, faction);
-
-        float stripHeight = 29.0f * scale;
-        Rect2 nameStrip = new(
-            new Vector2(inner, bounds.Size.Y - stripHeight - inner),
-            new Vector2(bounds.Size.X - (inner * 2.0f), stripHeight));
-        DrawRect(nameStrip, new Color(AnimeVisualTheme.Ink, 0.91f));
-        DrawLine(
-            nameStrip.Position,
-            nameStrip.Position + new Vector2(nameStrip.Size.X, 0.0f),
-            new Color(AnimeVisualTheme.OldGold, 0.85f),
-            MathF.Max(1.0f, scale));
-        int nameSize = Math.Max(10, (int)MathF.Round(14.0f * scale));
-        DrawString(
-            AnimeVisualTheme.DisplayFont,
-            nameStrip.Position + new Vector2(4.0f * scale, 19.0f * scale),
-            Shorten(_displayName, scale < 0.8f ? 7 : 10),
-            HorizontalAlignment.Center,
-            nameStrip.Size.X - (8.0f * scale),
-            nameSize,
-            AnimeVisualTheme.MoonWhite);
-
-        DrawBadge(
-            CostBadgeCenter,
-            14.0f * scale,
-            _cost.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            AnimeVisualTheme.OathBlue,
-            scale);
-        if (_attack.HasValue)
-        {
-            DrawBadge(
-                AttackBadgeCenter,
-                13.0f * scale,
-                _attack.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                AnimeVisualTheme.PactCrimson,
-                scale);
-        }
-        if (_health.HasValue)
-        {
-            DrawBadge(
-                RightStatBadgeCenter,
-                13.0f * scale,
-                _health.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                AnimeVisualTheme.Positive,
-                scale);
-        }
-        else if (_countdown.HasValue)
-        {
-            DrawBadge(
-                RightStatBadgeCenter,
-                13.0f * scale,
-                _countdown.Value.ToString(System.Globalization.CultureInfo.InvariantCulture),
-                AnimeVisualTheme.PaleGold,
-                scale);
-        }
+        // Artwork, material and foil are child CanvasItems so each can use the
+        // same silhouette-alpha mask as CardActor3D.  The parent intentionally
+        // does not draw a rectangular face slab behind those layers.
     }
 
-    private void DrawFallbackArtwork(Rect2 rect, Color faction, float scale)
+    private void DrawFaceOverlay(Control canvas)
     {
-        const int bands = 12;
-        for (int index = 0; index < bands; index++)
+        if (_hidden || _composition is null)
         {
-            float t = index / (float)bands;
-            Rect2 band = new(
-                rect.Position + new Vector2(0.0f, rect.Size.Y * t),
-                new Vector2(rect.Size.X, (rect.Size.Y / bands) + 1.0f));
-            Color color = faction.Darkened(0.56f - (t * 0.24f));
-            DrawRect(band, color);
-        }
-        Vector2 center = rect.GetCenter() + new Vector2(0.0f, rect.Size.Y * 0.08f);
-        DrawCircle(center - new Vector2(0.0f, rect.Size.Y * 0.24f), 13.0f * scale, new Color(AnimeVisualTheme.MoonWhite, 0.45f));
-        Vector2[] mantle =
-        [
-            center + new Vector2(-rect.Size.X * 0.31f, rect.Size.Y * 0.28f),
-            center + new Vector2(-rect.Size.X * 0.19f, -rect.Size.Y * 0.10f),
-            center + new Vector2(0.0f, -rect.Size.Y * 0.18f),
-            center + new Vector2(rect.Size.X * 0.19f, -rect.Size.Y * 0.10f),
-            center + new Vector2(rect.Size.X * 0.31f, rect.Size.Y * 0.28f),
-        ];
-        DrawColoredPolygon(mantle, new Color(AnimeVisualTheme.Ink, 0.67f));
-        DrawArc(center, rect.Size.X * 0.30f, -2.65f, -0.49f, 32, new Color(AnimeVisualTheme.PaleGold, 0.42f), MathF.Max(1.0f, 2.0f * scale), true);
-    }
-
-    private void DrawHiddenSigil(Rect2 rect, float scale)
-    {
-        Vector2 center = rect.GetCenter();
-        float radius = MathF.Min(rect.Size.X, rect.Size.Y) * 0.28f;
-        DrawArc(center, radius, 0.0f, MathF.Tau, 64, new Color(AnimeVisualTheme.OldGold, 0.82f), MathF.Max(1.0f, 2.0f * scale), true);
-        DrawArc(center, radius * 0.58f, 0.0f, MathF.Tau, 64, new Color(AnimeVisualTheme.MoonWhite, 0.45f), MathF.Max(1.0f, scale), true);
-        DrawLine(center - new Vector2(radius * 1.10f, radius * 0.74f), center + new Vector2(radius * 1.10f, radius * 0.74f), new Color(AnimeVisualTheme.PactViolet, 0.96f), MathF.Max(2.0f, 4.0f * scale), true);
-        DrawLine(center - new Vector2(radius * 0.78f, radius * 1.04f), center + new Vector2(radius * 0.78f, radius * 1.04f), new Color(AnimeVisualTheme.OathBlue, 0.82f), MathF.Max(1.0f, 2.0f * scale), true);
-    }
-
-    private void DrawOrnaments(Rect2 bounds, Rect2 artRect, Color faction, float scale)
-    {
-        float stroke = MathF.Max(1.0f, 1.35f * scale);
-        Color gold = new(AnimeVisualTheme.OldGold, 0.70f);
-        DrawLine(artRect.Position, artRect.Position + new Vector2(artRect.Size.X * 0.30f, 0.0f), gold, stroke, true);
-        DrawLine(artRect.End, artRect.End - new Vector2(artRect.Size.X * 0.30f, 0.0f), gold, stroke, true);
-        DrawArc(bounds.Size * 0.5f, MathF.Min(bounds.Size.X, bounds.Size.Y) * 0.45f, -2.55f, -0.58f, 28, new Color(faction, 0.32f), stroke, true);
-    }
-
-    private void DrawTypeMarker(float scale, Color faction)
-    {
-        Vector2 center = TypeMarkerCenter;
-        float radius = TypeMarkerRadius;
-        float stroke = MathF.Max(1.5f, 1.8f * scale);
-        Color shadow = new(AnimeVisualTheme.Ink, 0.92f);
-        Color fill = new(faction.Darkened(0.28f), 0.98f);
-        Color outline = new(AnimeVisualTheme.PaleGold, 0.98f);
-        DrawCircle(center + new Vector2(0.0f, MathF.Max(1.0f, 1.5f * scale)), radius + 1.5f, shadow);
-
-        switch (_kind)
-        {
-            case AnimeCardKind.Follower:
-            {
-                Vector2[] shield =
-                [
-                    center + new Vector2(-radius * 0.76f, -radius * 0.70f),
-                    center + new Vector2(0.0f, -radius * 0.96f),
-                    center + new Vector2(radius * 0.76f, -radius * 0.70f),
-                    center + new Vector2(radius * 0.66f, radius * 0.30f),
-                    center + new Vector2(0.0f, radius * 0.96f),
-                    center + new Vector2(-radius * 0.66f, radius * 0.30f),
-                ];
-                DrawMarkerPolygon(shield, fill, outline, stroke);
-                break;
-            }
-            case AnimeCardKind.Spell:
-            {
-                Vector2[] star =
-                [
-                    center + new Vector2(0.0f, -radius),
-                    center + new Vector2(radius * 0.28f, -radius * 0.30f),
-                    center + new Vector2(radius, 0.0f),
-                    center + new Vector2(radius * 0.28f, radius * 0.30f),
-                    center + new Vector2(0.0f, radius),
-                    center + new Vector2(-radius * 0.28f, radius * 0.30f),
-                    center + new Vector2(-radius, 0.0f),
-                    center + new Vector2(-radius * 0.28f, -radius * 0.30f),
-                ];
-                DrawMarkerPolygon(star, fill, outline, stroke);
-                break;
-            }
-            case AnimeCardKind.Amulet:
-                DrawCircle(center, radius * 0.94f, fill);
-                DrawArc(center, radius * 0.94f, 0.0f, MathF.Tau, 40, outline, stroke, true);
-                DrawArc(center, radius * 0.61f, 0.0f, MathF.Tau, 32, new Color(AnimeVisualTheme.MoonWhite, 0.80f), stroke, true);
-                break;
-            case AnimeCardKind.Trap:
-            {
-                Vector2[] triangle =
-                [
-                    center + new Vector2(-radius * 0.96f, -radius * 0.72f),
-                    center + new Vector2(radius * 0.96f, -radius * 0.72f),
-                    center + new Vector2(0.0f, radius),
-                ];
-                DrawMarkerPolygon(triangle, fill, outline, stroke);
-                break;
-            }
-            case AnimeCardKind.Field:
-            {
-                Rect2 gate = new(
-                    center - new Vector2(radius * 0.88f, radius * 0.82f),
-                    new Vector2(radius * 1.76f, radius * 1.64f));
-                DrawRect(gate, fill);
-                DrawPolyline(
-                    [gate.Position, new Vector2(gate.End.X, gate.Position.Y), gate.End, new Vector2(gate.Position.X, gate.End.Y), gate.Position],
-                    outline,
-                    stroke,
-                    true);
-                DrawLine(
-                    new Vector2(gate.Position.X, center.Y - (radius * 0.10f)),
-                    new Vector2(gate.End.X, center.Y - (radius * 0.10f)),
-                    new Color(AnimeVisualTheme.MoonWhite, 0.76f),
-                    stroke,
-                    true);
-                break;
-            }
+            return;
         }
 
-        int glyphSize = Math.Max(11, (int)MathF.Round(15.0f * scale));
-        DrawString(
-            AnimeVisualTheme.DisplayFont,
-            center + new Vector2(-radius, glyphSize * 0.35f),
-            TypeMarkerGlyph,
-            HorizontalAlignment.Center,
-            radius * 2.0f,
-            glyphSize,
-            Colors.White);
+        Rect2 bounds = new(Vector2.Zero, Size);
+        DrawLayer(canvas, _silhouette, bounds);
+        DrawLayer(canvas, _rarity, bounds);
+        DrawLayer(canvas, _variant, bounds);
+        DrawLayer(canvas, _crest, SocketRect(_composition.Layout.TypeCrest));
+        DrawLayer(canvas, _namePlate, SocketRect(_composition.Layout.NamePlate));
+        DrawName(canvas, _composition);
+        DrawSocket(
+            canvas,
+            _costGem,
+            _composition.Layout.CostGem,
+            _composition.Layout.CostText,
+            _composition.ViewModel.Cost.ToString());
+        DrawOptionalSocket(
+            canvas,
+            _attackGem,
+            _composition.Layout.AttackGem,
+            _composition.Layout.AttackText,
+            _composition.ViewModel.Attack);
+        DrawOptionalSocket(
+            canvas,
+            _healthGem,
+            _composition.Layout.HealthGem,
+            _composition.Layout.HealthText,
+            _composition.ViewModel.Health);
+        DrawOptionalSocket(
+            canvas,
+            _countdownGem,
+            _composition.Layout.CountdownGem,
+            _composition.Layout.CountdownText,
+            _composition.ViewModel.Countdown);
     }
 
-    private void DrawMarkerPolygon(Vector2[] points, Color fill, Color outline, float stroke)
+    private void DrawHiddenFace(Rect2 bounds)
     {
-        DrawColoredPolygon(points, fill);
-        Vector2[] closed = [.. points, points[0]];
-        DrawPolyline(closed, outline, stroke, true);
+        DrawRect(bounds.Grow(-1.0f), AnimeVisualTheme.DeepIndigo.Darkened(0.22f));
+        if (_art is not null)
+        {
+            DrawTextureRect(_art, bounds.Grow(-3.0f), tile: false);
+        }
+        DrawArc(
+            bounds.GetCenter(),
+            MathF.Min(bounds.Size.X, bounds.Size.Y) * 0.46f,
+            0.0f,
+            MathF.Tau,
+            64,
+            new Color(AnimeVisualTheme.OldGold, 0.76f),
+            MathF.Max(1.0f, CardScale),
+            true);
     }
 
-    private void DrawBadge(Vector2 center, float radius, string text, Color fill, float scale)
+    private void DrawCardShadow(Rect2 bounds)
     {
-        DrawCircle(center + new Vector2(0.0f, 1.5f * scale), radius + (2.0f * scale), new Color(AnimeVisualTheme.Ink, 0.88f));
-        DrawCircle(center, radius, fill.Darkened(0.36f));
-        DrawArc(center, radius - MathF.Max(1.0f, scale), 0.0f, MathF.Tau, 40, new Color(AnimeVisualTheme.PaleGold, 0.94f), MathF.Max(1.0f, 1.6f * scale), true);
-        int fontSize = BadgeFontPixelSize;
-        DrawString(
-            AnimeVisualTheme.DisplayFont,
-            center + new Vector2(-radius, fontSize * 0.35f),
+        StyleBoxFlat shadow = AnimeVisualTheme.Panel(AnimeVisualTheme.Ink, 0.54f, (int)MathF.Max(5.0f, 8.0f * CardScale), 0);
+        shadow.ShadowSize = (int)MathF.Max(3.0f, 8.0f * CardScale);
+        DrawStyleBox(shadow, bounds.Grow(-1.0f));
+    }
+
+    private void DrawName(Control canvas, CardFaceComposition composition)
+    {
+        Rect2 rect = SocketRect(composition.Layout.NameText);
+        int maximumFontSize = Math.Max(9, (int)MathF.Round(13.5f * CardScale));
+        int minimumFontSize = Math.Max(8, (int)MathF.Floor(maximumFontSize * 0.55f));
+        DrawFittedText(
+            canvas,
+            rect,
+            composition.ViewModel.DisplayName,
+            maximumFontSize,
+            minimumFontSize,
+            AnimeVisualTheme.MoonWhite,
+            outlineSize: BadgeOutlineSize);
+    }
+
+    private void DrawSocket(
+        Control canvas,
+        Texture2D? texture,
+        CardFaceRect socket,
+        CardFaceRect textSocket,
+        string value)
+    {
+        Rect2 rect = SocketRect(socket);
+        DrawLayer(canvas, texture, rect);
+        DrawFittedText(
+            canvas,
+            SocketRect(textSocket),
+            value,
+            MaximumBadgeFontSize,
+            minimumFontSize: 7,
+            Colors.White,
+            outlineSize: BadgeOutlineSize);
+    }
+
+    private void DrawOptionalSocket(
+        Control canvas,
+        Texture2D? texture,
+        CardFaceRect? socket,
+        CardFaceRect? textSocket,
+        int? value)
+    {
+        if (socket is { } rect && textSocket is { } textRect && value.HasValue)
+        {
+            DrawSocket(
+                canvas,
+                texture,
+                rect,
+                textRect,
+                value.Value.ToString(System.Globalization.CultureInfo.InvariantCulture));
+        }
+    }
+
+    private static void DrawFittedText(
+        Control canvas,
+        Rect2 rect,
+        string text,
+        int maximumFontSize,
+        int minimumFontSize,
+        Color color,
+        int outlineSize)
+    {
+        FittedCardText fit = FitText(
             text,
-            HorizontalAlignment.Center,
-            radius * 2.0f,
-            fontSize,
-            Colors.White);
+            rect,
+            maximumFontSize,
+            minimumFontSize,
+            outlineSize);
+        float ascent = CardDisplayFont.GetAscent(fit.FontSize);
+        float descent = CardDisplayFont.GetDescent(fit.FontSize);
+        float baseline = rect.Position.Y +
+                          ((rect.Size.Y - (ascent + descent)) * 0.5f) +
+                          ascent;
+        float startX = rect.GetCenter().X - (fit.MeasuredSize.X * 0.5f);
+        if (outlineSize > 0)
+        {
+            canvas.DrawStringOutline(
+                CardDisplayFont,
+                new Vector2(startX, baseline),
+                fit.Text,
+                HorizontalAlignment.Left,
+                -1.0f,
+                fit.FontSize,
+                outlineSize,
+                new Color("352943"));
+        }
+        canvas.DrawString(
+            CardDisplayFont,
+            new Vector2(startX, baseline),
+            fit.Text,
+            HorizontalAlignment.Left,
+            -1.0f,
+            fit.FontSize,
+            color);
     }
 
-    private Rect2 BadgeLocalRect(Vector2 center, float radius)
+    private static FittedCardText FitText(
+        string text,
+        Rect2 rect,
+        int maximumFontSize,
+        int minimumFontSize,
+        int outlineSize)
     {
-        float extent = radius + MathF.Max(2.0f, 2.0f * CardScale);
-        return new Rect2(center - (Vector2.One * extent), Vector2.One * extent * 2.0f);
+        string source = string.IsNullOrWhiteSpace(text) ? "—" : text.Trim();
+        int maximum = Math.Max(1, maximumFontSize);
+        int minimum = Math.Clamp(minimumFontSize, 1, maximum);
+        for (int size = maximum; size >= minimum; --size)
+        {
+            Vector2 measured = MeasureText(source, size);
+            if (Fits(measured, rect, outlineSize))
+            {
+                return new FittedCardText(source, size, measured);
+            }
+        }
+
+        // Product text is never truncated. Continue shrinking below the
+        // preferred readability floor only as a future-content safety net;
+        // the authored product names fit above their locked floor because the
+        // name socket uses almost all of the opaque nameplate.
+        for (int size = minimum - 1; size >= 1; --size)
+        {
+            Vector2 measured = MeasureText(source, size);
+            if (Fits(measured, rect, outlineSize))
+            {
+                return new FittedCardText(source, size, measured);
+            }
+        }
+
+        return new FittedCardText(source, 1, MeasureText(source, 1));
     }
+
+    private static Vector2 MeasureText(string text, int fontSize) => new(
+        CardDisplayFont.GetStringSize(
+            text,
+            HorizontalAlignment.Left,
+            -1.0f,
+            fontSize).X,
+        CardDisplayFont.GetAscent(fontSize) + CardDisplayFont.GetDescent(fontSize));
+
+    private static bool Fits(Vector2 measured, Rect2 rect, int outlineSize) =>
+        measured.X + (outlineSize * 2.0f) <= rect.Size.X + 0.01f &&
+        measured.Y + (outlineSize * 2.0f) <= rect.Size.Y + 0.01f;
+
+    private readonly record struct FittedCardText(string Text, int FontSize, Vector2 MeasuredSize);
+
+    private static void DrawLayer(
+        Control canvas,
+        Texture2D? texture,
+        Rect2 rect,
+        Color? modulate = null)
+    {
+        if (texture is not null)
+        {
+            canvas.DrawTextureRect(texture, rect, tile: false, modulate ?? Colors.White);
+        }
+    }
+
+    private void EnsureFaceLayers()
+    {
+        if (_maskedArtwork is not null)
+        {
+            return;
+        }
+
+        _maskedArtwork = CreateMaskedLayer("MaskedArtwork", zIndex: 0);
+        _maskedMaterial = CreateMaskedLayer("MaskedMaterial", zIndex: 1);
+        _maskedFoil = CreateMaskedLayer("MaskedFoil", zIndex: 2);
+        var overlay = new Control
+        {
+            Name = "FaceOverlay",
+            MouseFilter = MouseFilterEnum.Ignore,
+            ZIndex = 3,
+        };
+        overlay.Draw += () => DrawFaceOverlay(overlay);
+        _faceOverlay = overlay;
+        AddChild(_maskedArtwork);
+        AddChild(_maskedMaterial);
+        AddChild(_maskedFoil);
+        AddChild(_faceOverlay);
+    }
+
+    private static TextureRect CreateMaskedLayer(string name, int zIndex) => new()
+    {
+        Name = name,
+        MouseFilter = MouseFilterEnum.Ignore,
+        ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+        StretchMode = TextureRect.StretchModeEnum.Scale,
+        ZIndex = zIndex,
+        Visible = false,
+    };
+
+    private void RefreshFaceLayers()
+    {
+        EnsureFaceLayers();
+        if (_maskedArtwork is null || _maskedMaterial is null ||
+            _maskedFoil is null || _faceOverlay is null)
+        {
+            return;
+        }
+
+        _faceOverlay.Position = Vector2.Zero;
+        _faceOverlay.Size = Size;
+        _faceOverlay.Visible = !_hidden && _composition is not null;
+        _faceOverlay.QueueRedraw();
+
+        if (_hidden || _composition is null || _silhouette is null)
+        {
+            ResetMaskedLayer(_maskedArtwork);
+            ResetMaskedLayer(_maskedMaterial);
+            ResetMaskedLayer(_maskedFoil);
+            QueueRedraw();
+            return;
+        }
+
+        CardFaceLayout layout = _composition.Layout;
+        ConfigureMaskedLayer(
+            _maskedArtwork,
+            _art,
+            _silhouette,
+            SocketRect(layout.ArtWindow),
+            _composition.ArtCrop,
+            layout.ArtWindow,
+            1.0f);
+        ConfigureMaskedLayer(
+            _maskedMaterial,
+            _material,
+            _silhouette,
+            new Rect2(Vector2.Zero, Size),
+            new CardArtCrop(0.0f, 0.0f, 1.0f, 1.0f),
+            FullFace,
+            0.10f);
+        ConfigureMaskedLayer(
+            _maskedFoil,
+            _foil,
+            _silhouette,
+            new Rect2(Vector2.Zero, Size),
+            new CardArtCrop(0.0f, 0.0f, 1.0f, 1.0f),
+            FullFace,
+            0.14f);
+        QueueRedraw();
+    }
+
+    private static void ConfigureMaskedLayer(
+        TextureRect layer,
+        Texture2D? source,
+        Texture2D mask,
+        Rect2 destination,
+        CardArtCrop sourceCrop,
+        CardFaceRect frameRegion,
+        float opacity)
+    {
+        if (source is null)
+        {
+            ResetMaskedLayer(layer);
+            return;
+        }
+
+        var material = new ShaderMaterial
+        {
+            ResourceName = $"AnimeV1 masked preview:{source.ResourcePath}",
+            Shader = ArtworkMaskShader,
+        };
+        material.SetShaderParameter("source_texture", source);
+        material.SetShaderParameter("frame_mask", mask);
+        material.SetShaderParameter(
+            "source_crop",
+            new Vector4(sourceCrop.U, sourceCrop.V, sourceCrop.Width, sourceCrop.Height));
+        material.SetShaderParameter(
+            "frame_region",
+            new Vector4(frameRegion.X, frameRegion.Y, frameRegion.Width, frameRegion.Height));
+        layer.Position = destination.Position;
+        layer.Size = destination.Size;
+        layer.Texture = source;
+        layer.Material = material;
+        layer.SelfModulate = new Color(1.0f, 1.0f, 1.0f, opacity);
+        layer.Visible = true;
+    }
+
+    private static void ResetMaskedLayer(TextureRect layer)
+    {
+        layer.Visible = false;
+        layer.Texture = null;
+        layer.Material = null;
+        layer.SelfModulate = Colors.White;
+    }
+
+    private Rect2 SocketRect(CardFaceRect? normalized)
+    {
+        if (normalized is not { } rect)
+        {
+            return new Rect2();
+        }
+        return new Rect2(
+            rect.X * Size.X,
+            rect.Y * Size.Y,
+            rect.Width * Size.X,
+            rect.Height * Size.Y);
+    }
+
+    private Rect2? SocketScreenRect(CardFaceRect? normalized) =>
+        normalized is { } rect ? TransformLocalRect(SocketRect(rect)) : null;
+
+    private CardFaceContext ResolveContext()
+    {
+        // Existing preview callers name nodes after Configure().  Size is the
+        // stable semantic signal here: detail cards are large, hand cards are
+        // at least the locked 142 px height, and board cards remain compact.
+        if (Size.X >= 160.0f)
+        {
+            return CardFaceContext.Detail;
+        }
+        if (Size.Y >= 136.0f && Size.X >= 84.0f)
+        {
+            return CardFaceContext.Hand;
+        }
+        return CardFaceContext.Field;
+    }
+
+    private static Texture2D? LoadTexture(string? path) =>
+        !string.IsNullOrWhiteSpace(path) && ResourceLoader.Exists(path, "Texture2D")
+            ? GD.Load<Texture2D>(path)
+            : null;
+
+    private static Font LoadCardDisplayFont()
+    {
+        const string path = "res://assets/fonts/NotoSerifCJKsc-SemiBold.otf";
+        return ResourceLoader.Exists(path, "Font")
+            ? GD.Load<Font>(path)
+            : AnimeVisualTheme.DisplayFont;
+    }
+
+    private void ClearFaceResources()
+    {
+        _composition = null;
+        _art = null;
+        _material = null;
+        _foil = null;
+        _silhouette = null;
+        _crest = null;
+        _namePlate = null;
+        _rarity = null;
+        _variant = null;
+        _costGem = null;
+        _attackGem = null;
+        _healthGem = null;
+        _countdownGem = null;
+    }
+
+    private static ProductCardKind ToProductKind(AnimeCardKind kind) => kind switch
+    {
+        AnimeCardKind.Follower => ProductCardKind.Follower,
+        AnimeCardKind.Spell => ProductCardKind.Spell,
+        AnimeCardKind.Amulet => ProductCardKind.Amulet,
+        AnimeCardKind.Trap => ProductCardKind.Trap,
+        AnimeCardKind.Field => ProductCardKind.Field,
+        _ => throw new ArgumentOutOfRangeException(nameof(kind), kind, null),
+    };
+
+    private static ProductCardFaction ToProductFaction(AnimeFaction faction) => faction switch
+    {
+        AnimeFaction.Oathguard => ProductCardFaction.Oathguard,
+        AnimeFaction.Pactmage => ProductCardFaction.Pactmage,
+        AnimeFaction.Neutral => ProductCardFaction.Neutral,
+        _ => throw new ArgumentOutOfRangeException(nameof(faction), faction, null),
+    };
 
     private Rect2 TransformLocalRect(Rect2 localRect)
     {
@@ -384,15 +699,6 @@ internal sealed partial class AnimeCardPreview : Control
         float maxX = MathF.Max(MathF.Max(topLeft.X, topRight.X), MathF.Max(bottomRight.X, bottomLeft.X));
         float maxY = MathF.Max(MathF.Max(topLeft.Y, topRight.Y), MathF.Max(bottomRight.Y, bottomLeft.Y));
         return new Rect2(minX, minY, maxX - minX, maxY - minY);
-    }
-
-    private static string Shorten(string value, int maximumCharacters)
-    {
-        if (value.Length <= maximumCharacters)
-        {
-            return value;
-        }
-        return value[..Math.Max(1, maximumCharacters - 1)] + "…";
     }
 }
 

@@ -518,13 +518,13 @@ public sealed partial class AnimeStyleSliceScreen : Control
         float cardHeight = Math.Clamp(viewportHeight * 0.205f, 142.0f, 190.0f);
         float cardWidth = cardHeight / 1.50f;
         float spacing = Math.Clamp(cardWidth * 0.78f, 76.0f, 102.0f);
-        (string Id, string Name, AnimeCardKind Kind, int Cost, int? Attack, int? Health, int? Countdown)[] cards =
+        (string Id, string Name, AnimeCardKind Kind, AnimeFaction Faction, int Cost, int? Attack, int? Health, int? Countdown)[] cards =
         [
-            ("LO-03", "晨钟誓碑", AnimeCardKind.Amulet, 2, null, null, 3),
-            ("LO-07", "曜誓·不破阵", AnimeCardKind.Trap, 2, null, null, null),
-            ("LO-11", "曜誓大团长·蕾奥妮", AnimeCardKind.Follower, 10, 8, 8, null),
-            ("NT-04", "界域裁定", AnimeCardKind.Spell, 4, null, null, null),
-            ("LO-03", "晨钟誓碑", AnimeCardKind.Amulet, 2, null, null, 3),
+            ("LO-03", "晨钟誓碑", AnimeCardKind.Amulet, AnimeFaction.Oathguard, 2, null, null, 3),
+            ("LO-07", "曜誓·不破阵", AnimeCardKind.Trap, AnimeFaction.Oathguard, 2, null, null, null),
+            ("LO-11", "曜誓大团长·蕾奥妮", AnimeCardKind.Follower, AnimeFaction.Oathguard, 10, 8, 8, null),
+            ("NT-04", "界域裁定", AnimeCardKind.Spell, AnimeFaction.Neutral, 4, null, null, null),
+            ("LO-03", "晨钟誓碑", AnimeCardKind.Amulet, AnimeFaction.Oathguard, 2, null, null, 3),
         ];
         AnimeCardPreview? focusedCard = null;
         for (int index = 0; index < cards.Length; index++)
@@ -544,7 +544,7 @@ public sealed partial class AnimeStyleSliceScreen : Control
                 cards[index].Id,
                 cards[index].Name,
                 cards[index].Kind,
-                AnimeFaction.Oathguard,
+                cards[index].Faction,
                 cards[index].Cost,
                 cards[index].Attack,
                 cards[index].Health,

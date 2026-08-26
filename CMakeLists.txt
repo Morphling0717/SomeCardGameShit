@@ -332,6 +332,18 @@ if(SCGS_ENABLE_LEGACY_YGO2_TESTS)
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
     add_test(
+        NAME scgs_anime_card_body_slice_contract
+        COMMAND ${Python3_EXECUTABLE} -m unittest
+            scripts.tests.test_anime_card_body_slice
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
+        NAME scgs_ci_workflow_contract
+        COMMAND ${Python3_EXECUTABLE} -m unittest
+            scripts.tests.test_ci_workflows
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+    )
+    add_test(
         NAME scgs_product_decks_v1_design_contract
         COMMAND ${Python3_EXECUTABLE} -m unittest
             scripts.tests.test_validate_product_decks_v1

@@ -51,6 +51,9 @@ LICENSE_MARKERS = {
     "ANIME_V1_ASSET_MANIFEST.json": '"gate": "6A"',
     "ANIME_V1_PROVENANCE.md": "project-bound visual candidate",
     "ANIME_V1_SLICE_README.md": "Gate 6A：AnimeV1 原创动漫视觉样片",
+    "ANIME_V1_CARD_BODY_ASSET_MANIFEST.json": '"gate": "6A-R1"',
+    "ANIME_V1_CARD_BODY_PROVENANCE.md": "Gate 6A-R1 approval candidate",
+    "ANIME_V1_CARD_BODY_README.md": "Gate 6A-R1：AnimeV1 一体化卡体",
     "BUILD_INFO.txt": "godot=4.7.2.stable.mono",
 }
 
@@ -60,10 +63,17 @@ EXACT_PACKAGED_SOURCE_FILES = {
     "ANIME_V1_PROVENANCE.md":
         ROOT / "client/godot/assets/visual/anime_v1/slice/PROVENANCE.md",
     "ANIME_V1_SLICE_README.md": ROOT / "docs/anime-v1-visual-slice.md",
+    "ANIME_V1_CARD_BODY_ASSET_MANIFEST.json":
+        ROOT / "client/godot/assets/visual/anime_v1/card_body/CARD_BODY_ASSET_MANIFEST.json",
+    "ANIME_V1_CARD_BODY_PROVENANCE.md":
+        ROOT / "client/godot/assets/visual/anime_v1/card_body/PROVENANCE.md",
+    "ANIME_V1_CARD_BODY_README.md": ROOT / "docs/anime-v1-card-body-r1.md",
 }
 
 WINDOWS_ANIME_LAUNCHER = ROOT / "scripts/ci/PLAY_ANIME_STYLE_SLICE.cmd"
 MACOS_ANIME_LAUNCHER = ROOT / "scripts/ci/PLAY_ANIME_STYLE_SLICE.command"
+WINDOWS_CARD_BODY_LAUNCHER = ROOT / "scripts/ci/PLAY_ANIME_CARD_BODY_SLICE.cmd"
+MACOS_CARD_BODY_LAUNCHER = ROOT / "scripts/ci/PLAY_ANIME_CARD_BODY_SLICE.command"
 
 
 def _pe_architecture(path: Path) -> str:
@@ -162,14 +172,32 @@ def _audit_licenses(directory: Path, expected_commit: str | None = None) -> None
 
 def _audit_font_source() -> None:
     font_directory = ROOT / "client/godot/assets/fonts"
-    checksum_line = (font_directory / "SHA256SUMS").read_text(encoding="utf-8").strip()
-    expected, filename = checksum_line.split(maxsplit=1)
-    font = font_directory / filename
-    actual = hashlib.sha256(font.read_bytes()).hexdigest()
-    if actual != expected.lower():
-        raise ExportAuditError(
-            f"font SHA-256 mismatch: expected {expected.lower()}, found {actual}"
-        )
+    checksum_lines = (font_directory / "SHA256SUMS").read_text(
+        encoding="utf-8"
+    ).splitlines()
+    entries = [line.strip() for line in checksum_lines if line.strip()]
+    if not entries:
+        raise ExportAuditError("font SHA256SUMS is empty")
+    seen: set[str] = set()
+    for checksum_line in entries:
+        try:
+            expected, filename = checksum_line.split(maxsplit=1)
+        except ValueError as error:
+            raise ExportAuditError(
+                f"invalid font checksum entry: {checksum_line!r}"
+            ) from error
+        if filename in seen:
+            raise ExportAuditError(f"duplicate font checksum entry: {filename}")
+        seen.add(filename)
+        font = font_directory / filename
+        if not font.is_file():
+            raise ExportAuditError(f"font checksum references a missing file: {filename}")
+        actual = hashlib.sha256(font.read_bytes()).hexdigest()
+        if actual != expected.lower():
+            raise ExportAuditError(
+                f"font SHA-256 mismatch for {filename}: "
+                f"expected {expected.lower()}, found {actual}"
+            )
 
 
 def _audit_anime_slice_launcher(export: Path, platform: str) -> None:
@@ -194,6 +222,31 @@ def _audit_anime_slice_launcher(export: Path, platform: str) -> None:
     if platform == "macos-arm64" and packaged.stat().st_mode & 0o111 == 0:
         raise ExportAuditError(
             f"packaged macOS AnimeV1 launcher is not executable: {packaged}"
+        )
+
+
+def _audit_anime_card_body_launcher(export: Path, platform: str) -> None:
+    if platform == "windows-x86_64":
+        expected = WINDOWS_CARD_BODY_LAUNCHER
+    elif platform == "macos-arm64":
+        expected = MACOS_CARD_BODY_LAUNCHER
+    else:
+        raise ExportAuditError(f"unsupported AnimeV1 card-body launcher platform: {platform}")
+
+    packaged = export.parent / expected.name
+    if not packaged.is_file():
+        raise ExportAuditError(
+            f"missing packaged AnimeV1 card-body launcher: {packaged}"
+        )
+    expected_hash = hashlib.sha256(expected.read_bytes()).hexdigest()
+    packaged_hash = hashlib.sha256(packaged.read_bytes()).hexdigest()
+    if packaged_hash != expected_hash:
+        raise ExportAuditError(
+            "packaged AnimeV1 card-body launcher differs from the reviewed source launcher"
+        )
+    if platform == "macos-arm64" and packaged.stat().st_mode & 0o111 == 0:
+        raise ExportAuditError(
+            f"packaged macOS AnimeV1 card-body launcher is not executable: {packaged}"
         )
 
 
@@ -289,6 +342,11 @@ def main() -> int:
         action="store_true",
         help="require the reviewed, player-visible AnimeV1 launcher beside the export",
     )
+    parser.add_argument(
+        "--require-anime-card-body-launcher",
+        action="store_true",
+        help="require the reviewed AnimeV1 integrated card-body launcher beside the export",
+    )
     args = parser.parse_args()
 
     try:
@@ -302,6 +360,8 @@ def main() -> int:
             _audit_macos(export, expected_commit)
         if args.require_anime_slice_launcher:
             _audit_anime_slice_launcher(export, args.platform)
+        if args.require_anime_card_body_launcher:
+            _audit_anime_card_body_launcher(export, args.platform)
     except (
         AuditError,
         ExportAuditError,

@@ -1,4 +1,5 @@
 /.gitattributes text eol=lf
+*.md whitespace=-trailing-space
 *.svg text eol=lf
 client/godot/assets/visual/ASSET_MANIFEST.json text eol=lf
 client/godot/assets/visual/arena/R3_ASSET_MANIFEST.json text eol=lf
@@ -7,4 +8,7 @@ client/godot/assets/visual/r3/r3_industrial_floor.gdshader text eol=lf
 scripts/ci/PLAY_R3_VISUAL_SLICE.cmd text eol=lf
 scripts/ci/PLAY_ANIME_STYLE_SLICE.cmd text eol=lf
 scripts/ci/PLAY_ANIME_STYLE_SLICE.command text eol=lf
+scripts/ci/PLAY_ANIME_CARD_BODY_SLICE.cmd text eol=lf
+scripts/ci/PLAY_ANIME_CARD_BODY_SLICE.command text eol=lf
 client/godot/assets/visual/anime_v1/slice/ASSET_MANIFEST.json text eol=lf
+client/godot/assets/visual/anime_v1/card_body/CARD_BODY_ASSET_MANIFEST.json text eol=lf

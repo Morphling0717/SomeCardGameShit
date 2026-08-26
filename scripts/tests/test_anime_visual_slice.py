@@ -447,7 +447,11 @@ class AnimeVisualSliceSourceContractTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertIn('-Viewports "1024x684"', workflow)
         self.assertIn("-AllowCiRunnerViewport", workflow)
-        self.assertEqual(2, workflow.count("--expected-viewport 1024x684"))
+        # Two original AnimeV1 checks plus the independent Gate 6A-R1 source
+        # and packaged real-actor card-body slices use the hosted runner's real
+        # 1024x684 display. Only the original validator needs its own explicit
+        # runner opt-in; the card-body launcher applies the shared policy.
+        self.assertEqual(4, workflow.count("--expected-viewport 1024x684"))
         self.assertEqual(2, workflow.count("--allow-ci-runner-viewport"))
 
         suite = (ROOT / "client/godot/scripts/Ci/AnimeVisualSliceSuite.cs").read_text(encoding="utf-8")

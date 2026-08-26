@@ -420,7 +420,13 @@ class R3VisualSliceTests(unittest.TestCase):
         match_screen = (ROOT / "client/godot/scripts/Match/MatchScreen.cs").read_text(
             encoding="utf-8"
         )
-        workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        fast_workflow = (ROOT / ".github/workflows/ci.yml").read_text(
+            encoding="utf-8"
+        )
+        heavy_workflow = (
+            ROOT / ".github/workflows/windows-visual-heavy.yml"
+        ).read_text(encoding="utf-8")
+        workflow = fast_workflow + "\n" + heavy_workflow
         finalizer = (ROOT / "scripts/ci/finalize_godot_export.py").read_text(
             encoding="utf-8"
         )
@@ -459,31 +465,21 @@ class R3VisualSliceTests(unittest.TestCase):
         self.assertIn("validate_gate4b_visual_suite.py", workflow)
         self.assertIn("tests/visual_goldens/gate4b/windows-1600x900", workflow)
         self.assertIn("validate_r3_visual_slice.py", workflow)
-        self.assertIn("SomeCardGameShit-r3-candidate-windows-visual-slice", workflow)
+        self.assertIn("SomeCardGameShit-nightly-windows-visual-evidence", workflow)
         self.assertIn(
-            "SomeCardGameShit-gate4b-r3-visual-slice-windows-x86_64.zip",
+            "SomeCardGameShit-nightly-visual-compatibility-windows-x86_64.zip",
             workflow,
         )
-        self.assertIn("Copy-Item -LiteralPath $r2Package -Destination $r3Package", workflow)
-        self.assertIn("SomeCardGameShit-gate4b-r2-windows-x86_64.zip", workflow)
+        self.assertNotIn("Copy-Item -LiteralPath $r2Package -Destination $r3Package", workflow)
         self.assertEqual(
-            3,
+            2,
             workflow.count("--expect-output SCGS_R3_VISUAL_SLICE_READY"),
         )
-        self.assertIn("artifacts/r3-exported-visual-slice/windows-1600x900", workflow)
-        self.assertIn(
-            "SomeCardGameShit-r3-candidate-windows-exported-visual-slice",
-            workflow,
-        )
         self.assertIn("artifacts/r3-packaged-visual-slice/windows-1600x900", workflow)
-        self.assertIn(
-            "SomeCardGameShit-r3-candidate-windows-packaged-visual-slice",
-            workflow,
-        )
         self.assertIn("$packagedLauncherHash -ne $expectedLauncherHash", workflow)
-        packaged_launch = workflow.split(
-            "- name: Round-trip launch packaged Windows R3 visual slice", 1
-        )[1].split("- name: Round-trip audit and launch packaged Windows default 3D client", 1)[0]
+        packaged_launch = heavy_workflow.split(
+            "- name: Round-trip launch packaged Windows migration launchers", 1
+        )[1].split("- name: Check patch whitespace", 1)[0]
         self.assertNotIn("--native-library", packaged_launch)
         self.assertIn("SCGS_R3_LAUNCHER_CI", packaged_launch)
         self.assertIn('--resolution "1600x900"', launcher)

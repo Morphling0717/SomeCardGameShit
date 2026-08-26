@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200">
+  <defs><linearGradient id="m" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff9e7"/><stop offset=".43" stop-color="#c8a65e"/><stop offset=".7" stop-color="#f4d994"/><stop offset="1" stop-color="#6c5631"/></linearGradient></defs>
+  <path d="M136 1143 70 1040 96 868V313L159 255 142 154 261 143 307 62 391 102 450 18 509 102 593 62 639 143 758 154 741 255 804 313V868L830 1040 764 1143Z" fill="#554866" fill-opacity=".12" stroke="url(#m)" stroke-width="24" stroke-linejoin="round"/>
+  <path d="M180 1096 124 1014 147 849V339L212 281 194 197 292 185 329 117 408 149 450 86 492 149 571 117 608 185 706 197 688 281 753 339V849L776 1014 720 1096Z" fill="none" stroke="#fff0c7" stroke-opacity=".72" stroke-width="7"/>
+  <path d="M450 37 493 113 581 87 556 175 632 221 544 247 518 335 450 273 382 335 356 247 268 221 344 175 319 87 407 113Z" fill="url(#m)"/>
+  <path d="M140 948C224 993 255 1070 283 1156M760 948C676 993 645 1070 617 1156" fill="none" stroke="#e1c078" stroke-width="13"/>
+  <circle cx="450" cy="211" r="39" fill="none" stroke="#fff7dc" stroke-width="8"/>
+</svg>

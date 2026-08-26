@@ -2,9 +2,11 @@
 
 原创 1v1 数字卡牌游戏实验项目。C++20 规则引擎是唯一规则真值；正式客户端路线锁定为 **Godot 4.7.2 .NET** 的桌面单机热座版本。
 
-当前分支是 **Gate 5B＋6A：产品运行时底座与动漫视觉样片**。Gate 5B 已建立与冻结 v0.4 并行的产品规则域、由 Gate 5A 锁定清单生成的 34 张可构筑牌＋1 个衍生物基础目录、混合五格主战场、独立场地、分层关键词、可暂停选择队列、人工触发排序，以及 `scgs_v05` ABI 2.0／JSON schema 2 和纯托管 `Scgs.Client.V05`。能力清单中的 9 项修正＋33 项新增已经形成精确的 42／42 synthetic 可执行原语矩阵。这是可验证的通用底座，**不是**两副 30 张产品牌组已经完整可玩；逐卡效果组合、固定牌整局代理、数值实战和产品入口切换属于 Gate 5C。
+当前分支是 **Gate 6A-R1：AnimeV1 一体化卡体重写与 CI 分层**，建立在已经完成的 Gate 5B＋6A 运行时底座和动漫样片之上。Gate 5B 已建立与冻结 v0.4 并行的产品规则域、由 Gate 5A 锁定清单生成的 34 张可构筑牌＋1 个衍生物基础目录、混合五格主战场、独立场地、分层关键词、可暂停选择队列、人工触发排序，以及 `scgs_v05` ABI 2.0／JSON schema 2 和纯托管 `Scgs.Client.V05`。能力清单中的 9 项修正＋33 项新增已经形成精确的 42／42 synthetic 可执行原语矩阵。这是可验证的通用底座，**不是**两副 30 张产品牌组已经完整可玩；逐卡效果组合、固定牌整局代理、数值实战和产品入口切换属于 Gate 5C。
 
 Gate 6A 同时提供不调用 native 的独立 **AnimeV1 原创华丽厚涂日式幻想动漫样片**：两名主战者、七张代表卡、两张王牌进化异画、统一卡背、菜单主视觉和开放式幻想竞技场，共 14 项候选素材，并覆盖菜单、牌组设置、普通对局、手牌悬停、混合永久物、响应、交接和结果八种状态。可用 `--anime-style-slice` 启动；它只用于视觉审批，不冒充新牌组可玩版。
+
+Gate 6A-R1 进一步提供 **AnimeV1 一体化卡体候选**。旧样片中由黑色名称条、悬浮徽章和类型按钮拼成的卡框已经判定不合格；新候选使用统一 3:4 连续轮廓、嵌入式费用／身材／倒数座、职业纹章与四级稀有度，并由真实 `CardActor3D` 直接组合，不为每张卡创建 `SubViewport`。七张代表插画与两张进化异画仍只是候选，本轮没有重画或批准它们。该入口同样不调用 native，也不表示誓卫／契术新牌组已经可玩；完整说明与验收边界见 [`docs/anime-v1-card-body-r1.md`](docs/anime-v1-card-body-r1.md)。
 
 AnimeV1 已锁定为整个产品的唯一长期美术方向：菜单、竞技场、主战者、卡牌、卡框、HUD、弹层、VFX、fallback 与 shader 都要统一动漫幻想风。当前 Gate 4B-R2／R3 科幻工业画面只作为迁移期默认客户端和历史回归证据保留；用户批准样片并完成 Gate 6C 后，旧产品 profile、旧卡图与产品入口必须删除，不维护面向玩家的双皮肤模式。
 
@@ -24,6 +26,7 @@ AnimeV1 已锁定为整个产品的唯一长期美术方向：菜单、竞技场
 - Gate 5A 锁定清单：[`design/product-decks-v1/card-pool.lock.json`](design/product-decks-v1/card-pool.lock.json)
 - AnimeV1 全产品视觉锁：[`design/product-decks-v1/anime-v1-visual.lock.json`](design/product-decks-v1/anime-v1-visual.lock.json)
 - Gate 6A 样片与运行方式：[`docs/anime-v1-visual-slice.md`](docs/anime-v1-visual-slice.md)
+- Gate 6A-R1 一体化卡体候选：[`docs/anime-v1-card-body-r1.md`](docs/anime-v1-card-body-r1.md)
 - Gate 6A 素材来源与完整 prompt：[`client/godot/assets/visual/anime_v1/slice/PROVENANCE.md`](client/godot/assets/visual/anime_v1/slice/PROVENANCE.md)
 - 实测记录：[`TEST_REPORT.md`](TEST_REPORT.md)
 
@@ -94,7 +97,7 @@ cmake --build --preset asan
 ctest --preset asan
 ```
 
-`SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认 `ON`。为保持既有 CMake/CI 基线，这个历史命名的开关当前注册整组 Python 契约测试，包括 legacy overlay/protocol、原生/Godot 导出、R2 34 项＋R3 候选 1 项＋AnimeV1 14 项分离素材审计、子进程超时、历史整局/视觉报告、R3.1 候选切片、Gate 5A 产品牌组设计契约、提交态产品目录生成检查及 Gate 6A 样片结构契约；开启时配置阶段必须找到 Python 3.10+，不能静默少注册。设为 `OFF` 会跳过整组 Python 契约，不能用这种构建宣称完成客户端验收。CMake 会按版本与 SHA-256 固定获取 JSON 依赖，不要求系统全局安装。
+`SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认 `ON`。为保持既有 CMake/CI 基线，这个历史命名的开关当前注册整组 Python 契约测试，包括 legacy overlay/protocol、原生/Godot 导出、R2 34 项＋R3 候选 1 项＋AnimeV1 14 项＋R1 卡体 23 项分离素材审计、子进程超时、历史整局/视觉报告、R3.1 候选切片、Gate 5A 产品牌组设计契约、提交态产品目录生成检查、Gate 6A/R1 样片结构契约和 CI 分层路由契约；开启时配置阶段必须找到 Python 3.10+，不能静默少注册。设为 `OFF` 会跳过整组 Python 契约，不能用这种构建宣称完成客户端验收。CMake 会按版本与 SHA-256 固定获取 JSON 依赖，不要求系统全局安装。
 
 原生边界可安装到暂存目录以检查真正的消费产物：
 
@@ -123,6 +126,16 @@ dotnet build client/godot/SomeCardGameShit.csproj -c Release
 ```
 
 Godot 编辑器和导出包必须使用同一提交构建、审计并暂存的原生库；不要把 DLL/dylib 提交到 Git。具体路径、headless smoke 和导出说明见 [`client/godot/README.md`](client/godot/README.md)。
+
+无需原生库即可从源码查看一体化卡体候选：
+
+```bash
+godot --path client/godot --windowed --resolution 1600x900 -- --anime-card-body-slice
+```
+
+Windows／macOS 卡体样片导出包完整解压后，分别运行 `PLAY_ANIME_CARD_BODY_SLICE.cmd` 或 `PLAY_ANIME_CARD_BODY_SLICE.command`；直接启动默认 EXE／`.app` 不会自动进入该候选入口。
+
+日常 Windows CI 已移除约74分钟的旧 R2 全尺寸视觉长测，保留原生、托管、Godot 构建、当前卡体样片、基础整局与正式导出验收。旧 R2/R3/legacy 兼容视觉矩阵及600帧资源稳定检查转移至每日夜间与手动 `windows-visual-heavy` 工作流；它们仍是发布前回归门，只是不再阻塞每次普通提交。
 
 ## 目录
 

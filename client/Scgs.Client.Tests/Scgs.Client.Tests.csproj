@@ -23,6 +23,18 @@
              Link="GodotContracts\ProductMenuModel.cs" />
     <Compile Include="..\godot\scripts\Preview\AnimeSliceMotionProfile.cs"
              Link="GodotContracts\AnimeSliceMotionProfile.cs" />
+    <Compile Include="..\godot\scripts\Preview\AnimeCardBodySliceLaunch.cs"
+             Link="GodotContracts\AnimeCardBodySliceLaunch.cs" />
+    <Compile Include="..\godot\scripts\Ci\AnimeCardBodyFrameStability.cs"
+             Link="GodotContracts\AnimeCardBodyFrameStability.cs" />
+    <Compile Include="..\godot\scripts\Ci\AnimeCardBodyGpuReadabilityContract.cs"
+             Link="GodotContracts\AnimeCardBodyGpuReadabilityContract.cs" />
+    <Compile Include="..\godot\scripts\CardFaces\CardFaceContracts.cs"
+             Link="GodotContracts\CardFaces\CardFaceContracts.cs" />
+    <Compile Include="..\godot\scripts\CardFaces\ProductCardVisualCatalog.cs"
+             Link="GodotContracts\CardFaces\ProductCardVisualCatalog.cs" />
+    <Compile Include="..\godot\scripts\CardFaces\CardFrameStyleCatalog.cs"
+             Link="GodotContracts\CardFaces\CardFrameStyleCatalog.cs" />
   </ItemGroup>
 
 </Project>

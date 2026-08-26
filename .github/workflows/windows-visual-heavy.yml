@@ -1,0 +1,337 @@
+name: Windows visual compatibility
+
+on:
+  push:
+    paths:
+      - ".github/workflows/windows-visual-heavy.yml"
+  schedule:
+    - cron: "17 20 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: windows-visual-heavy-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  windows-visual-heavy:
+    runs-on: windows-latest
+    env:
+      SCGS_SMOKE_SEEDS: "2048"
+      DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+      DOTNET_NOLOGO: "1"
+      NUGET_XMLDOC_MODE: skip
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12.8"
+      - name: Configure compatibility build
+        run: >-
+          cmake -S . -B build/ci-visual-heavy -A x64
+          -DSCGS_WARNINGS_AS_ERRORS=ON
+          -DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON
+      - name: Build compatibility runtime
+        shell: pwsh
+        run: |
+          $log = cmake --build build/ci-visual-heavy --config Release --parallel 2 2>&1
+          $log | ForEach-Object { Write-Output $_ }
+          $exit = $LASTEXITCODE
+          $log | Select-String -Pattern "error" | ForEach-Object { "::error::$($_.Line)" }
+          $log | Select-String -Pattern "warning" | ForEach-Object { "::warning::$($_.Line)" }
+          exit $exit
+      - name: Run native and legacy contract tests
+        run: ctest --test-dir build/ci-visual-heavy -C Release --output-on-failure
+      - name: Stage compatibility runtime
+        run: >-
+          cmake --install build/ci-visual-heavy --config Release
+          --prefix "${{ github.workspace }}/build/stage-visual-heavy"
+      - name: Audit frozen v04 and v05 libraries
+        run: |
+          python scripts/audit_native_artifact.py --library build/stage-visual-heavy/bin/scgs_v04.dll --architecture x86_64
+          python scripts/audit_native_artifact.py --library build/stage-visual-heavy/bin/scgs_v05.dll --architecture x86_64 --api-version v05
+      - uses: actions/setup-dotnet@v5
+        with:
+          global-json-file: global.json
+          cache: true
+          cache-dependency-path: |
+            client/Scgs.Client/packages.lock.json
+            client/Scgs.Hotseat/packages.lock.json
+            client/Scgs.Client.Tests/packages.lock.json
+            client/godot/packages.lock.json
+      - name: Cache Godot .NET editor and export templates
+        uses: actions/cache@v5
+        with:
+          path: |
+            build/godot-toolchain/windows
+            ~/AppData/Roaming/Godot/export_templates/4.7.2.stable.mono
+          key: godot-mono-4.7.2-windows-x86_64-v1
+      - name: Install verified Godot 4.7.2 .NET toolchain
+        id: godot
+        shell: pwsh
+        run: ./scripts/ci/install_godot_windows.ps1 -GithubOutput $env:GITHUB_OUTPUT
+      - name: Stage current-commit v04 library for Godot
+        run: >-
+          python scripts/stage_godot_native.py
+          --library build/stage-visual-heavy/bin/scgs_v04.dll
+          --destination-root client/godot/native
+          --target windows-x86_64
+      - name: Restore and build managed clients
+        env:
+          SCGS_NATIVE_LIBRARY: ${{ github.workspace }}/build/stage-visual-heavy/bin/scgs_v04.dll
+          SCGS_V04_NATIVE_PATH: ${{ github.workspace }}/build/stage-visual-heavy/bin/scgs_v04.dll
+          SCGS_NATIVE_V05_LIBRARY: ${{ github.workspace }}/build/stage-visual-heavy/bin/scgs_v05.dll
+        run: python scripts/ci/run_managed_gate3.py
+      - name: Godot headless import
+        env:
+          GODOT4: ${{ steps.godot.outputs.godot }}
+        shell: pwsh
+        run: >-
+          python scripts/ci/run_with_timeout.py
+          --timeout 600
+          --forbid-output "SCRIPT ERROR:"
+          --forbid-output "ERROR:"
+          -- "$env:GODOT4" --headless
+          --path client/godot --import
+      - name: Godot legacy 2D source regression smoke
+        env:
+          GODOT4: ${{ steps.godot.outputs.godot }}
+        shell: pwsh
+        run: |
+          $native = (Resolve-Path "build/stage-visual-heavy/bin/scgs_v04.dll").Path
+          $report = Join-Path $env:RUNNER_TEMP "gate4a-legacy-2d-nightly.json"
+          python scripts/ci/run_with_timeout.py `
+            --timeout 180 `
+            --expect-output SCGS_GODOT_CI_SMOKE_OK `
+            --expect-output-count 1 `
+            --forbid-output "SCRIPT ERROR:" `
+            --forbid-output "ERROR:" `
+            --forbid-output "Unhandled exception" `
+            -- "$env:GODOT4" --headless --path client/godot -- `
+            --ci-smoke --legacy-2d-board "--native-library=$native" "--ci-report=$report"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/ci/validate_gate4a_report.py `
+            --report "$report" --scenario full-match --presentation legacy-2d
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Godot Gate 4B-R2 1600x900 visual and resource suite
+        env:
+          GODOT4: ${{ steps.godot.outputs.godot }}
+        shell: pwsh
+        run: |
+          $native = (Resolve-Path "build/stage-visual-heavy/bin/scgs_v04.dll").Path
+          $suite = Join-Path "${{ github.workspace }}" "artifacts/visual-suite/windows-1600x900"
+          New-Item -ItemType Directory -Path $suite -Force | Out-Null
+          python scripts/ci/run_with_timeout.py `
+            --timeout 1200 `
+            --expect-output SCGS_GODOT_CI_SMOKE_OK `
+            --expect-output-count 1 `
+            --forbid-output "SCRIPT ERROR:" `
+            --forbid-output "ERROR:" `
+            --forbid-output "Unhandled exception" `
+            -- "$env:GODOT4" --path client/godot --windowed --audio-driver Dummy `
+            --resolution "1600x900" -- `
+            --ci-smoke "--native-library=$native" "--ci-visual-suite=$suite" `
+            "--ci-visual-viewport=1600x900"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $report = Join-Path $suite "visual-suite.json"
+          # Hosted Windows uses ANGLE/WARP. Keep the 300+300-frame resource
+          # stability evidence, but treat its frame timing as informational.
+          python scripts/ci/validate_gate4b_visual_suite.py `
+            --report "$report" --width 1600 --height 900 `
+            --asset-manifest client/godot/assets/visual/ASSET_MANIFEST.json `
+            --skip-performance-budget
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $goldenRoot = Join-Path "${{ github.workspace }}" "client/godot/tests/visual_goldens/gate4b/windows-1600x900"
+          $manifest = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
+          $goldenMetadataPath = Join-Path $goldenRoot "GOLDEN_METADATA.json"
+          python scripts/ci/validate_gate4b_golden_metadata.py `
+            --metadata "$goldenMetadataPath" --report "$report"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $goldenMetadata = Get-Content -LiteralPath $goldenMetadataPath -Raw | ConvertFrom-Json
+          $approvedStates = @($goldenMetadata.states)
+          if ($approvedStates.Count -eq 0 -or
+              @($approvedStates | Sort-Object -Unique).Count -ne $approvedStates.Count) {
+            throw "visual golden metadata must list unique approved states"
+          }
+          foreach ($state in $approvedStates) {
+            $matches = @($manifest.captures | Where-Object { $_.state -eq $state })
+            if ($matches.Count -ne 1) {
+              throw "visual suite must contain exactly one capture for approved state '$state'"
+            }
+            $capture = $matches[0]
+            $actual = Join-Path $suite $capture.file
+            $expected = Join-Path $goldenRoot "$state.png"
+            if (-not (Test-Path -LiteralPath $expected -PathType Leaf)) {
+              throw "visual golden metadata references missing capture '$state.png'"
+            }
+            $expectedCopy = Join-Path $suite "expected/$state.png"
+            $heatmap = Join-Path $suite "heatmaps/$state.png"
+            New-Item -ItemType Directory -Path (Split-Path $expectedCopy) -Force | Out-Null
+            New-Item -ItemType Directory -Path (Split-Path $heatmap) -Force | Out-Null
+            Copy-Item -LiteralPath $expected -Destination $expectedCopy -Force
+            python scripts/ci/compare_visual_golden.py `
+              --actual "$actual" --expected "$expected" --heatmap "$heatmap" `
+              --mae-limit 0.025 --edge-limit 0.08
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+      - name: Godot R3 candidate source regression slice
+        env:
+          GODOT4: ${{ steps.godot.outputs.godot }}
+        shell: pwsh
+        run: |
+          $native = (Resolve-Path "build/stage-visual-heavy/bin/scgs_v04.dll").Path
+          $slice = Join-Path "${{ github.workspace }}" "artifacts/r3-visual-slice/windows-1600x900"
+          New-Item -ItemType Directory -Path $slice -Force | Out-Null
+          python scripts/ci/run_with_timeout.py `
+            --timeout 300 `
+            --expect-output SCGS_R3_VISUAL_SLICE_READY `
+            --expect-output-count 1 `
+            --forbid-output "SCRIPT ERROR:" `
+            --forbid-output "ERROR:" `
+            --forbid-output "Unhandled exception" `
+            -- "$env:GODOT4" --path client/godot --windowed --audio-driver Dummy `
+            --resolution "1600x900" -- `
+            "--r3-visual-slice=$slice" --r3-visual-slice-exit `
+            "--native-library=$native" "--ci-visual-viewport=1600x900"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/ci/validate_r3_visual_slice.py `
+            --report (Join-Path $slice "r3-visual-slice.json") `
+            --width 1600 --height 900
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Export and finalize Windows compatibility client
+        env:
+          GODOT4: ${{ steps.godot.outputs.godot }}
+        shell: pwsh
+        run: |
+          $exportDirectory = Join-Path "${{ github.workspace }}" "artifacts/godot/windows-x86_64"
+          $export = Join-Path $exportDirectory "SomeCardGameShit.exe"
+          New-Item -ItemType Directory -Path $exportDirectory -Force | Out-Null
+          python scripts/ci/run_with_timeout.py `
+            --timeout 600 `
+            --forbid-output "SCRIPT ERROR:" `
+            --forbid-output "ERROR:" `
+            -- "$env:GODOT4" --headless --path client/godot `
+            --export-release "Windows x86-64" "$export"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/ci/finalize_godot_export.py `
+            --platform windows-x86_64 `
+            --export "$export" `
+            --native-library build/stage-visual-heavy/bin/scgs_v04.dll
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/audit_godot_export.py `
+            --platform windows-x86_64 --export "$export" `
+            --require-anime-slice-launcher `
+            --require-anime-card-body-launcher
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Package Windows compatibility client once
+        shell: pwsh
+        run: |
+          $packageDirectory = Join-Path "${{ github.workspace }}" "artifacts/packages"
+          $package = Join-Path $packageDirectory "SomeCardGameShit-nightly-visual-compatibility-windows-x86_64.zip"
+          New-Item -ItemType Directory -Path $packageDirectory -Force | Out-Null
+          Compress-Archive `
+            -Path "artifacts/godot/windows-x86_64/*" `
+            -DestinationPath $package `
+            -CompressionLevel Optimal
+      - name: Round-trip launch packaged Windows migration launchers
+        shell: pwsh
+        run: |
+          $package = Join-Path "${{ github.workspace }}" "artifacts/packages/SomeCardGameShit-nightly-visual-compatibility-windows-x86_64.zip"
+          $roundTrip = Join-Path "${{ github.workspace }}" "artifacts/roundtrip/windows-x86_64"
+          $animeSlice = Join-Path "${{ github.workspace }}" "artifacts/anime-packaged-visual-slice/windows-1600x900"
+          $r3Slice = Join-Path "${{ github.workspace }}" "artifacts/r3-packaged-visual-slice/windows-1600x900"
+          New-Item -ItemType Directory -Path $roundTrip,$animeSlice,$r3Slice -Force | Out-Null
+          Expand-Archive -LiteralPath $package -DestinationPath $roundTrip -Force
+          $export = Join-Path $roundTrip "SomeCardGameShit.exe"
+          python scripts/audit_godot_export.py `
+            --platform windows-x86_64 --export "$export" `
+            --require-anime-slice-launcher `
+            --require-anime-card-body-launcher
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $report = Join-Path $env:RUNNER_TEMP "gate4a-heavy-roundtrip-3d-windows.json"
+          python scripts/ci/run_with_timeout.py `
+            --timeout 180 `
+            --cwd "$roundTrip" `
+            --expect-output SCGS_GODOT_CI_SMOKE_OK `
+            --expect-output-count 1 `
+            --forbid-output "SCRIPT ERROR:" `
+            --forbid-output "ERROR:" `
+            --forbid-output "Unhandled exception" `
+            -- "$export" --headless -- --ci-smoke "--ci-report=$report"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/ci/validate_gate4a_report.py `
+            --report "$report" --scenario full-match --presentation 3d
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $animeLauncher = Join-Path $roundTrip "PLAY_ANIME_STYLE_SLICE.cmd"
+          $env:SCGS_ANIME_LAUNCHER_CI = "1"
+          $env:SCGS_ANIME_LAUNCHER_OUTPUT = $animeSlice
+          try {
+            python scripts/ci/run_with_timeout.py `
+              --timeout 300 `
+              --cwd "$roundTrip" `
+              --expect-output SCGS_ANIME_VISUAL_SLICE_READY `
+              --expect-output-count 1 `
+              --forbid-output "SCRIPT ERROR:" `
+              --forbid-output "ERROR:" `
+              --forbid-output "Unhandled exception" `
+              -- "$env:ComSpec" /d /c call "$animeLauncher"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          finally {
+            Remove-Item Env:SCGS_ANIME_LAUNCHER_CI -ErrorAction SilentlyContinue
+            Remove-Item Env:SCGS_ANIME_LAUNCHER_OUTPUT -ErrorAction SilentlyContinue
+          }
+          python scripts/ci/validate_anime_visual_slice.py `
+            (Join-Path $animeSlice "anime-visual-slice.json") `
+            --expected-viewport 1600x900
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $r3Launcher = Join-Path $roundTrip "PLAY_R3_VISUAL_SLICE.cmd"
+          $expectedLauncherHash = (Get-FileHash -LiteralPath "scripts/ci/PLAY_R3_VISUAL_SLICE.cmd" -Algorithm SHA256).Hash
+          $packagedLauncherHash = (Get-FileHash -LiteralPath $r3Launcher -Algorithm SHA256).Hash
+          if ($packagedLauncherHash -ne $expectedLauncherHash) {
+            throw "The packaged R3 launcher differs from the finalized source launcher."
+          }
+          $env:SCGS_R3_LAUNCHER_CI = "1"
+          $env:SCGS_R3_LAUNCHER_OUTPUT = $r3Slice
+          try {
+            python scripts/ci/run_with_timeout.py `
+              --timeout 300 `
+              --cwd "$roundTrip" `
+              --expect-output SCGS_R3_VISUAL_SLICE_READY `
+              --expect-output-count 1 `
+              --forbid-output "SCRIPT ERROR:" `
+              --forbid-output "ERROR:" `
+              --forbid-output "Unhandled exception" `
+              -- "$env:ComSpec" /d /c call "$r3Launcher"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          finally {
+            Remove-Item Env:SCGS_R3_LAUNCHER_CI -ErrorAction SilentlyContinue
+            Remove-Item Env:SCGS_R3_LAUNCHER_OUTPUT -ErrorAction SilentlyContinue
+          }
+          python scripts/ci/validate_r3_visual_slice.py `
+            --report (Join-Path $r3Slice "r3-visual-slice.json") `
+            --width 1600 --height 900
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Check patch whitespace
+        run: git diff --check
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: SomeCardGameShit-nightly-windows-visual-evidence
+          path: |
+            artifacts/visual-suite
+            artifacts/r3-visual-slice
+            artifacts/anime-packaged-visual-slice
+            artifacts/r3-packaged-visual-slice
+          if-no-files-found: error
+      - uses: actions/upload-artifact@v7
+        with:
+          name: SomeCardGameShit-nightly-visual-compatibility-windows-x86_64
+          path: artifacts/packages/SomeCardGameShit-nightly-visual-compatibility-windows-x86_64.zip
+          if-no-files-found: error

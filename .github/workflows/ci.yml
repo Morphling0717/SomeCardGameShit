@@ -5,11 +5,58 @@ on:
     branches: [main, "prototype/**", "feature/**", "codex/**"]
   pull_request:
 
+concurrency:
+  # Keep push and PR events isolated, and key by commit so that a docs-only
+  # follow-up can never cancel the last full-matrix evidence for its parent.
+  group: fast-ci-${{ github.event_name }}-${{ github.event.pull_request.head.sha || github.sha }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
 
 jobs:
+  classify-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      docs_only: ${{ steps.changes.outputs.docs_only }}
+      full_ci: ${{ steps.changes.outputs.full_ci }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12.8"
+      - name: Classify changed paths and check whitespace
+        id: changes
+        env:
+          SCGS_BASE_SHA: ${{ github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before }}
+          SCGS_HEAD_SHA: ${{ github.sha }}
+        run: >-
+          python scripts/ci/classify_ci_changes.py
+          --base "$SCGS_BASE_SHA"
+          --head "$SCGS_HEAD_SHA"
+          --github-output "$GITHUB_OUTPUT"
+          --check-whitespace
+      - name: Validate CI routing contracts
+        run: python -m unittest scripts.tests.test_ci_workflows
+      - name: Validate locked product deck schema and manifest
+        run: python scripts/ci/validate_product_decks_v1.py
+      - name: Verify committed product catalog generation
+        run: python scripts/design/generate_product_catalog_v2.py --check
+      - name: Audit visual manifests
+        run: python scripts/audit_visual_assets.py
+
   linux-gcc:
+    needs: classify-changes
+    if: >-
+      (github.event_name == 'push' ||
+       needs.classify-changes.outputs.full_ci == 'true') &&
+      !(github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        (startsWith(github.head_ref, 'codex/') ||
+         startsWith(github.head_ref, 'prototype/') ||
+         startsWith(github.head_ref, 'feature/')))
     runs-on: ubuntu-latest
     env:
       CC: gcc
@@ -58,6 +105,15 @@ jobs:
           if-no-files-found: error
 
   linux-clang-sanitizers:
+    needs: classify-changes
+    if: >-
+      (github.event_name == 'push' ||
+       needs.classify-changes.outputs.full_ci == 'true') &&
+      !(github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        (startsWith(github.head_ref, 'codex/') ||
+         startsWith(github.head_ref, 'prototype/') ||
+         startsWith(github.head_ref, 'feature/')))
     runs-on: ubuntu-latest
     env:
       CC: clang
@@ -107,6 +163,15 @@ jobs:
           if-no-files-found: error
 
   windows-msvc:
+    needs: classify-changes
+    if: >-
+      (github.event_name == 'push' ||
+       needs.classify-changes.outputs.full_ci == 'true') &&
+      !(github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        (startsWith(github.head_ref, 'codex/') ||
+         startsWith(github.head_ref, 'prototype/') ||
+         startsWith(github.head_ref, 'feature/')))
     runs-on: windows-latest
     env:
       SCGS_SMOKE_SEEDS: "2048"
@@ -209,6 +274,34 @@ jobs:
           name: SomeCardGameShit-gate6a-anime-slice-windows
           path: artifacts/anime-visual-slice/windows
           if-no-files-found: error
+      - name: Godot AnimeV1 integrated card-body real-actor slice
+        env:
+          GODOT4: ${{ steps.godot.outputs.godot }}
+        shell: pwsh
+        run: |
+          $slice = Join-Path "${{ github.workspace }}" "artifacts/anime-card-body/windows-1600x900"
+          New-Item -ItemType Directory -Path $slice -Force | Out-Null
+          python scripts/ci/run_with_timeout.py `
+            --timeout 300 `
+            --expect-output SCGS_ANIME_CARD_BODY_SLICE_OK `
+            --expect-output-count 1 `
+            --forbid-output "SCRIPT ERROR:" `
+            --forbid-output "ERROR:" `
+            --forbid-output "Unhandled exception" `
+            -- "$env:GODOT4" --path client/godot --windowed --audio-driver Dummy `
+            --resolution "1600x900" -- `
+            "--anime-card-body-slice=$slice" --anime-card-body-slice-exit `
+            --ci-visual-viewport=1600x900
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python scripts/ci/validate_anime_card_body_slice.py `
+            (Join-Path $slice "anime-card-body-slice.json") `
+            --expected-viewport 1600x900
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: SomeCardGameShit-gate6a-r1-card-body-windows
+          path: artifacts/anime-card-body/windows-1600x900
+          if-no-files-found: error
       - name: Godot default 3D current-project native smoke
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
@@ -228,135 +321,6 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/ci/validate_gate4a_report.py --report "$report" --scenario full-match --presentation 3d
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Godot legacy 2D source regression smoke
-        env:
-          GODOT4: ${{ steps.godot.outputs.godot }}
-        shell: pwsh
-        run: |
-          $native = (Resolve-Path "build/stage-msvc/bin/scgs_v04.dll").Path
-          $report = Join-Path $env:RUNNER_TEMP "gate4a-current-project-legacy-2d-windows.json"
-          python scripts/ci/run_with_timeout.py `
-            --timeout 180 `
-            --expect-output SCGS_GODOT_CI_SMOKE_OK `
-            --expect-output-count 1 `
-            --forbid-output "SCRIPT ERROR:" `
-            --forbid-output "ERROR:" `
-            --forbid-output "Unhandled exception" `
-            -- "$env:GODOT4" --headless --path client/godot -- `
-            --ci-smoke --legacy-2d-board "--native-library=$native" "--ci-report=$report"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/ci/validate_gate4a_report.py --report "$report" --scenario full-match --presentation legacy-2d
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Godot R3 candidate real-session visual slice
-        env:
-          GODOT4: ${{ steps.godot.outputs.godot }}
-        shell: pwsh
-        run: |
-          $native = (Resolve-Path "build/stage-msvc/bin/scgs_v04.dll").Path
-          $slice = Join-Path "${{ github.workspace }}" "artifacts/r3-visual-slice/windows-1600x900"
-          New-Item -ItemType Directory -Path $slice -Force | Out-Null
-          python scripts/ci/run_with_timeout.py `
-            --timeout 300 `
-            --expect-output SCGS_R3_VISUAL_SLICE_READY `
-            --expect-output-count 1 `
-            --forbid-output "SCRIPT ERROR:" `
-            --forbid-output "ERROR:" `
-            --forbid-output "Unhandled exception" `
-            -- "$env:GODOT4" --path client/godot --windowed --audio-driver Dummy `
-            --resolution "1600x900" -- `
-            "--r3-visual-slice=$slice" --r3-visual-slice-exit `
-            "--native-library=$native" "--ci-visual-viewport=1600x900"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/ci/validate_r3_visual_slice.py `
-            --report (Join-Path $slice "r3-visual-slice.json") `
-            --width 1600 --height 900
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: SomeCardGameShit-r3-candidate-windows-visual-slice
-          path: artifacts/r3-visual-slice
-          if-no-files-found: error
-      - name: Godot Gate 4B-R2 display-backed visual and performance suite
-        env:
-          GODOT4: ${{ steps.godot.outputs.godot }}
-        shell: pwsh
-        run: |
-          $native = (Resolve-Path "build/stage-msvc/bin/scgs_v04.dll").Path
-          $sizes = @(
-            @{ Width = 1280; Height = 720 },
-            @{ Width = 1600; Height = 900 },
-            @{ Width = 2560; Height = 1440 },
-            @{ Width = 2560; Height = 1600 }
-          )
-          foreach ($size in $sizes) {
-            $width = $size.Width
-            $height = $size.Height
-            $suiteTimeout = if ($width -eq 2560) { 2400 } else { 1200 }
-            $suite = Join-Path "${{ github.workspace }}" "artifacts/visual-suite/windows-$width`x$height"
-            New-Item -ItemType Directory -Path $suite -Force | Out-Null
-            # GitHub's Windows image renders Compatibility through ANGLE/WARP.
-            # Preserve all 300+300 frames and the full signal-driven match, but
-            # allow the two 2560-wide structural runs enough wall-clock time.
-            python scripts/ci/run_with_timeout.py `
-              --timeout $suiteTimeout `
-              --expect-output SCGS_GODOT_CI_SMOKE_OK `
-              --expect-output-count 1 `
-              --forbid-output "SCRIPT ERROR:" `
-              --forbid-output "ERROR:" `
-              --forbid-output "Unhandled exception" `
-              -- "$env:GODOT4" --path client/godot --windowed --audio-driver Dummy `
-              --resolution "$width`x$height" -- `
-              --ci-smoke "--native-library=$native" "--ci-visual-suite=$suite" `
-              "--ci-visual-viewport=$width`x$height"
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            $report = Join-Path $suite "visual-suite.json"
-            python scripts/ci/validate_gate4b_visual_suite.py `
-              --report "$report" --width $width --height $height `
-              --asset-manifest client/godot/assets/visual/ASSET_MANIFEST.json
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-            if ($width -eq 1600 -and $height -eq 900) {
-              $goldenRoot = Join-Path "${{ github.workspace }}" "client/godot/tests/visual_goldens/gate4b/windows-1600x900"
-              $manifest = Get-Content -LiteralPath $report -Raw | ConvertFrom-Json
-              $goldenMetadataPath = Join-Path $goldenRoot "GOLDEN_METADATA.json"
-              python scripts/ci/validate_gate4b_golden_metadata.py `
-                --metadata "$goldenMetadataPath" --report "$report"
-              if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-              $goldenMetadata = Get-Content -LiteralPath $goldenMetadataPath -Raw | ConvertFrom-Json
-              $approvedStates = @($goldenMetadata.states)
-              if ($approvedStates.Count -eq 0 -or
-                  @($approvedStates | Sort-Object -Unique).Count -ne $approvedStates.Count) {
-                throw "visual golden metadata must list unique approved states"
-              }
-              foreach ($state in $approvedStates) {
-                $matches = @($manifest.captures | Where-Object { $_.state -eq $state })
-                if ($matches.Count -ne 1) {
-                  throw "visual suite must contain exactly one capture for approved state '$state'"
-                }
-                $capture = $matches[0]
-                $actual = Join-Path $suite $capture.file
-                $expected = Join-Path $goldenRoot "$state.png"
-                if (-not (Test-Path -LiteralPath $expected -PathType Leaf)) {
-                  throw "visual golden metadata references missing capture '$state.png'"
-                }
-                $expectedCopy = Join-Path $suite "expected/$state.png"
-                $heatmap = Join-Path $suite "heatmaps/$state.png"
-                New-Item -ItemType Directory -Path (Split-Path $expectedCopy) -Force | Out-Null
-                New-Item -ItemType Directory -Path (Split-Path $heatmap) -Force | Out-Null
-                Copy-Item -LiteralPath $expected -Destination $expectedCopy -Force
-                python scripts/ci/compare_visual_golden.py `
-                  --actual "$actual" --expected "$expected" --heatmap "$heatmap" `
-                  --mae-limit 0.025 --edge-limit 0.08
-                if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-              }
-            }
-          }
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: SomeCardGameShit-gate4b-r2-windows-visual-suite
-          path: artifacts/visual-suite
-          if-no-files-found: error
       - name: Export and finalize Windows client
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
@@ -397,167 +361,29 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/ci/validate_gate4a_report.py --report "$report" --scenario full-match --presentation 3d
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Launch exported Windows AnimeV1 visual slice
-        shell: pwsh
-        run: |
-          $exportDirectory = Join-Path "${{ github.workspace }}" "artifacts/godot/windows-x86_64"
-          $launcher = Join-Path $exportDirectory "PLAY_ANIME_STYLE_SLICE.cmd"
-          $slice = Join-Path "${{ github.workspace }}" "artifacts/anime-exported-visual-slice/windows-1600x900"
-          New-Item -ItemType Directory -Path $slice -Force | Out-Null
-          $env:SCGS_ANIME_LAUNCHER_CI = "1"
-          $env:SCGS_ANIME_LAUNCHER_OUTPUT = $slice
-          $launcherExitCode = 0
-          try {
-            python scripts/ci/run_with_timeout.py `
-              --timeout 300 `
-              --cwd "$exportDirectory" `
-              --expect-output SCGS_ANIME_VISUAL_SLICE_READY `
-              --expect-output-count 1 `
-              --forbid-output "SCRIPT ERROR:" `
-              --forbid-output "ERROR:" `
-              --forbid-output "Unhandled exception" `
-              -- "$env:ComSpec" /d /c call "$launcher"
-            $launcherExitCode = $LASTEXITCODE
-          }
-          finally {
-            Remove-Item Env:SCGS_ANIME_LAUNCHER_CI -ErrorAction SilentlyContinue
-            Remove-Item Env:SCGS_ANIME_LAUNCHER_OUTPUT -ErrorAction SilentlyContinue
-          }
-          if ($launcherExitCode -ne 0) { exit $launcherExitCode }
-          python scripts/ci/validate_anime_visual_slice.py `
-            (Join-Path $slice "anime-visual-slice.json") `
-            --expected-viewport 1600x900
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Launch exported Windows R3 candidate visual slice
-        shell: pwsh
-        run: |
-          $exportDirectory = Join-Path "${{ github.workspace }}" "artifacts/godot/windows-x86_64"
-          $export = Join-Path $exportDirectory "SomeCardGameShit.exe"
-          $slice = Join-Path "${{ github.workspace }}" "artifacts/r3-exported-visual-slice/windows-1600x900"
-          New-Item -ItemType Directory -Path $slice -Force | Out-Null
-          python scripts/ci/run_with_timeout.py `
-            --timeout 300 `
-            --cwd "$exportDirectory" `
-            --expect-output SCGS_R3_VISUAL_SLICE_READY `
-            --expect-output-count 1 `
-            --forbid-output "SCRIPT ERROR:" `
-            --forbid-output "ERROR:" `
-            --forbid-output "Unhandled exception" `
-            -- "$export" --windowed --audio-driver Dummy --resolution "1600x900" -- `
-            "--r3-visual-slice=$slice" --r3-visual-slice-exit "--ci-visual-viewport=1600x900"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/ci/validate_r3_visual_slice.py `
-            --report (Join-Path $slice "r3-visual-slice.json") `
-            --width 1600 --height 900
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Package Windows client
         shell: pwsh
         run: |
           $packageDirectory = Join-Path "${{ github.workspace }}" "artifacts/packages"
-          $r2Package = Join-Path $packageDirectory "SomeCardGameShit-gate4b-r2-windows-x86_64.zip"
-          $r3Package = Join-Path $packageDirectory "SomeCardGameShit-gate4b-r3-visual-slice-windows-x86_64.zip"
-          $animePackage = Join-Path $packageDirectory "SomeCardGameShit-product-runtime-foundation-anime-slice-windows-x86_64.zip"
+          $package = Join-Path $packageDirectory "SomeCardGameShit-anime-card-body-r1-windows-x86_64.zip"
           New-Item -ItemType Directory -Path $packageDirectory -Force | Out-Null
           Compress-Archive `
             -Path "artifacts/godot/windows-x86_64/*" `
-            -DestinationPath $r2Package `
+            -DestinationPath $package `
             -CompressionLevel Optimal
-          Copy-Item -LiteralPath $r2Package -Destination $r3Package
-          Copy-Item -LiteralPath $r2Package -Destination $animePackage
-      - name: Round-trip launch packaged Windows R3 visual slice
-        shell: pwsh
-        run: |
-          $package = Join-Path "${{ github.workspace }}" "artifacts/packages/SomeCardGameShit-gate4b-r3-visual-slice-windows-x86_64.zip"
-          $roundTrip = Join-Path "${{ github.workspace }}" "artifacts/roundtrip/r3-visual-slice-windows-x86_64"
-          $slice = Join-Path "${{ github.workspace }}" "artifacts/r3-packaged-visual-slice/windows-1600x900"
-          New-Item -ItemType Directory -Path $roundTrip -Force | Out-Null
-          New-Item -ItemType Directory -Path $slice -Force | Out-Null
-          Expand-Archive -LiteralPath $package -DestinationPath $roundTrip -Force
-          $export = Join-Path $roundTrip "SomeCardGameShit.exe"
-          $launcher = Join-Path $roundTrip "PLAY_R3_VISUAL_SLICE.cmd"
-          if (-not (Test-Path -LiteralPath $launcher -PathType Leaf)) {
-            throw "The R3 package round trip is missing PLAY_R3_VISUAL_SLICE.cmd."
-          }
-          $expectedLauncherHash = (Get-FileHash -LiteralPath "scripts/ci/PLAY_R3_VISUAL_SLICE.cmd" -Algorithm SHA256).Hash
-          $packagedLauncherHash = (Get-FileHash -LiteralPath $launcher -Algorithm SHA256).Hash
-          if ($packagedLauncherHash -ne $expectedLauncherHash) {
-            throw "The packaged R3 launcher differs from the finalized source launcher."
-          }
-          python scripts/audit_godot_export.py --platform windows-x86_64 --export "$export"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $env:SCGS_R3_LAUNCHER_CI = "1"
-          $env:SCGS_R3_LAUNCHER_OUTPUT = $slice
-          $launcherExitCode = 0
-          try {
-            python scripts/ci/run_with_timeout.py `
-              --timeout 300 `
-              --cwd "$roundTrip" `
-              --expect-output SCGS_R3_VISUAL_SLICE_READY `
-              --expect-output-count 1 `
-              --forbid-output "SCRIPT ERROR:" `
-              --forbid-output "ERROR:" `
-              --forbid-output "Unhandled exception" `
-              -- "$env:ComSpec" /d /c call "$launcher"
-            $launcherExitCode = $LASTEXITCODE
-          }
-          finally {
-            Remove-Item Env:SCGS_R3_LAUNCHER_CI -ErrorAction SilentlyContinue
-            Remove-Item Env:SCGS_R3_LAUNCHER_OUTPUT -ErrorAction SilentlyContinue
-          }
-          if ($launcherExitCode -ne 0) { exit $launcherExitCode }
-          python scripts/ci/validate_r3_visual_slice.py `
-            --report (Join-Path $slice "r3-visual-slice.json") `
-            --width 1600 --height 900
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Round-trip launch packaged AnimeV1 visual slice
-        shell: pwsh
-        run: |
-          $package = Join-Path "${{ github.workspace }}" "artifacts/packages/SomeCardGameShit-product-runtime-foundation-anime-slice-windows-x86_64.zip"
-          $roundTrip = Join-Path "${{ github.workspace }}" "artifacts/roundtrip/anime-visual-slice-windows-x86_64"
-          $slice = Join-Path "${{ github.workspace }}" "artifacts/anime-packaged-visual-slice/windows-1600x900"
-          New-Item -ItemType Directory -Path $roundTrip -Force | Out-Null
-          New-Item -ItemType Directory -Path $slice -Force | Out-Null
-          Expand-Archive -LiteralPath $package -DestinationPath $roundTrip -Force
-          $export = Join-Path $roundTrip "SomeCardGameShit.exe"
-          $launcher = Join-Path $roundTrip "PLAY_ANIME_STYLE_SLICE.cmd"
-          python scripts/audit_godot_export.py `
-            --platform windows-x86_64 --export "$export" `
-            --require-anime-slice-launcher
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          $env:SCGS_ANIME_LAUNCHER_CI = "1"
-          $env:SCGS_ANIME_LAUNCHER_OUTPUT = $slice
-          $launcherExitCode = 0
-          try {
-            python scripts/ci/run_with_timeout.py `
-              --timeout 300 `
-              --cwd "$roundTrip" `
-              --expect-output SCGS_ANIME_VISUAL_SLICE_READY `
-              --expect-output-count 1 `
-              --forbid-output "SCRIPT ERROR:" `
-              --forbid-output "ERROR:" `
-              --forbid-output "Unhandled exception" `
-              -- "$env:ComSpec" /d /c call "$launcher"
-            $launcherExitCode = $LASTEXITCODE
-          }
-          finally {
-            Remove-Item Env:SCGS_ANIME_LAUNCHER_CI -ErrorAction SilentlyContinue
-            Remove-Item Env:SCGS_ANIME_LAUNCHER_OUTPUT -ErrorAction SilentlyContinue
-          }
-          if ($launcherExitCode -ne 0) { exit $launcherExitCode }
-          python scripts/ci/validate_anime_visual_slice.py `
-            (Join-Path $slice "anime-visual-slice.json") `
-            --expected-viewport 1600x900
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
       - name: Round-trip audit and launch packaged Windows default 3D client
         shell: pwsh
         run: |
-          $package = Join-Path "${{ github.workspace }}" "artifacts/packages/SomeCardGameShit-gate4b-r2-windows-x86_64.zip"
+          $package = Join-Path "${{ github.workspace }}" "artifacts/packages/SomeCardGameShit-anime-card-body-r1-windows-x86_64.zip"
           $roundTrip = Join-Path "${{ github.workspace }}" "artifacts/roundtrip/windows-x86_64"
           New-Item -ItemType Directory -Path $roundTrip -Force | Out-Null
           Expand-Archive -LiteralPath $package -DestinationPath $roundTrip -Force
           $export = Join-Path $roundTrip "SomeCardGameShit.exe"
           $report = Join-Path $env:RUNNER_TEMP "gate4a-roundtrip-3d-windows.json"
-          python scripts/audit_godot_export.py --platform windows-x86_64 --export "$export"
+          python scripts/audit_godot_export.py `
+            --platform windows-x86_64 --export "$export" `
+            --require-anime-slice-launcher `
+            --require-anime-card-body-launcher
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/ci/run_with_timeout.py `
             --timeout 180 `
@@ -571,41 +397,45 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           python scripts/ci/validate_gate4a_report.py --report "$report" --scenario full-match --presentation 3d
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+          $cardBodyLauncher = Join-Path $roundTrip "PLAY_ANIME_CARD_BODY_SLICE.cmd"
+          $cardBodySlice = Join-Path "${{ github.workspace }}" "artifacts/anime-card-body/packaged-windows-1600x900"
+          New-Item -ItemType Directory -Path $cardBodySlice -Force | Out-Null
+          $env:SCGS_CARD_BODY_LAUNCHER_CI = "1"
+          $env:SCGS_CARD_BODY_LAUNCHER_OUTPUT = $cardBodySlice
+          try {
+            python scripts/ci/run_with_timeout.py `
+              --timeout 300 `
+              --cwd "$roundTrip" `
+              --expect-output SCGS_ANIME_CARD_BODY_SLICE_OK `
+              --expect-output-count 1 `
+              --forbid-output "SCRIPT ERROR:" `
+              --forbid-output "ERROR:" `
+              --forbid-output "Unhandled exception" `
+              -- "$env:ComSpec" /d /c call "$cardBodyLauncher"
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          }
+          finally {
+            Remove-Item Env:SCGS_CARD_BODY_LAUNCHER_CI -ErrorAction SilentlyContinue
+            Remove-Item Env:SCGS_CARD_BODY_LAUNCHER_OUTPUT -ErrorAction SilentlyContinue
+          }
+          python scripts/ci/validate_anime_card_body_slice.py `
+            (Join-Path $cardBodySlice "anime-card-body-slice.json") `
+            --expected-viewport 1600x900
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant() | ForEach-Object { "package_sha256=$_" }
       - name: Check patch whitespace
         run: git diff --check
       - uses: actions/upload-artifact@v7
         with:
-          name: SomeCardGameShit-gate4b-r2-windows-x86_64
-          path: artifacts/packages/SomeCardGameShit-gate4b-r2-windows-x86_64.zip
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          name: SomeCardGameShit-gate4b-r3-visual-slice-windows-x86_64
-          path: artifacts/packages/SomeCardGameShit-gate4b-r3-visual-slice-windows-x86_64.zip
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          name: SomeCardGameShit-product-runtime-foundation-anime-slice-windows-x86_64
-          path: artifacts/packages/SomeCardGameShit-product-runtime-foundation-anime-slice-windows-x86_64.zip
+          name: SomeCardGameShit-anime-card-body-r1-windows-x86_64
+          path: artifacts/packages/SomeCardGameShit-anime-card-body-r1-windows-x86_64.zip
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: SomeCardGameShit-product-runtime-foundation-anime-slice-windows-evidence
-          path: |
-            artifacts/anime-exported-visual-slice
-            artifacts/anime-packaged-visual-slice
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          name: SomeCardGameShit-r3-candidate-windows-packaged-visual-slice
-          path: artifacts/r3-packaged-visual-slice
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          name: SomeCardGameShit-r3-candidate-windows-exported-visual-slice
-          path: artifacts/r3-exported-visual-slice
+          name: SomeCardGameShit-gate6a-r1-card-body-packaged-windows
+          path: artifacts/anime-card-body/packaged-windows-1600x900
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
@@ -619,6 +449,15 @@ jobs:
           if-no-files-found: error
 
   macos-arm64:
+    needs: classify-changes
+    if: >-
+      (github.event_name == 'push' ||
+       needs.classify-changes.outputs.full_ci == 'true') &&
+      !(github.event_name == 'pull_request' &&
+        github.event.pull_request.head.repo.full_name == github.repository &&
+        (startsWith(github.head_ref, 'codex/') ||
+         startsWith(github.head_ref, 'prototype/') ||
+         startsWith(github.head_ref, 'feature/')))
     runs-on: macos-15
     env:
       SCGS_SMOKE_SEEDS: "2048"
@@ -721,6 +560,32 @@ jobs:
           name: SomeCardGameShit-gate6a-anime-slice-macos-arm64
           path: artifacts/anime-visual-slice/macos
           if-no-files-found: error
+      - name: Godot AnimeV1 integrated card-body real-actor slice
+        env:
+          GODOT4: ${{ steps.godot.outputs.godot }}
+        run: |
+          slice="${GITHUB_WORKSPACE}/artifacts/anime-card-body/macos-runner-1024x684"
+          mkdir -p "$slice"
+          python scripts/ci/run_with_timeout.py \
+            --timeout 300 \
+            --expect-output SCGS_ANIME_CARD_BODY_SLICE_OK \
+            --expect-output-count 1 \
+            --forbid-output 'SCRIPT ERROR:' \
+            --forbid-output 'ERROR:' \
+            --forbid-output 'Unhandled exception' \
+            -- "$GODOT4" --path client/godot --windowed --audio-driver Dummy \
+            --resolution 1024x684 -- \
+            "--anime-card-body-slice=$slice" --anime-card-body-slice-exit \
+            --ci-visual-viewport=1024x684 --ci-anime-runner-viewport
+          python scripts/ci/validate_anime_card_body_slice.py \
+            "$slice/anime-card-body-slice.json" \
+            --expected-viewport 1024x684
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: SomeCardGameShit-gate6a-r1-card-body-macos-arm64
+          path: artifacts/anime-card-body/macos-runner-1024x684
+          if-no-files-found: error
       - name: Godot default 3D current-project native smoke
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
@@ -816,7 +681,7 @@ jobs:
           export_directory="${GITHUB_WORKSPACE}/artifacts/godot/macos-arm64"
           package_directory="${GITHUB_WORKSPACE}/artifacts/packages"
           r2_package="${package_directory}/SomeCardGameShit-gate4b-r2-macos-arm64.app.zip"
-          anime_package="${package_directory}/SomeCardGameShit-product-runtime-foundation-anime-slice-macos-arm64.zip"
+          anime_package="${package_directory}/SomeCardGameShit-anime-card-body-r1-macos-arm64.zip"
           mkdir -p "$package_directory"
           ditto -c -k --sequesterRsrc --keepParent \
             artifacts/godot/macos-arm64/SomeCardGameShit.app \
@@ -824,21 +689,25 @@ jobs:
           cp "$r2_package" "$anime_package"
           (
             cd "$export_directory"
-            /usr/bin/zip -q "$anime_package" PLAY_ANIME_STYLE_SLICE.command
+            /usr/bin/zip -q "$anime_package" \
+              PLAY_ANIME_STYLE_SLICE.command \
+              PLAY_ANIME_CARD_BODY_SLICE.command
           )
       - name: Round-trip launch packaged AnimeV1 visual slice
         run: |
-          package="${GITHUB_WORKSPACE}/artifacts/packages/SomeCardGameShit-product-runtime-foundation-anime-slice-macos-arm64.zip"
+          package="${GITHUB_WORKSPACE}/artifacts/packages/SomeCardGameShit-anime-card-body-r1-macos-arm64.zip"
           round_trip="${GITHUB_WORKSPACE}/artifacts/roundtrip/anime-visual-slice-macos-arm64"
           slice="${GITHUB_WORKSPACE}/artifacts/anime-packaged-visual-slice/macos-runner-1024x684"
-          mkdir -p "$round_trip" "$slice"
+          card_body_slice="${GITHUB_WORKSPACE}/artifacts/anime-card-body/packaged-macos-runner-1024x684"
+          mkdir -p "$round_trip" "$slice" "$card_body_slice"
           ditto -x -k "$package" "$round_trip"
           app="$round_trip/SomeCardGameShit.app"
           launcher="$round_trip/PLAY_ANIME_STYLE_SLICE.command"
           test -x "$launcher"
           python scripts/audit_godot_export.py \
             --platform macos-arm64 --export "$app" \
-            --require-anime-slice-launcher
+            --require-anime-slice-launcher \
+            --require-anime-card-body-launcher
           export SCGS_ANIME_LAUNCHER_CI=1
           export SCGS_ANIME_LAUNCHER_OUTPUT="$slice"
           python scripts/ci/run_with_timeout.py \
@@ -855,6 +724,24 @@ jobs:
             "$slice/anime-visual-slice.json" \
             --expected-viewport 1024x684 \
             --allow-ci-runner-viewport
+
+          card_body_launcher="$round_trip/PLAY_ANIME_CARD_BODY_SLICE.command"
+          test -x "$card_body_launcher"
+          export SCGS_CARD_BODY_LAUNCHER_CI=1
+          export SCGS_CARD_BODY_LAUNCHER_OUTPUT="$card_body_slice"
+          python scripts/ci/run_with_timeout.py \
+            --timeout 300 \
+            --cwd "$round_trip" \
+            --expect-output SCGS_ANIME_CARD_BODY_SLICE_OK \
+            --expect-output-count 1 \
+            --forbid-output 'SCRIPT ERROR:' \
+            --forbid-output 'ERROR:' \
+            --forbid-output 'Unhandled exception' \
+            -- "$card_body_launcher"
+          unset SCGS_CARD_BODY_LAUNCHER_CI SCGS_CARD_BODY_LAUNCHER_OUTPUT
+          python scripts/ci/validate_anime_card_body_slice.py \
+            "$card_body_slice/anime-card-body-slice.json" \
+            --expected-viewport 1024x684
       - name: Round-trip audit and launch packaged macOS default 3D client
         run: |
           package="${GITHUB_WORKSPACE}/artifacts/packages/SomeCardGameShit-gate4b-r2-macos-arm64.app.zip"
@@ -885,8 +772,8 @@ jobs:
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:
-          name: SomeCardGameShit-product-runtime-foundation-anime-slice-macos-arm64
-          path: artifacts/packages/SomeCardGameShit-product-runtime-foundation-anime-slice-macos-arm64.zip
+          name: SomeCardGameShit-anime-card-body-r1-macos-arm64
+          path: artifacts/packages/SomeCardGameShit-anime-card-body-r1-macos-arm64.zip
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         if: always()
@@ -895,6 +782,7 @@ jobs:
           path: |
             artifacts/anime-exported-visual-slice
             artifacts/anime-packaged-visual-slice
+            artifacts/anime-card-body
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         with:

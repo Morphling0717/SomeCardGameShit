@@ -24,9 +24,9 @@ Godot 工程的 Gate 4B-R2 冻结产品集包含 34 项原创临时视觉资产�
 
 R3 场外机械以提交的 `generate_r3_arena_machinery.py` 和确定性 GLB 同时交付。开发机使用 Blender 5.2.0 LTS 官方 Windows x64 portable，下载 ZIP SHA-256 为 `2d184b626c001692c362291911293b6a297179d618d95e9e9192c3a80318adc4`；重生成命令和产物/脚本哈希记录在 `client/godot/assets/visual/arena/README.md`。Blender 安装在被忽略的 `build/blender-toolchain`，不会进入 Git 或导出包。
 
-Gate 4B-R2 的四尺寸截图与性能套件必须在 Windows display-backed 窗口中运行，不能用 headless renderer 替代；尺寸固定为 1280×720、1600×900、2560×1440 和 2560×1600。schema 4 的 16 种状态都要求连续两个内容一致的 `FramePostDraw` 及真实像素/ROI 证据。1600×900 golden 只能经 `scripts/ci/update_gate4b_goldens.py` 显式更新，CI 不自动覆盖；macOS 保留结构、资源、ARM64、签名和真实启动审计，不跨平台复用 Windows 像素 golden。
+Gate 4B-R2 的 16 态截图与性能套件必须在 Windows display-backed 窗口中运行，不能用 headless renderer 替代。历史兼容基线在夜间／手动全量工作流以 1600×900 运行 committed golden 和一次 300＋300 帧资源稳定检查；当前 AnimeV1 四尺寸结构矩阵留在日常 CI。golden 只能经 `scripts/ci/update_gate4b_goldens.py` 显式更新，CI 不自动覆盖；macOS 保留结构、资源、ARM64、签名和真实启动审计，不跨平台复用 Windows 像素 golden。
 
-视觉报告使用 Godot `RenderingServer.GetVideoAdapterName/GetVideoAdapterType` 记录适配器。硬件渲染应用 p95 不高于 33.3 ms、单帧低于 100 ms 的时间预算；CPU、Microsoft Basic Render Driver、llvmpipe、SwiftShader 或明确 software renderer 可以标记 `timing_budget_applicable=false`，但仍必须完成 300 帧预热 + 300 帧测量、16 状态功能/隐私检查与 actor/material/texture 零增长。该分类不能把软件渲染数据写成 GPU 性能通过。
+视觉报告使用 Godot `RenderingServer.GetVideoAdapterName/GetVideoAdapterType` 记录适配器。GitHub Windows 的 ANGLE/WARP 仍必须完成 300 帧预热＋300 帧测量及 actor/material/texture 零增长，但其 timing 只记为信息，不得写成真实 GPU 性能通过。p95 不高于 33.3 ms、单帧低于 100 ms 的预算只由明确使用真实硬件渲染的本地／发布候选实机运行裁决。
 
 Windows 客户端用原生库默认设置 `SCGS_MSVC_STATIC_RUNTIME=ON`，Release 为 `/MT`、Debug 为 `/MTd`。制品审计除架构和精确 14 个导出外，还拒绝 `MSVCP140*` / `VCRUNTIME140*` 动态依赖。原生 DLL/dylib 由同一提交构建并暂存，不进入 Git。
 

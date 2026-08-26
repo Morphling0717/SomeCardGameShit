@@ -26,6 +26,9 @@ public sealed partial class BootstrapController : Control
     private static readonly PackedScene AnimeStyleSliceScene =
         GD.Load<PackedScene>("res://scenes/preview/AnimeStyleSlice.tscn");
 
+    private static readonly PackedScene AnimeCardBodySliceScene =
+        GD.Load<PackedScene>("res://scenes/preview/AnimeCardBodySlice.tscn");
+
     private Control _screenHost = null!;
     private Control? _currentScreen;
     private MainMenuScreen? _menu;
@@ -56,6 +59,16 @@ public sealed partial class BootstrapController : Control
         IReadOnlyList<string> arguments = OS.GetCmdlineUserArgs();
         try
         {
+            AnimeCardBodySliceLaunch cardBodyLaunch = AnimeCardBodySliceLaunch.Parse(arguments);
+            if (cardBodyLaunch.Requested)
+            {
+                AnimeCardBodySliceScreen cardBodySlice =
+                    AnimeCardBodySliceScene.Instantiate<AnimeCardBodySliceScreen>();
+                cardBodySlice.Configure(cardBodyLaunch);
+                ReplaceScreen(cardBodySlice);
+                return;
+            }
+
             AnimeVisualSliceLaunch animeLaunch = AnimeVisualSliceLaunch.Parse(arguments);
             if (animeLaunch.Requested)
             {

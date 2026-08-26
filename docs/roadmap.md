@@ -251,6 +251,21 @@ v04 ABI 1.0／schema 1、其精确 14 导出和 legacy v1 wire 在 Gate 5B 保�
 
 当前旧 R2/R3 客户端仍是过渡默认和历史回归路径，不构成双主题维护承诺。AnimeV1 获批并完成 Gate 6C 后，所有玩家可见画面都必须统一为原创日式幻想动漫风；`SomeCardGameShit` 只保留为小型开发代号，不制作正式商业 Logo。
 
+## Gate 6A-R1：AnimeV1 一体化卡体 — 技术样片完成，等待用户批准
+
+- [x] 明确否决 Gate 6A 中由独立卡框、费用、名称和身材零件拼接出的旧卡体；旧卡体不得成为正式 golden，也不是后续产品视觉基线
+- [x] 建立手牌、场上与详情共同使用的 3:4 `CardFaceComposition`；现有 2:3 插画只做保持比例的 cover-crop，不拉伸，也不为不同展示尺寸维护第二套卡面规则
+- [x] 提交并独立审计本轮 23 项卡体素材，覆盖连续卡框、职业纹章、不透明卡名铭牌、稀有度、进化／衍生物层、数值宝石及两张候选材质；清单、SHA-256、来源、修改记录和导出声明必须同步
+- [x] 引入 `Noto Serif CJK SC SemiBold` 作为卡名与费用／攻血／倒数的展示字体；规则正文和通用 UI 继续使用 Noto Sans，并保留字体许可证、校验和与导出审计
+- [x] `--anime-card-body-slice` 直接实例化真实 `CardActor3D`，以 `contact-sheet`、`representatives`、`contexts`、`hand-one`、`hand-five`、`hand-ten`、`hand-hover`、`values` 八态验证一体化卡面；该入口不创建 native session，也不证明新牌组可玩
+- [x] 日常 `ci.yml` 保持 push／PR 快速矩阵并按事件＋SHA 隔离重复运行：保留原生／ABI、managed、Godot import、当前 AnimeV1 与一体化卡体样片、默认 3D smoke，以及一次正式导出、实启和单份 ZIP 审计；仅说明性文档变更由仓库内分类脚本跳过不相关编译，导出内许可证／provenance、素材或代码变更仍走完整日常矩阵
+- [x] 历史 legacy 2D、Gate 4B-R2／R3 视觉与 golden、迁移期 launcher／ZIP 兼容检查移入独立 Windows heavy workflow；它固定每天 20:17 UTC 运行，也可由 `workflow_dispatch` 手动触发，不再阻塞每次提交
+- [x] Windows heavy 只保留一次 1600×900、300 帧预热＋300 帧测量的资源零增长检查；GitHub 托管机使用 ANGLE／WARP，因此显式跳过硬件性能预算，不得把其 p95 或单帧时间写成真实 GPU 性能通过
+- [ ] 在当前分支提交上跑通新的日常矩阵，并至少手动验收一次 heavy workflow；实际 run 完成前不得把本 Gate 记录为远端 CI 全绿
+- [ ] 用户完成一体化卡体主观审批；批准前不更新正式视觉 golden、不批量生产剩余卡图，也不把本样片切成默认产品画面
+
+本 Gate 只解决卡片本体的视觉语言和真实 3D 组合方式。新誓卫／契术牌组、完整热座产品入口及 AnimeV1 全界面替换仍分别属于 Gate 5C 与 Gate 6C；在这些工作完成前，旧 R2/R3 路径只作为迁移和回归基线保留。
+
 ## Alpha 后续
 
 - [ ] 主战技与普通主动能力 UI

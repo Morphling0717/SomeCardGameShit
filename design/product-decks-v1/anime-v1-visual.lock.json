@@ -77,12 +77,12 @@
     {"id":"brand","status":"planned","requirements":["development codename remains small", "no commercial logo in Gate 6A"]},
     {"id":"menu","status":"slice_candidate","requirements":["wordless key art", "deck setup", "settings and legal footer"]},
     {"id":"arena","status":"slice_candidate","requirements":["open fantasy arena", "no perimeter table frame", "2.5D fixed camera"]},
-    {"id":"card_frames","status":"slice_candidate","requirements":["five distinct card kinds", "two factions plus neutral", "programmatic text and badges"]},
-    {"id":"icons","status":"slice_candidate","requirements":["cost", "attack", "health", "countdown", "keywords", "zones"]},
+    {"id":"card_frames","status":"reworked_candidate_pending_user_approval","previous_gate6a_candidate":"rejected_as_disjoint","candidate_gate":"Gate 6A-R1","requirements":["continuous 3:4 silhouette", "five distinct card kinds", "two factions plus neutral", "integrated programmatic name and value sockets", "shared hand, field and detail composition"]},
+    {"id":"icons","status":"partial_reworked_candidate_pending_user_approval","previous_gate6a_candidate":"rejected_as_disjoint","candidate_gate":"Gate 6A-R1","candidate_scope":["cost", "attack", "health", "countdown", "type crest", "rarity"],"remaining_scope":["keywords", "zones"],"requirements":["embedded in the continuous frame", "readable at 1280x720", "not presented as floating unrelated badges"]},
     {"id":"hud","status":"slice_candidate","requirements":["leader layers", "life", "PP", "rift", "evolution", "phase"]},
     {"id":"overlays","status":"slice_candidate","requirements":["mulligan", "reaction", "pending choice", "Covered", "Resolving", "result", "error"]},
     {"id":"vfx","status":"planned","requirements":["entry", "attack", "damage", "heal", "barrier", "countdown", "graveyard", "evolution"]},
-    {"id":"fonts","status":"planned","requirements":["licensed zh-CN readable family", "digits legible at 1280x720"]},
+    {"id":"fonts","status":"partial_candidate_pending_user_approval","candidate_gate":"Gate 6A-R1","candidate_scope":["Noto Serif CJK SC SemiBold card names and integrated numeric sockets","Noto Sans CJK SC Regular interface fallback"],"remaining_scope":["final commercial typography review","complete keyword and long-rule-text hierarchy"],"requirements":["licensed zh-CN readable family", "digits legible at 1280x720"]},
     {"id":"fallbacks","status":"slice_candidate","requirements":["identity-free card front", "shared hidden back", "unknown leader"]},
     {"id":"shaders","status":"slice_candidate","requirements":["Compatibility renderer", "cross-platform", "no private identity in parameters"]}
   ],
@@ -92,5 +92,18 @@
     "states": ["menu", "setup", "action", "hand-hover", "mixed-permanents-field", "reaction", "covered", "result"],
     "raster_count": 14,
     "approval_required_before_batch_generation": true
+  },
+  "card_body_slice_contract": {
+    "gate": "Gate 6A-R1",
+    "status": "pending_user_approval",
+    "locked_not_final": true,
+    "uses_native_session": false,
+    "uses_real_card_actor_3d": true,
+    "uses_per_card_subviewport": false,
+    "frame_asset_count": 20,
+    "states": ["contact-sheet", "representatives", "contexts", "hand-one", "hand-five", "hand-ten", "hand-hover", "values"],
+    "representative_illustrations_remain_candidates": true,
+    "old_card_frame_and_value_badge_composition_approved": false,
+    "approval_required_before_golden_or_batch_generation": true
   }
 }

@@ -22,7 +22,10 @@ sys.path.insert(0, str(SCRIPTS / "ci"))
 
 from audit_visual_assets import (  # noqa: E402
     ANIME_V1_MANIFEST_RELATIVE_PATH,
+    CARD_BODY_RASTER_PATHS,
+    CARD_BODY_MANIFEST_RELATIVE_PATH,
     EXPECTED_ANIME_V1_PATHS,
+    EXPECTED_CARD_BODY_PATHS,
     VisualAssetAuditError,
     _rgba_alpha_extrema,
     audit,
@@ -191,15 +194,17 @@ class VisualAssetAuditTests(unittest.TestCase):
             root / "client/godot/assets/visual/arena/R3_ASSET_MANIFEST.json"
         )
         anime_manifest = root / ANIME_V1_MANIFEST_RELATIVE_PATH
+        card_body_manifest = root / CARD_BODY_MANIFEST_RELATIVE_PATH
         golden_metadata = json.loads((
             root
             / "client/godot/tests/visual_goldens/gate4b/windows-1600x900/GOLDEN_METADATA.json"
         ).read_text(encoding="utf-8"))
 
-        self.assertEqual(49, result["asset_count"])
+        self.assertEqual(72, result["asset_count"])
         self.assertEqual(34, result["product_asset_count"])
         self.assertEqual(1, result["candidate_asset_count"])
         self.assertEqual(14, result["anime_asset_count"])
+        self.assertEqual(23, result["card_body_asset_count"])
         self.assertLessEqual(result["anime_asset_count"], 24)
         self.assertGreater(result["anime_estimated_vram_bytes"], 0)
         self.assertLessEqual(
@@ -227,11 +232,61 @@ class VisualAssetAuditTests(unittest.TestCase):
             hashlib.sha256(anime_manifest.read_bytes()).hexdigest(),
             result["anime_manifest_sha256"],
         )
+        self.assertEqual(
+            hashlib.sha256(card_body_manifest.read_bytes()).hexdigest(),
+            result["card_body_manifest_sha256"],
+        )
         self.assertTrue(EXPECTED_ANIME_V1_PATHS.issubset(result["paths"]))
+        self.assertTrue(EXPECTED_CARD_BODY_PATHS.issubset(result["paths"]))
+
+    def test_card_body_candidate_is_exact_and_separate_from_frozen_anime_slice(self) -> None:
+        root = SCRIPTS.parent
+        manifest_path = root / CARD_BODY_MANIFEST_RELATIVE_PATH
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        registered = {entry["path"] for entry in manifest["assets"]}
+
+        self.assertEqual(1, manifest["schema_version"])
+        self.assertEqual("6A-R1", manifest["gate"])
+        self.assertEqual(23, len(manifest["assets"]))
+        self.assertEqual(EXPECTED_CARD_BODY_PATHS, registered)
+        self.assertTrue(registered.isdisjoint(EXPECTED_ANIME_V1_PATHS))
+        self.assertEqual(23, len({entry["sha256"] for entry in manifest["assets"]}))
+        for entry in manifest["assets"]:
+            path = root / entry["path"]
+            self.assertEqual(
+                entry["sha256"],
+                hashlib.sha256(path.read_bytes()).hexdigest(),
+            )
+
+        nameplates = sorted(path for path in registered if "/nameplates/" in path)
+        self.assertEqual(
+            [
+                "client/godot/assets/visual/anime_v1/card_body/nameplates/neutral.svg",
+                "client/godot/assets/visual/anime_v1/card_body/nameplates/oathguard.svg",
+                "client/godot/assets/visual/anime_v1/card_body/nameplates/pactmage.svg",
+            ],
+            nameplates,
+        )
+        for relative in nameplates:
+            source = (root / relative).read_text(encoding="utf-8")
+            self.assertNotIn("fill-opacity", source)
+
+        for relative in sorted(path for path in registered if "/gems/" in path):
+            source = (root / relative).read_text(encoding="utf-8")
+            self.assertNotIn('fill="#151127"', source)
 
     def test_anime_v1_imports_use_vram_compression_and_mipmaps(self) -> None:
         root = SCRIPTS.parent
         for relative in EXPECTED_ANIME_V1_PATHS:
+            sidecar = (root / f"{relative}.import").read_text(encoding="utf-8")
+            self.assertIn('"vram_texture": true', sidecar)
+            self.assertIn("compress/mode=2", sidecar)
+            self.assertIn("compress/high_quality=true", sidecar)
+            self.assertIn("mipmaps/generate=true", sidecar)
+
+    def test_card_body_rasters_use_vram_compression_and_mipmaps(self) -> None:
+        root = SCRIPTS.parent
+        for relative in CARD_BODY_RASTER_PATHS:
             sidecar = (root / f"{relative}.import").read_text(encoding="utf-8")
             self.assertIn('"vram_texture": true', sidecar)
             self.assertIn("compress/mode=2", sidecar)
@@ -364,6 +419,7 @@ class VisualAssetAuditTests(unittest.TestCase):
             self.assertEqual(1, result["product_asset_count"])
             self.assertEqual(1, result["candidate_asset_count"])
             self.assertEqual(0, result["anime_asset_count"])
+            self.assertEqual(0, result["card_body_asset_count"])
 
             rogue_manifest_path = visual / "ROGUE_ASSET_MANIFEST.json"
             rogue_manifest_path.write_text(
@@ -1092,7 +1148,13 @@ class VisualSuiteReportTests(unittest.TestCase):
         root = SCRIPTS.parent
         attributes = (root / ".gitattributes").read_text(encoding="utf-8")
         cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
-        workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        fast_workflow = (root / ".github/workflows/ci.yml").read_text(
+            encoding="utf-8"
+        )
+        heavy_workflow = (
+            root / ".github/workflows/windows-visual-heavy.yml"
+        ).read_text(encoding="utf-8")
+        workflow = fast_workflow + "\n" + heavy_workflow
         bootstrap = (
             root / "client/godot/scripts/Bootstrap/BootstrapController.cs"
         ).read_text(encoding="utf-8")
@@ -1140,16 +1202,16 @@ class VisualSuiteReportTests(unittest.TestCase):
         self.assertIn("audit_visual_assets.py", workflow)
         self.assertIn("validate_gate4b_visual_suite.py", workflow)
         self.assertIn("--audio-driver Dummy", workflow)
-        self.assertIn("if ($width -eq 2560) { 2400 } else { 1200 }", workflow)
-        self.assertIn("--timeout $suiteTimeout", workflow)
+        self.assertIn("Gate 4B-R2 1600x900 visual and resource suite", workflow)
+        self.assertIn("--timeout 1200", workflow)
+        self.assertIn("--skip-performance-budget", workflow)
         self.assertIn("compare_visual_golden.py", workflow)
         self.assertIn("$goldenMetadata.states", workflow)
         self.assertIn("exactly one capture for approved state", workflow)
         self.assertIn("metadata references missing capture", workflow)
         self.assertNotIn("update_gate4b_goldens.py", workflow)
-        self.assertIn("SomeCardGameShit-gate4b-r2-windows-x86_64", workflow)
         self.assertIn("SomeCardGameShit-gate4b-r2-macos-arm64", workflow)
-        self.assertIn("SomeCardGameShit-gate4b-r2-windows-visual-suite", workflow)
+        self.assertIn("SomeCardGameShit-nightly-windows-visual-evidence", workflow)
         self.assertIn('"--ci-visual-suite="', bootstrap)
         self.assertIn('"--ci-visual-viewport="', producer)
         self.assertIn("DisplayServer.VSyncMode.Disabled", producer)

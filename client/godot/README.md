@@ -9,6 +9,8 @@
 
 Gate 6A 另有独立 `--anime-style-slice`：它不加载 native、不创建对局，只用于审批 AnimeV1 菜单、主战者、卡牌、开放式竞技场、2.5D 手牌、混合永久物、响应、交接和结果画面。AnimeV1 是整个最终游戏的唯一视觉目标；当前 Gate 4B 科幻客户端只是过渡默认和历史回归路径，不能理解为长期双主题支持。新誓卫／契术牌组尚未接入 Godot，样片不能用于规则试玩。
 
+Gate 6A-R1 的 `--anime-card-body-slice` 是独立的一体化卡体审批入口。旧拼贴式卡框和图标组合已经否决；新候选以统一 3:4 连续轮廓、嵌入式费用／名称／攻血／倒数座、五类卡框、三阵营纹章、四级稀有度及 evolved/token 层重组卡面。它使用真实 `CardActor3D`，但仍不加载 native、不创建 session，也不代表新誓卫／契术牌组已经接通。现有代表插画仍为候选，并未随卡框一同转为最终美术。详见 [`../../docs/anime-v1-card-body-r1.md`](../../docs/anime-v1-card-body-r1.md)。
+
 ## 本地运行
 
 必须使用根目录 `global.json` 锁定的 .NET SDK 10.0.400 与 Godot 4.7.2 .NET。将当前提交构建并审计后的动态库放入：
@@ -33,6 +35,14 @@ godot --path client/godot -- --anime-style-slice
 ```
 
 Windows 导出包可双击 `PLAY_ANIME_STYLE_SLICE.cmd`，macOS 包可双击或执行 `PLAY_ANIME_STYLE_SLICE.command`。自动捕获使用 `--anime-style-slice=<绝对输出目录> --anime-style-slice-exit`；可再用 `--anime-style-state=<state>` 指定 `menu`、`setup`、`action`、`hand-hover`、`mixed-permanents-field`、`reaction`、`covered` 或 `result`。逐项来源、完整 prompt 和哈希见 `assets/visual/anime_v1/slice/PROVENANCE.md` 与 `ASSET_MANIFEST.json`。
+
+无需原生库查看一体化卡体候选：
+
+```text
+godot --path client/godot --windowed --resolution 1600x900 -- --anime-card-body-slice
+```
+
+可追加 `--anime-card-body-state=<state>` 查看单个状态；自动捕获使用 `--anime-card-body-slice=<绝对输出目录> --anime-card-body-slice-exit`。Windows 与 macOS 导出包必须完整解压后，分别运行 `PLAY_ANIME_CARD_BODY_SLICE.cmd` 或 `PLAY_ANIME_CARD_BODY_SLICE.command`。默认 EXE／`.app` 仍进入迁移期产品路径，不会自动进入卡体候选。
 
 ## 产品菜单与设置
 
@@ -102,11 +112,13 @@ godot --path client/godot --windowed --audio-driver Dummy -- \
 
 同一套件运行 300 帧预热 + 300 帧测量；预热后 actor/material/texture 数必须零增长。报告必须写入 `adapter_name`、`adapter_type` 和 `timing_budget_applicable`。普通硬件适配器要求 p95 不高于 33.3 ms 且单帧低于 100 ms；CPU、Microsoft Basic Render Driver、llvmpipe、SwiftShader 或明确 software renderer 只豁免 GPU 时间阈值，仍必须完成全部功能、隐私、600 帧和资源零增长检查。
 
+日常 Windows CI 已缩短：普通提交继续运行原生／托管契约、Godot 构建、当前 AnimeV1 卡体真实 actor 样片、基础整局、导出和真实启动；旧 R2 四尺寸/golden、R3、legacy 2D、ZIP 往返及600帧资源稳定长测转移到每日夜间和手动 `windows-visual-heavy` 工作流。重型套件没有删除，仍需在发布或兼容性验收前通过。
+
 `--ci-screenshot=<绝对 PNG 路径>` 仍可与 `--ci-smoke` 一起截取恶意私密哨兵被清除后的首个 `Resolving` 完整绘制帧。默认 headless smoke 等待两个 process-frame 栅栏，不生成截图。
 
 ## 素材与许可证
 
-视觉目录的 Gate 4B-R2 产品集为 29 个冻结 definition 各一张唯一原创临时卡图，加统一卡背、16:9 菜单背景、未知卡通用正面和 `midrange` / `advance` 两张头像，共 34 项；它们继续由冻结的 `assets/visual/ASSET_MANIFEST.json` 独立记录和供 R2 golden 哈希引用。R3.1 尚未批准的工业竞技场地坪单独登记在 `assets/visual/arena/R3_ASSET_MANIFEST.json`。联合审计要求两个清单合计 35 项，并要求每个新增 PNG/WebP/SVG 有且只有一条记录。未知 definition 使用无身份通用正面，所有隐藏牌共享同一卡背，不绑定 definition-specific 纹理。
+视觉目录的 Gate 4B-R2 产品集为 29 个冻结 definition 各一张唯一原创临时卡图，加统一卡背、16:9 菜单背景、未知卡通用正面和 `midrange` / `advance` 两张头像，共 34 项；它们继续由冻结的 `assets/visual/ASSET_MANIFEST.json` 独立记录和供 R2 golden 哈希引用。R3.1 尚未批准的工业竞技场地坪单独登记在 `assets/visual/arena/R3_ASSET_MANIFEST.json`；Gate 6A 的14项动漫主体样片和 Gate 6A-R1 的23项卡体候选又分别登记在 `assets/visual/anime_v1/slice/ASSET_MANIFEST.json` 与 `assets/visual/anime_v1/card_body/CARD_BODY_ASSET_MANIFEST.json`，不会并入或放宽旧冻结集合。联合审计要求每个 PNG/WebP/SVG 有且只有一条记录，并检查路径、哈希和跨清单重复。未知 definition 使用无身份通用正面，所有隐藏牌共享同一卡背，不绑定 definition-specific 纹理。
 
 Noto Sans CJK SC 2.004 Regular 的许可证、NOTICE 和 SHA-256 在 `assets/fonts/` 中。桌面导出附带项目 GPL、Godot、.NET runtime、nlohmann/json、Noto、`ASSET_NOTICES.md` 与第三方声明；finalize 与制品审计会强制检查。
 
@@ -125,4 +137,4 @@ godot --path client/godot --windowed --resolution 1600x900 -- \
 
 不带输出值的 `--r3-visual-slice` 会写入 `user://r3-visual-slice` 并保持窗口打开；自动化只有显式增加 `--r3-visual-slice-exit` 才会在三张产品实拍、`privacy-resolving` / `privacy-covered` 两张取证图和报告写完后退出。隐私取证会在真实 revision-0 调度前注入恶意 sentinel，验证两态节点清理、GPU 零泄露及 viewer read 计数不增长。
 
-Windows 制品名为 `SomeCardGameShit-gate4b-r3-visual-slice-windows-x86_64.zip`。必须先完整解压，再双击 ZIP 根目录的 `PLAY_R3_VISUAL_SLICE.cmd`；直接双击 `SomeCardGameShit.exe` 仍会进入默认 R2，不会启用候选。采集 READY 标记出现前会阻止 Esc/返回菜单释放真实 session，完成或失败时都恢复用户原有 VSync 模式；READY 后窗口保持可操作。CI 也必须实际经由打包后的脚本启动，而不是绕过它直启 EXE。导出包同时包含冻结 R2 主清单和独立 R3 候选清单，报告还绑定 commit、地坪、GLB、shader 与 launcher 的 SHA-256，并固定为 `pending_user_approval`；在用户批准前，不能用它覆盖 Gate 4B-R2 golden 或改成默认产品画面。
+当前日常 Windows 制品名为 `SomeCardGameShit-anime-card-body-r1-windows-x86_64.zip`。必须先完整解压；双击 ZIP 根目录的 `PLAY_ANIME_CARD_BODY_SLICE.cmd` 可打开 R1 卡体审批样片，`PLAY_ANIME_STYLE_SLICE.cmd` 可打开完整 AnimeV1 场景样片，直接启动 `SomeCardGameShit.exe` 仍进入迁移期默认客户端。历史 R2／R3／legacy 迁移验证只由夜间或手动重型工作流产生 `SomeCardGameShit-nightly-visual-compatibility-windows-x86_64.zip`，不再作为每次提交的主制品。两条样片启动器都必须由 CI 从最终 ZIP 实际启动；审批状态保持 `pending_user_approval`，在用户批准前不能覆盖旧 golden 或冒充新牌组可玩版。

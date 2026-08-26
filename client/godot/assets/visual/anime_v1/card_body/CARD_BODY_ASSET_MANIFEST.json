@@ -1,0 +1,190 @@
+{
+  "schema_version": 1,
+  "gate": "6A-R1",
+  "assets": [
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/crests/neutral.svg",
+      "sha256": "7afe2cdcf3c08283851a6ac65f31ad4d5ab6bd6841a5489d59a8a461b06a139b",
+      "purpose": "Neutral moon-and-boundary card crest",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original moon-white, deep-indigo and antique-gold neutral crest with no text or third-party mark."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/crests/oathguard.svg",
+      "sha256": "26ecd0187ed811da265e466f8eaa5f3a239a8f9fc838f4c07fddd10ce8908ece",
+      "purpose": "Oathguard sun-oath card crest",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original ivory, azure and sun-gold radial oath crest with no text or third-party mark."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/crests/pactmage.svg",
+      "sha256": "724e0f31969218f6d6c6918f77a9eb9fbccf64989babab056bbe26f2ff832a1d",
+      "purpose": "Pactmage contract-rift card crest",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original black-violet, crimson and rift-magenta contract crest with no text or third-party mark."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/frames/amulet.svg",
+      "sha256": "40cc7922f8b0c9c24d183bbdc93725e578bd7a228892fcd153969c33db94c34e",
+      "purpose": "Continuous shrine silhouette for amulet card faces",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original continuous shrine crown and lower countdown-wing silhouette for a 3:4 fantasy card."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/frames/field.svg",
+      "sha256": "25e2ed54f6a62d567f61a84a2e4817b6eb31158f759ac3e4ff240d6899e5df36",
+      "purpose": "Continuous gate silhouette for field card faces",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original continuous fantasy gate, lintel and wide lower-frame silhouette for a 3:4 field card."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/frames/follower.svg",
+      "sha256": "04fac71934ecb8c9b13ab356aaa958ddacb47513f96d85789db8aae661a09bdd",
+      "purpose": "Continuous crown and stat-wing silhouette for follower card faces",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original arched fantasy crown and integrated attack-health wing silhouette for a 3:4 follower card."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/frames/spell.svg",
+      "sha256": "cc1e7d3f8b8e3a50a8f708ba7ad86ff911cf888febef5e223b510b943507a807",
+      "purpose": "Continuous arcane silhouette for spell card faces",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original arcane pointed crown and uninterrupted ornamental silhouette for a 3:4 spell card."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/frames/trap.svg",
+      "sha256": "6f84cce70e405e30c21c2a31be2458416f3dad7fa499de5cd1dfffd304dc54ec",
+      "purpose": "Continuous inverted-seal silhouette for trap card faces",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original inverted thorn-seal crown and continuous ambush silhouette for a 3:4 trap card."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/gems/attack.svg",
+      "sha256": "f009b9d95ebc23eb6ae3c01604934f91d722b7d5aedc2e6c253aa1fb482d47b8",
+      "purpose": "Integrated blue attack socket with a bounded numeric bay",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original blue crystal attack socket with a central high-contrast numeric bay designed to interlock with the follower lower frame."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/gems/cost.svg",
+      "sha256": "07f968e8033da0fecbe782db5a89a3be1e87cbf72cbcdf7256c9673fcb046eb2",
+      "purpose": "Integrated emerald cost socket with a bounded numeric bay",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original emerald fantasy cost gem with a central high-contrast numeric bay designed to interlock with every card crown."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/gems/countdown.svg",
+      "sha256": "517a1affc52643f6c96a618e60d2a7341b957745e69236eb8de7c74a0ddefb6c",
+      "purpose": "Integrated wide violet countdown socket",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original wide violet hourglass socket with a central two-digit numeric bay for amulet and trap countdown values."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/gems/health.svg",
+      "sha256": "b41b5faa9feea1af5288062c9486bd75b3e79ecb1ccca4a9dfe883f2340e7103",
+      "purpose": "Integrated crimson health socket with a bounded numeric bay",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original crimson heart crystal health socket with a central high-contrast numeric bay designed to interlock with the follower lower frame."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/materials/engraved-metal-v1.png",
+      "sha256": "80f10eb17e31ccf868a14676c561064cbdecfca540e49b5fa60ff35a1fa75ab3",
+      "purpose": "Subtle engraved-metal micro-detail for visible card frames",
+      "generation_method": "OpenAI built-in image generation; selected refined candidate",
+      "date": "2026-08-26",
+      "prompt_summary": "Seamless restrained charcoal-silver fantasy metal with fine engraved micro-filigree and no emblem, text or border."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/materials/legendary-foil-v1.png",
+      "sha256": "0f7da214b3c0500116499106d8bcd9449bffdbf8052f63138b91aa7dcedfec24",
+      "purpose": "Subtle prismatic foil micro-detail for legendary visible card frames",
+      "generation_method": "OpenAI built-in image generation; selected product candidate",
+      "date": "2026-08-26",
+      "prompt_summary": "Seamless restrained indigo fantasy foil with fine crystalline interference and no emblem, text or border."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/nameplates/neutral.svg",
+      "sha256": "ed5f49602d590794f71aee30fb7a1877b14bf23af11713ac503201a23e4297fa",
+      "purpose": "Opaque neutral card-name plaque independent from the illustration",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original moon-white, old-gold and slate name plaque with a fully opaque interior and no text or third-party mark."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/nameplates/oathguard.svg",
+      "sha256": "264f0b46251ec4c6d4bb164fd74bc2a34bc8f6a2f44c2ea19744126c9b74b4ab",
+      "purpose": "Opaque Oathguard card-name plaque independent from the illustration",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original ivory, azure and sun-gold oath name plaque with a fully opaque interior and no text or third-party mark."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/nameplates/pactmage.svg",
+      "sha256": "3432d582c69fd2e6f8d79efad5aad72f6cd16f11d5daf74d6e48933e586a7d62",
+      "purpose": "Opaque Pactmage card-name plaque independent from the illustration",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original black-violet, magenta and old-gold contract name plaque with a fully opaque interior and no text or third-party mark."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/rarity/common.svg",
+      "sha256": "d684565404e13abd606e28d1573f0ef13ae5709976772337d5066df2f7e53cb7",
+      "purpose": "Common rarity lower-frame ornament",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original restrained matte-metal rarity line and single lozenge."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/rarity/epic.svg",
+      "sha256": "8d05e49912ecdef836b7e3987fb0b13839c51cc5b0ae93b86c4263bf65f174ee",
+      "purpose": "Epic rarity lower-frame ornament",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original old-gold engraved rarity ornament with a prominent central jewel."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/rarity/legendary.svg",
+      "sha256": "47eb9e573f02cbdd90468e559e336ea3cbfd96d59ddd627c16b6df1a4b63755a",
+      "purpose": "Legendary rarity lower-frame ornament",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original double-winged iridescent legendary ornament with restrained jewel accents."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/rarity/rare.svg",
+      "sha256": "2951040033c99fceee673d4352ddb55933dcad5afd8c493502560769ed64664a",
+      "purpose": "Rare rarity lower-frame ornament",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original silver rarity ornament with pale-blue jewel accents."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/variants/evolved.svg",
+      "sha256": "4da74d79f376acdcaebbfd04170b1892cb206b44c7434ca45d203a65f16f2dd8",
+      "purpose": "Shared evolved-card frame layer",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original restrained prismatic evolved halo and corner-wings for visible follower faces."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_body/variants/token.svg",
+      "sha256": "a3872e1999efc25a9585595813b0f02e66b4479900ddd5be5edb110294df2128",
+      "purpose": "Rarity-free derived-token frame layer",
+      "generation_method": "Deterministic project-authored SVG",
+      "date": "2026-08-26",
+      "prompt_summary": "Original moon-white segmented token boundary and single old-gold derivation mark."
+    }
+  ]
+}

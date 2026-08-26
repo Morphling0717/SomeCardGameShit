@@ -22,7 +22,10 @@ from audit_godot_export import (  # noqa: E402
     ExportAuditError,
     LICENSE_MARKERS,
     MACOS_ANIME_LAUNCHER,
+    MACOS_CARD_BODY_LAUNCHER,
     WINDOWS_ANIME_LAUNCHER,
+    WINDOWS_CARD_BODY_LAUNCHER,
+    _audit_anime_card_body_launcher,
     _audit_anime_slice_launcher,
     _audit_licenses,
     _audit_macos_bundle_architectures,
@@ -99,7 +102,7 @@ class GodotExportAuditTests(unittest.TestCase):
         finalize = (root / "scripts/ci/finalize_godot_export.py").read_text(
             encoding="utf-8"
         )
-        workflow = (root / ".github/workflows/ci.yml").read_text(
+        workflow = (root / ".github/workflows/windows-visual-heavy.yml").read_text(
             encoding="utf-8"
         )
 
@@ -118,14 +121,14 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertIn('export.parent / "PLAY_R3_VISUAL_SLICE.cmd"', finalize)
 
         packaged_step = workflow.split(
-            "- name: Round-trip launch packaged Windows R3 visual slice", 1
+            "- name: Round-trip launch packaged Windows migration launchers", 1
         )[1].split(
-            "- name: Round-trip audit and launch packaged Windows default 3D client",
+            "- name: Check patch whitespace",
             1,
         )[0]
         self.assertIn('$env:SCGS_R3_LAUNCHER_CI = "1"', packaged_step)
-        self.assertIn('$env:SCGS_R3_LAUNCHER_OUTPUT = $slice', packaged_step)
-        self.assertIn('-- "$env:ComSpec" /d /c call "$launcher"', packaged_step)
+        self.assertIn('$env:SCGS_R3_LAUNCHER_OUTPUT = $r3Slice', packaged_step)
+        self.assertIn('-- "$env:ComSpec" /d /c call "$r3Launcher"', packaged_step)
         self.assertNotIn('-- "$export" --windowed', packaged_step)
         self.assertIn("--expect-output-count 1", packaged_step)
         self.assertIn("validate_r3_visual_slice.py", packaged_step)
@@ -139,7 +142,12 @@ class GodotExportAuditTests(unittest.TestCase):
         finalize = (root / "scripts/ci/finalize_godot_export.py").read_text(
             encoding="utf-8"
         )
-        workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        fast_workflow = (root / ".github/workflows/ci.yml").read_text(
+            encoding="utf-8"
+        )
+        heavy_workflow = (
+            root / ".github/workflows/windows-visual-heavy.yml"
+        ).read_text(encoding="utf-8")
         attributes = (root / ".gitattributes").read_text(encoding="utf-8")
 
         self.assertIn("DisableDelayedExpansion", windows_launcher)
@@ -167,11 +175,79 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertIn("ANIME_V1_PROVENANCE.md", finalize)
         self.assertIn("ANIME_V1_SLICE_README.md", finalize)
 
-        artifact_stem = "SomeCardGameShit-product-runtime-foundation-anime-slice"
-        self.assertIn(f"{artifact_stem}-windows-x86_64.zip", workflow)
-        self.assertIn(f"{artifact_stem}-macos-arm64.zip", workflow)
-        self.assertEqual(2, workflow.count("--require-anime-slice-launcher"))
-        self.assertEqual(2, workflow.count("Round-trip launch packaged AnimeV1 visual slice"))
+        self.assertIn(
+            "SomeCardGameShit-anime-card-body-r1-windows-x86_64.zip",
+            fast_workflow,
+        )
+        self.assertIn(
+            "SomeCardGameShit-anime-card-body-r1-macos-arm64.zip",
+            fast_workflow,
+        )
+        self.assertIn("--require-anime-slice-launcher", fast_workflow)
+        self.assertIn("--require-anime-slice-launcher", heavy_workflow)
+        self.assertIn("SCGS_ANIME_LAUNCHER_CI", heavy_workflow)
+        self.assertIn("SCGS_ANIME_LAUNCHER_OUTPUT", heavy_workflow)
+
+    def test_packaged_card_body_launchers_and_audit_flags_are_cross_platform(self) -> None:
+        root = SCRIPTS.parent
+        windows_launcher = WINDOWS_CARD_BODY_LAUNCHER.read_text(encoding="utf-8")
+        macos_launcher = MACOS_CARD_BODY_LAUNCHER.read_text(encoding="utf-8")
+        finalize = (root / "scripts/ci/finalize_godot_export.py").read_text(
+            encoding="utf-8"
+        )
+        fast_workflow = (root / ".github/workflows/ci.yml").read_text(
+            encoding="utf-8"
+        )
+        heavy_workflow = (
+            root / ".github/workflows/windows-visual-heavy.yml"
+        ).read_text(encoding="utf-8")
+        attributes = (root / ".gitattributes").read_text(encoding="utf-8")
+
+        self.assertIn("DisableDelayedExpansion", windows_launcher)
+        self.assertIn(
+            'if /I "%SCGS_CARD_BODY_LAUNCHER_CI%"=="1"', windows_launcher
+        )
+        self.assertIn("SCGS_CARD_BODY_LAUNCHER_OUTPUT", windows_launcher)
+        self.assertEqual(1, windows_launcher.count("--anime-card-body-slice-exit"))
+        self.assertIn("--ci-visual-viewport=1600x900", windows_launcher)
+        self.assertNotIn("%*", windows_launcher)
+
+        self.assertTrue(macos_launcher.startswith("#!/bin/sh\nset -eu\n"))
+        self.assertIn(
+            'executable="$launcher_directory/SomeCardGameShit.app/', macos_launcher
+        )
+        self.assertIn("SCGS_CARD_BODY_LAUNCHER_OUTPUT", macos_launcher)
+        self.assertEqual(1, macos_launcher.count("--anime-card-body-slice-exit"))
+        self.assertIn("--ci-visual-viewport=1024x684", macos_launcher)
+        self.assertIn("--ci-anime-runner-viewport", macos_launcher)
+        self.assertNotIn('"$@"', macos_launcher)
+        for launcher in (
+            "scripts/ci/PLAY_ANIME_CARD_BODY_SLICE.cmd text eol=lf",
+            "scripts/ci/PLAY_ANIME_CARD_BODY_SLICE.command text eol=lf",
+        ):
+            self.assertIn(launcher, attributes)
+
+        self.assertIn("WINDOWS_CARD_BODY_LAUNCHER", finalize)
+        self.assertIn("MACOS_CARD_BODY_LAUNCHER", finalize)
+        self.assertIn("card_body_launcher.chmod(0o755)", finalize)
+        for packaged_document in (
+            "ANIME_V1_CARD_BODY_ASSET_MANIFEST.json",
+            "ANIME_V1_CARD_BODY_PROVENANCE.md",
+            "ANIME_V1_CARD_BODY_README.md",
+        ):
+            self.assertIn(packaged_document, finalize)
+
+        self.assertIn("--require-anime-card-body-launcher", fast_workflow)
+        self.assertIn("--require-anime-card-body-launcher", heavy_workflow)
+        self.assertIn(
+            "SomeCardGameShit-anime-card-body-r1-windows-x86_64.zip",
+            fast_workflow,
+        )
+        self.assertIn(
+            "SomeCardGameShit-anime-card-body-r1-macos-arm64.zip",
+            fast_workflow,
+        )
+        self.assertIn("PLAY_ANIME_CARD_BODY_SLICE.command", fast_workflow)
 
     def test_anime_launcher_audit_requires_exact_bytes_and_macos_execute_bit(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -197,11 +273,41 @@ class GodotExportAuditTests(unittest.TestCase):
                 with self.assertRaisesRegex(ExportAuditError, "not executable"):
                     _audit_anime_slice_launcher(app, "macos-arm64")
 
+    def test_card_body_launcher_audit_requires_exact_bytes_and_macos_execute_bit(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            windows_export = directory / "SomeCardGameShit.exe"
+            windows_export.write_bytes(b"placeholder")
+            shutil.copy2(
+                WINDOWS_CARD_BODY_LAUNCHER,
+                directory / WINDOWS_CARD_BODY_LAUNCHER.name,
+            )
+            _audit_anime_card_body_launcher(windows_export, "windows-x86_64")
+            (directory / WINDOWS_CARD_BODY_LAUNCHER.name).write_bytes(b"tampered")
+            with self.assertRaisesRegex(ExportAuditError, "differs"):
+                _audit_anime_card_body_launcher(windows_export, "windows-x86_64")
+
+        if os.name != "nt":
+            with tempfile.TemporaryDirectory() as temporary:
+                directory = Path(temporary)
+                app = directory / "SomeCardGameShit.app"
+                app.mkdir()
+                packaged = directory / MACOS_CARD_BODY_LAUNCHER.name
+                shutil.copy2(MACOS_CARD_BODY_LAUNCHER, packaged)
+                packaged.chmod(0o755)
+                _audit_anime_card_body_launcher(app, "macos-arm64")
+                packaged.chmod(0o644)
+                with self.assertRaisesRegex(ExportAuditError, "not executable"):
+                    _audit_anime_card_body_launcher(app, "macos-arm64")
+
     def test_ci_waits_for_cold_import_and_uses_official_macos_template_shape(
         self,
     ) -> None:
         root = SCRIPTS.parent
         workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+        heavy_workflow = (
+            root / ".github/workflows/windows-visual-heavy.yml"
+        ).read_text(encoding="utf-8")
         preset = (root / "client/godot/export_presets.cfg").read_text(
             encoding="utf-8"
         )
@@ -211,8 +317,13 @@ class GodotExportAuditTests(unittest.TestCase):
         bootstrap = (
             root / "client/godot/scenes/bootstrap/Bootstrap.tscn"
         ).read_text(encoding="utf-8")
+        windows_workflow = workflow.split("  windows-msvc:", 1)[1].split(
+            "  macos-arm64:", 1
+        )[0]
+        macos_workflow = workflow.split("  macos-arm64:", 1)[1]
 
         self.assertEqual(2, workflow.count("--path client/godot --import"))
+        self.assertEqual(1, heavy_workflow.count("--path client/godot --import"))
         self.assertNotIn("--quit-after 2", workflow)
         self.assertIn('binary_format/architecture="arm64"', preset)
         self.assertNotIn('binary_format/architecture="universal"', preset)
@@ -236,19 +347,22 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertIn('theme = ExtResource("2_theme")', bootstrap)
         self.assertIn("prepare_godot_macos_template.py", workflow)
         self.assertEqual(("Debug", "Release"), GODOT_BUILD_CONFIGURATIONS)
-        self.assertEqual(8, workflow.count("validate_gate4a_report.py"))
-        self.assertEqual(8, workflow.count("--scenario full-match"))
-        self.assertEqual(9, workflow.count("--expect-output SCGS_GODOT_CI_SMOKE_OK"))
-        self.assertEqual(16, workflow.count("--expect-output-count 1"))
-        self.assertEqual(16, workflow.count("Unhandled exception"))
-        self.assertEqual(4, workflow.count("gate4a-current-project-"))
-        self.assertEqual(2, workflow.count("gate4a-export-"))
-        self.assertEqual(2, workflow.count("gate4a-roundtrip-"))
-        self.assertEqual(6, workflow.count("--presentation 3d"))
-        self.assertEqual(2, workflow.count("--presentation legacy-2d"))
-        self.assertEqual(2, workflow.count("--legacy-2d-board"))
-        self.assertEqual(2, workflow.count("Godot default 3D current-project native smoke"))
-        self.assertEqual(2, workflow.count("Godot legacy 2D source regression smoke"))
+        for platform_workflow in (windows_workflow, macos_workflow):
+            self.assertIn("Godot headless import", platform_workflow)
+            self.assertIn("Godot default 3D current-project native smoke", platform_workflow)
+            self.assertIn("Audit and launch exported", platform_workflow)
+            self.assertIn("Round-trip audit and launch packaged", platform_workflow)
+            self.assertIn("validate_gate4a_report.py", platform_workflow)
+            self.assertIn("--expect-output-count 1", platform_workflow)
+            self.assertIn("Unhandled exception", platform_workflow)
+            self.assertIn("Godot AnimeV1 integrated card-body real-actor slice", platform_workflow)
+            self.assertIn("SCGS_ANIME_CARD_BODY_SLICE_OK", platform_workflow)
+            self.assertIn("validate_anime_card_body_slice.py", platform_workflow)
+            self.assertIn("--require-anime-card-body-launcher", platform_workflow)
+        self.assertNotIn("--legacy-2d-board", windows_workflow)
+        self.assertIn("--legacy-2d-board", macos_workflow)
+        self.assertEqual(1, heavy_workflow.count("--presentation legacy-2d"))
+        self.assertEqual(1, heavy_workflow.count("--legacy-2d-board"))
         self.assertEqual(
             4,
             workflow.count("-DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON"),
@@ -257,7 +371,7 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertNotIn("validate_gate3c_report.py", workflow)
         self.assertNotIn("SomeCardGameShit-gate3b-", workflow)
         self.assertNotIn("SomeCardGameShit-gate3c-", workflow)
-        self.assertIn("SomeCardGameShit-gate4b-r2-windows-x86_64", workflow)
+        self.assertIn("SomeCardGameShit-anime-card-body-r1-windows-x86_64", workflow)
         self.assertIn("SomeCardGameShit-gate4b-r2-macos-arm64", workflow)
 
     def test_prepare_template_adds_executable_arm64_release(self) -> None:
@@ -414,11 +528,17 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertIn("ANIME_V1_ASSET_MANIFEST.json", LICENSE_MARKERS)
         self.assertIn("ANIME_V1_PROVENANCE.md", LICENSE_MARKERS)
         self.assertIn("ANIME_V1_SLICE_README.md", LICENSE_MARKERS)
+        self.assertIn("ANIME_V1_CARD_BODY_ASSET_MANIFEST.json", LICENSE_MARKERS)
+        self.assertIn("ANIME_V1_CARD_BODY_PROVENANCE.md", LICENSE_MARKERS)
+        self.assertIn("ANIME_V1_CARD_BODY_README.md", LICENSE_MARKERS)
         self.assertEqual(
             {
                 "ANIME_V1_ASSET_MANIFEST.json",
                 "ANIME_V1_PROVENANCE.md",
                 "ANIME_V1_SLICE_README.md",
+                "ANIME_V1_CARD_BODY_ASSET_MANIFEST.json",
+                "ANIME_V1_CARD_BODY_PROVENANCE.md",
+                "ANIME_V1_CARD_BODY_README.md",
             },
             set(EXACT_PACKAGED_SOURCE_FILES),
         )

@@ -42,11 +42,19 @@ LICENSES = {
         "ANIME_V1_PROVENANCE.md",
     ROOT / "docs/anime-v1-visual-slice.md":
         "ANIME_V1_SLICE_README.md",
+    ROOT / "client/godot/assets/visual/anime_v1/card_body/CARD_BODY_ASSET_MANIFEST.json":
+        "ANIME_V1_CARD_BODY_ASSET_MANIFEST.json",
+    ROOT / "client/godot/assets/visual/anime_v1/card_body/PROVENANCE.md":
+        "ANIME_V1_CARD_BODY_PROVENANCE.md",
+    ROOT / "docs/anime-v1-card-body-r1.md":
+        "ANIME_V1_CARD_BODY_README.md",
 }
 
 WINDOWS_R3_LAUNCHER = ROOT / "scripts/ci/PLAY_R3_VISUAL_SLICE.cmd"
 WINDOWS_ANIME_LAUNCHER = ROOT / "scripts/ci/PLAY_ANIME_STYLE_SLICE.cmd"
 MACOS_ANIME_LAUNCHER = ROOT / "scripts/ci/PLAY_ANIME_STYLE_SLICE.command"
+WINDOWS_CARD_BODY_LAUNCHER = ROOT / "scripts/ci/PLAY_ANIME_CARD_BODY_SLICE.cmd"
+MACOS_CARD_BODY_LAUNCHER = ROOT / "scripts/ci/PLAY_ANIME_CARD_BODY_SLICE.command"
 
 
 def _copy_atomic(source: Path, destination: Path) -> None:
@@ -98,10 +106,17 @@ def main() -> int:
             WINDOWS_ANIME_LAUNCHER,
             export.parent / WINDOWS_ANIME_LAUNCHER.name,
         )
+        _copy_atomic(
+            WINDOWS_CARD_BODY_LAUNCHER,
+            export.parent / WINDOWS_CARD_BODY_LAUNCHER.name,
+        )
     else:
         macos_launcher = export.parent / MACOS_ANIME_LAUNCHER.name
         _copy_atomic(MACOS_ANIME_LAUNCHER, macos_launcher)
         macos_launcher.chmod(0o755)
+        card_body_launcher = export.parent / MACOS_CARD_BODY_LAUNCHER.name
+        _copy_atomic(MACOS_CARD_BODY_LAUNCHER, card_body_launcher)
+        card_body_launcher.chmod(0o755)
     for source, output_name in LICENSES.items():
         _copy_atomic(source, license_directory / output_name)
 

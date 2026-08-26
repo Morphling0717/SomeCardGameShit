@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="1200" viewBox="0 0 900 1200">
+  <defs>
+    <linearGradient id="metal" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#fff8df"/><stop offset=".42" stop-color="#b99a5d"/><stop offset=".72" stop-color="#f5dca2"/><stop offset="1" stop-color="#74603b"/></linearGradient>
+    <filter id="glow"><feGaussianBlur stdDeviation="5" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+  </defs>
+  <path d="M147 1078C95 1002 68 874 68 720V273L113 219 139 117 246 67 349 54 450 18 551 54 654 67 761 117 787 219 832 273V720C832 874 805 1002 753 1078L662 1144H238Z" fill="#554866" fill-opacity=".12" stroke="url(#metal)" stroke-width="24" stroke-linejoin="round"/>
+  <path d="M172 1032C132 951 118 837 118 711V302L160 254 177 159 274 112 366 103 450 65 534 103 626 112 723 159 740 254 782 302V711C782 837 768 951 728 1032" fill="none" stroke="#fff4d2" stroke-opacity=".75" stroke-width="7"/>
+  <path d="M216 102C301 31 371 87 450 42 529 87 599 31 684 102L626 129 566 122 530 159 450 137 370 159 334 122 274 129Z" fill="url(#metal)"/>
+  <path d="M177 1058 57 1139 230 1160 298 1110 258 1040ZM723 1058 843 1139 670 1160 602 1110 642 1040Z" fill="url(#metal)" stroke="#fff1ca" stroke-width="8"/>
+  <path d="M156 870 101 909 139 939 91 1002 184 979M744 870 799 909 761 939 809 1002 716 979" fill="none" stroke="#dfc17d" stroke-width="11"/>
+  <circle cx="450" cy="77" r="19" fill="#fff7d8" filter="url(#glow)"/>
+</svg>

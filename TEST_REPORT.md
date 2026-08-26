@@ -1,16 +1,16 @@
-# Gate 5B＋6A：产品运行时底座与动漫视觉样片测试报告
+# Gate 5B＋6A＋6A-R1：产品运行时、动漫视觉样片与一体化卡体测试报告
 
 **日期：** 2026-08-26（Asia/Shanghai）
 
-**分支：** `codex/product-runtime-foundation-anime-slice`
+**分支：** `codex/anime-card-body-r1`
 
-**项目基线：** `codex/product-decks-v1-design@cd05a41542c21a4021f53aff3ffb1f9641900429`
+**项目基线：** `codex/product-runtime-foundation-anime-slice@da422e8`
 
-**被测实现尖端：** `e8f2a8fc2c3a63eeb7d750bfe898e0c67d84141f`
+**被测实现尖端：** `8909c46b368b71d89433baa60e5eed2cd3dfe8f7`
 
-**实现提交：** `a11e599`、`f538d34`、`cc4e075`、`659e43f`、`e8f912d`、`e8f2a8f`
+**Gate 6A-R1 实现提交：** `7235d2d`、`0b2e202`、`745649d`、`8909c46`
 
-**范围：** Gate 5B 建立产品规则底座、生成目录、可暂停选择和独立 `scgs_v05`／schema 2；Gate 6A 提供不调用 native 的 AnimeV1 动漫视觉审批样片及其静态自动捕获模式。本报告不把通用能力原语、运输 fixture 或视觉样片写成两副 30 张产品牌组已经可玩。
+**范围：** 保留已报告的 Gate 5B 产品运行时底座与 Gate 6A AnimeV1 动漫视觉样片；Gate 6A-R1 新增一体化卡体、真实 `CardActor3D` 接入、最终 GPU 可读性取证和 CI 快／重分层。本报告不把通用能力原语、运输 fixture 或视觉样片写成两副 30 张产品牌组已经可玩。
 
 ## 结论
 
@@ -22,6 +22,8 @@
 | Linux Clang ASan/UBSan | `97953311369` | 2 分 15 秒 | 通过 |
 | macOS AppleClang ARM64 Release + Godot | `97953311282` | 11 分 16 秒 | 通过 |
 | Windows MSVC Release + Godot | `97953311302` | 1 小时 31 分 17 秒 | 通过 |
+
+上表是父分支 Gate 5B＋6A 的已验证基线，不冒充当前 `8909c46` 的 Gate 6A-R1 结果。当前实现尖端的 CI run、job 结果与制品摘要单独记录在本报告 Gate 6A-R1 增量小节。
 
 Windows 在同一干净 checkout 中通过 Release 原生与压力测试、v04/v05 安装和制品审计、锁定 NuGet restore、101 项托管测试、Godot 构建、AnimeV1 四尺寸截图矩阵、旧默认 3D／legacy 2D／R3 回归、Gate 4B-R2 四尺寸视觉和 600 帧性能套件、正式导出、三条启动路径及 ZIP 往返。最重的四尺寸视觉／性能步骤为 `20:27:02Z`～`21:41:57Z`，成功完成而非被跳过。
 
@@ -66,7 +68,38 @@ macOS 源码、导出 app 和 ZIP 内 launcher 在 hosted runner 的实际 1024�
 - `AP-11` 前伸装甲爪／手的解剖和轮廓是否清楚；
 - `LO-11`、`AP-11` 的普通图与进化异画在手牌缩略尺寸下是否足够容易区分。
 
-## 本地自动化结果
+### Gate 6A-R1：AnimeV1 一体化卡体增量
+
+本增量在 `codex/anime-card-body-r1@8909c46b368b71d89433baa60e5eed2cd3dfe8f7` 上验证，由 `7235d2d`、`0b2e202`、`745649d`、`8909c46` 四个实现提交组成。本轮只重做 AnimeV1 卡体、真实卡牌 actor 接入、视觉取证与 CI 分层，不修改 C++ 规则、v04／v05 ABI、JSON schema、固定牌组或 legacy wire。
+
+- 新增统一 `CardFaceComposition`，由同一份产品视觉目录组合五种卡牌类型、三种阵营、四级稀有度以及普通／进化／衍生物变体；35 个锁定产品定义均有确定性视觉映射，未知或尚无专属卡图的定义使用公开 fallback；
+- 新增 23 项独立卡体素材：5 个轮廓、3 个职业纹章、3 个卡名牌、4 个数值宝石、4 个稀有度层、2 个变体层和 2 张材质纹理。卡体清单 SHA-256 为 `b168f38ac6cc449858ca664200ea6fcccb95aae0e3e4f1dfeb4006624f12a8c3`；联合素材审计继续分离冻结 Gate 4B-R2 `34` 项、R3 `1` 项、AnimeV1 `14` 项与本轮 `23` 项；
+- `CardActor3D` 与 2D 审批预览共用同一布局和视觉目录。卡图、金属层和传奇 foil 均按卡框 alpha 轮廓裁切；卡名完整保留、不使用省略号，名牌中央文字区为两侧装饰保留安全距离；费用、攻击、生命和倒数进入一体化宝石槽；
+- 隐藏牌不解析产品 definition、kind 或 identity，只绑定共享卡背。actor 回池、`Resolving` 与 `Covered` 会清除 DTO、名称、纹理 uniform、身份材质、metadata、碰撞和旧动画；
+- 新增八态真实 `CardActor3D` 审批切片：`contact-sheet`、`representatives`、`contexts`、`hand-one`、`hand-five`、`hand-ten`、`hand-hover`、`values`。截图要求连续两个 `FramePostDraw` 的完整 RGBA 像素完全一致；卡名与每个数值按 actor 单独关闭标签后，从最终 GPU 帧做差分 ROI 取证，并验证完整名称、名牌安全距、字形尺寸、亮度、对比度和视口边界；
+- `0b2e202` 消除 AnimeV1 审批画面中遮住手牌的前景黑带；`745649d` 把密集手牌间距改为纯托管响应式策略，保持卡体可读缩放，并使 1024×684 等窄视口的 9～10 张手牌仍留在可见边界内；
+- `8909c46` 解除 card-body CI 模式的产品最小窗口约束，并在拍摄前以连续两帧真实 framebuffer 做最多八次精确收敛；macOS AppKit 若暂时把 1024×684 drawable 压成 1024×681，会补偿窗口请求而不是放宽截图、卡名、数值或 GPU 阈值；
+- Windows 快速工作流保留当前 AnimeV1、卡体、默认 3D、正式导出和一次 ZIP 往返；历史 Gate 4B-R2 四尺寸／600 帧、legacy 2D 与 R3 迁移回归移入 nightly／手动重型工作流。每个受支持分支的 push tip 仍在同一 SHA 上运行完整四平台快速矩阵；仅 PR-only 文档变更可跳过矩阵。
+
+本地已知复核证据：托管测试 `127/127` 通过；`scripts.tests.test_anime_card_body_slice`、`test_ci_workflows`、`test_gate4b_visual_pipeline` 与 `test_audit_godot_export` 合计 `70/70` 通过；真实 1024×684、1280×720、1600×900、2560×1440 和 2560×1600 card-body 八态捕获及其 validator 通过；视觉素材审计、Gate 5A 牌组 schema、提交态产品目录生成检查和 `git diff --check` 均通过。该结果不代表两副产品牌组已经可玩，也不代表 23 项卡体候选已通过最终人工美术批准。
+
+#### Gate 6A-R1 CI 与制品
+
+- GitHub Actions run：[32938110897](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32938110897)
+- Fast CI jobs：`classify-changes`、`linux-gcc`、`linux-clang-sanitizers`、`windows-msvc`、`macos-arm64` 全部通过；macOS 在 card-body 步骤产出精确 1024×684 framebuffer，并继续通过默认 3D、导出、ad-hoc 签名和 ZIP 往返。
+- Windows visual compatibility：[32936414976](https://github.com/Morphling0717/SomeCardGameShit/actions/runs/32936414976) 在 `745649d` 上通过；`8909c46` 只修复 macOS card-body 截图窗口收敛且未改变 heavy 覆盖的产品／legacy／性能路径，重型工作流按其新契约不因普通产品提交重复运行。
+
+| Artifact | Bytes | SHA-256 |
+|---|---:|---|
+| `SomeCardGameShit-gate6a-r1-card-body-windows` | `2,286,846` | `fb5d74cdfcc16e3b07061e268570a779b9cbaa899ddbaddca382800086413c02` |
+| `SomeCardGameShit-gate6a-r1-card-body-packaged-windows` | `2,286,740` | `5eb6b2926ea73b67982ec5b3919ad37a329b2e142777414462d46cee2955fa98` |
+| `SomeCardGameShit-anime-card-body-r1-windows-x86_64` | `210,454,445` | `b7e855443bf60ebc3c4f611180e55c028bd0644f71f752a0f7aaaaf5b30b32e4` |
+| `SomeCardGameShit-gate6a-r1-card-body-macos-arm64` | `1,384,430` | `9ce08d076884077a5b2d0b9f746e6b122167526341412d916d8b39f7fc4dd3b9` |
+| `SomeCardGameShit-anime-card-body-r1-macos-arm64` | `196,105,114` | `dbc6aaa1b91b8f93fb2efc9ac72b23005454bee08b86f3675aed37cc6491bc7b` |
+
+重型兼容制品：`SomeCardGameShit-nightly-windows-visual-evidence` 为 `51,223,076` bytes，digest `b21cacfdbb84096ab0af14ac9e76fc4150fa32767d56030cb85f54e3943cf06c`；`SomeCardGameShit-nightly-visual-compatibility-windows-x86_64` 为 `210,452,766` bytes，digest `5d269a664aa5bfb25792e33995aa234f78c44d63ee5fbf13694d273a3a242b74`。
+
+## Gate 5B＋6A 基线本地自动化结果（`e8f2a8f`）
 
 | 验证项 | 结果 | 精确口径 |
 |---|---:|---|
@@ -80,13 +113,13 @@ macOS 源码、导出 app 和 ZIP 内 launcher 在 hosted runner 的实际 1024�
 | Windows Clang 22.1.8 ASan/UBSan 压力 | 30 cases／1,517 assertions | 256 seeds、512 局；0 failure |
 | Windows sanitizer CTest | 11/11 | 26.98 秒；本机 `detect_leaks=0`，泄漏以 Linux CI 为权威 |
 | AnimeV1 四尺寸矩阵 | 32/32 captures | 八态 × 四尺寸，结构与可读性验证通过 |
-| `git diff --check` | 通过 | 实现尖端工作区干净 |
+| `git diff --check` | 通过 | 基线实现尖端工作区干净 |
 
-本机锁定工具链为 CMake 3.31.6、Python 3.10.11、.NET SDK 10.0.400；Godot 使用仓库锁定的 4.7.2 .NET。托管测试由 `C:\Users\ASUS\.dotnet\dotnet.exe` 执行，两个真实动态库分别来自同一提交的 `build/release/scgs_v04.dll` 与 `scgs_v05.dll`。
+以下数量属于父分支 `e8f2a8f` 的 Gate 5B＋6A 基线。本机锁定工具链为 CMake 3.31.6、Python 3.10.11、.NET SDK 10.0.400；Godot 使用仓库锁定的 4.7.2 .NET。托管测试由 `C:\Users\ASUS\.dotnet\dotnet.exe` 执行，两个真实动态库分别来自同一提交的 `build/release/scgs_v04.dll` 与 `scgs_v05.dll`。
 
-Python 数量不能与 CTest target 相加：独立 144 项为 `scripts/tests` 的 138 项既有／视觉契约加 6 项生成目录单元测试；CTest 内注册 138 项 scripts unittest、10 项 tools legacy unittest，另直接执行一次 generator `--check`。
+该基线的 Python 数量不能与 CTest target 相加：独立 144 项为 `scripts/tests` 的 138 项既有／视觉契约加 6 项生成目录单元测试；CTest 内注册 138 项 scripts unittest、10 项 tools legacy unittest，另直接执行一次 generator `--check`。
 
-## Release CTest 明细
+## Gate 5B＋6A 基线 Release CTest 明细（`e8f2a8f`）
 
 | # | CTest target | 输出计数 |
 |---:|---|---|
@@ -115,11 +148,11 @@ Python 数量不能与 CTest target 相加：独立 144 项为 `scripts/tests` �
 | 23 | `scgs_product_decks_v1_design_contract` | 23 |
 | 24 | `scgs_product_catalog_generated_contract` | generator `--check`，非 unittest |
 
-## CI 制品
+## Gate 5B＋6A 基线 CI 制品
 
 Actions artifact digest 是 GitHub 上传包的 SHA-256；大小同样是 Actions artifact 大小，不等同于其中原始 ZIP 的字节数。v04/v05 原生命名 artifact 当前都上传各平台的同一份完整安装 stage，stage 内仍分别审计两个动态库；上传容器的 digest 不能拿来比较两支 DLL 是否相同。Windows 两个上传包本次 digest 恰好相同，Linux 与 macOS 因上传封装不同而不同。
 
-真正可解压运行的交付包是 `SomeCardGameShit-product-runtime-foundation-anime-slice-windows-x86_64` 与 `SomeCardGameShit-product-runtime-foundation-anime-slice-macos-arm64`。`SomeCardGameShit-gate6a-anime-slice-*` 是源码截图矩阵，`*-evidence` 是导出／打包启动报告与截图，均不是独立游戏包。
+该基线真正可解压运行的交付包是 `SomeCardGameShit-product-runtime-foundation-anime-slice-windows-x86_64` 与 `SomeCardGameShit-product-runtime-foundation-anime-slice-macos-arm64`。`SomeCardGameShit-gate6a-anime-slice-*` 是源码截图矩阵，`*-evidence` 是导出／打包启动报告与截图，均不是独立游戏包。
 
 | Artifact ID | 名称 | Bytes | SHA-256 |
 |---:|---|---:|---|
@@ -180,6 +213,7 @@ python -m unittest discover -s scripts/tests -p "test_*.py"
 python scripts/design/generate_product_catalog_v2.py --check
 python scripts/ci/validate_product_decks_v1.py
 python scripts/ci/validate_anime_visual_slice.py <report> --expected-viewport <width>x<height>
+python scripts/ci/validate_anime_card_body_slice.py <report> --expected-viewport <width>x<height>
 
 $env:PATH = "C:\Users\ASUS\.dotnet;" + $env:PATH
 $env:SCGS_NATIVE_LIBRARY = "<absolute scgs_v04.dll>"
@@ -192,4 +226,4 @@ git diff --check
 
 ## 报告提交与最终尖端
 
-本报告记录的是实现尖端 `e8f2a8f` 和 run `32894335103`。包含本报告的后续文档提交不会改变产品或测试代码，但分支最终尖端仍必须重新完成同一四项工作流；最终交付不得用实现尖端的绿色 run 冒充尚未运行的文档尖端。
+本报告的 Gate 5B＋6A 基线记录实现尖端 `e8f2a8f` 和 run `32894335103`；Gate 6A-R1 增量记录实现尖端 `8909c46b368b71d89433baa60e5eed2cd3dfe8f7` 和全绿 run `32938110897`。包含本报告的后续文档提交不会改变产品或测试代码，但分支最终尖端仍必须完成同一快速矩阵；最终交付不得用父分支的绿色 run 或实现尖端的 run 冒充尚未运行的文档尖端。

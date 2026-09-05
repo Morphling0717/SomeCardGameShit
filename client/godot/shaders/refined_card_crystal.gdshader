@@ -14,7 +14,11 @@ void fragment() {
     float depth=clamp(.24+.57*(1.-radial)+.32*q.y-.23*q.x,.13,1.);
     float inner_light=pow(clamp(1.-abs(q.x*.78+q.y*.46-.32),0.,1.),28.);
     ALBEDO=tint*depth + tint*inner_light*.40;
-    METALLIC=.30;
-    ROUGHNESS=.115;
-    SPECULAR=.95;
+    // The numeral sits on the broad central table. Keep that table absorptive
+    // instead of reflecting the softbox as a white plate behind a white glyph.
+    // Brighter, sharper reflections belong to the actual peripheral facets.
+    float facet_edge=smoothstep(.50,1.,radial);
+    METALLIC=0.;
+    ROUGHNESS=mix(.32,.20,facet_edge);
+    SPECULAR=mix(.12,.38,facet_edge);
 }

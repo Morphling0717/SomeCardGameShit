@@ -34,7 +34,7 @@ internal sealed partial class CardFrameTurntableHost : CanvasLayer
     private long started;
     private int warmDraws;
     private double nextCapture, poseSeconds, lastSampleSeconds;
-    private bool closed, finishing;
+    private bool closed, finishing, captureDrawSubscribed;
     private static readonly JsonSerializerOptions Json = new() { WriteIndented = true };
 
     internal static bool Supports(string value) => value is "LO-11" or "AP-11" or "NT-04";
@@ -81,6 +81,7 @@ internal sealed partial class CardFrameTurntableHost : CanvasLayer
         progress = AddLabel(designId + " · GPU 实际帧取证", new(8, 913), new(704, 32), 18, new("d6dfef"));
         display.Texture = viewport.GetTexture();
         RenderingServer.FramePostDraw += CaptureDraw;
+        captureDrawSubscribed = true;
         deadline = GetTree().CreateTimer(15, processAlways: true, ignoreTimeScale: true);
         deadline.Timeout += CaptureDeadline;
 
@@ -163,7 +164,8 @@ internal sealed partial class CardFrameTurntableHost : CanvasLayer
     {
         if (closed || finishing) return;
         finishing = true;
-        RenderingServer.FramePostDraw -= CaptureDraw;
+        ReleaseCaptureDraw();
+        ReleaseDeadline();
         string manifest = Path.Combine(directory, "manifest.json");
         string report;
         try
@@ -204,6 +206,16 @@ internal sealed partial class CardFrameTurntableHost : CanvasLayer
         if (!closed && !finishing) Finish("aborted", "15_second_real_draw_deadline");
     }
 
+    private void ReleaseCaptureDraw()
+    {
+        // Finish invokes the owner's completion callback, which closes this
+        // host, then QueueFree invokes _ExitTree. Godot's event remove reports
+        // an error when repeated: all three paths share one subscription owner.
+        if (!captureDrawSubscribed) return;
+        captureDrawSubscribed = false;
+        RenderingServer.FramePostDraw -= CaptureDraw;
+    }
+
     private void ReleaseDeadline()
     {
         if (deadline is not null && GodotObject.IsInstanceValid(deadline)) deadline.Timeout -= CaptureDeadline;
@@ -231,7 +243,8 @@ internal sealed partial class CardFrameTurntableHost : CanvasLayer
     internal void Close()
     {
         if (closed) return;
-        closed = true; RenderingServer.FramePostDraw -= CaptureDraw;
+        closed = true;
+        ReleaseCaptureDraw();
         ReleaseDeadline();
         shield?.Hide(); actor?.ClearSensitive();
         if (display is not null) display.Texture = null;
@@ -242,7 +255,7 @@ internal sealed partial class CardFrameTurntableHost : CanvasLayer
 
     public override void _ExitTree()
     {
-        RenderingServer.FramePostDraw -= CaptureDraw;
+        ReleaseCaptureDraw();
         ReleaseDeadline();
         closed = true; actor?.ClearSensitive();
         if (display is not null) display.Texture = null;

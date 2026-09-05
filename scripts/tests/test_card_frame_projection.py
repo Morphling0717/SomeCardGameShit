@@ -49,6 +49,18 @@ def f32(number: float) -> float:
 
 
 class CardFrameProjectionContracts(unittest.TestCase):
+    def test_crystal_keeps_the_numeral_table_absorptive_and_opaque(self) -> None:
+        shader = compact((ROOT / "client/godot/shaders/refined_card_crystal.gdshader")
+                         .read_text(encoding="utf-8"))
+        self.assertIn("floatfacet_edge=smoothstep(.50,1.,radial);", shader)
+        self.assertIn("METALLIC=0.;", shader)
+        self.assertIn("ROUGHNESS=mix(.32,.20,facet_edge);", shader)
+        self.assertIn("SPECULAR=mix(.12,.38,facet_edge);", shader)
+        self.assertNotIn("ALPHA=", shader)
+        self.assertNotIn("EMISSION=", shader)
+        self.assertNotIn("SCREEN_UV", shader)
+        # This is a bounded shader contract, not a claim of measured contrast.
+
     def test_default_perspective_constants_are_preserved(self) -> None:
         text = source("BattlefieldPerspective.cs")
         expected = {

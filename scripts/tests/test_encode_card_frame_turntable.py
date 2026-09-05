@@ -5,6 +5,7 @@ import copy
 import hashlib
 import importlib.util
 import json
+import re
 from pathlib import Path
 import struct
 import sys
@@ -117,6 +118,58 @@ class TurntableEncodingTests(unittest.TestCase):
         frames[1]["best_effort_timestamp_time"] = ".100"
         with self.assertRaises(encoder.ValidationError):
             encoder.verify_encoded(capture, dict(frames=frames))
+
+
+class TurntableLifetimeSourceContracts(unittest.TestCase):
+    """Subscription ownership contracts, not actual Godot signal acceptance."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.text = (MODULE_PATH.parents[2] / "client/godot/scripts/Match/CardFrameTurntableHost.cs").read_text(
+            encoding="utf-8")
+        cls.code = re.sub(r"//[^\n]*|/\*.*?\*/", "", cls.text, flags=re.S)
+
+    def method(self, signature):
+        start = self.code.index(signature)
+        next_method = re.search(r"\n    (?:public|internal|private) ", self.code[start + len(signature):])
+        end = len(self.code) if next_method is None else start + len(signature) + next_method.start()
+        return self.code[start:end]
+
+    def test_one_subscription_one_guarded_native_disconnect(self):
+        self.assertEqual(self.code.count("RenderingServer.FramePostDraw += CaptureDraw;"), 1)
+        self.assertEqual(self.code.count("RenderingServer.FramePostDraw -= CaptureDraw;"), 1)
+        ready = self.method("public override void _Ready()")
+        self.assertLess(ready.index("RenderingServer.FramePostDraw += CaptureDraw;"),
+                        ready.index("captureDrawSubscribed = true;"))
+        release = re.sub(r"\s+", "", self.method("private void ReleaseCaptureDraw()"))
+        self.assertEqual(release, "privatevoidReleaseCaptureDraw(){"
+                         "if(!captureDrawSubscribed)return;captureDrawSubscribed=false;"
+                         "RenderingServer.FramePostDraw-=CaptureDraw;}")
+
+    def test_finish_close_and_exit_share_idempotent_release(self):
+        for signature in ("private void Finish(", "internal void Close()", "public override void _ExitTree()"):
+            with self.subTest(path=signature):
+                method = self.method(signature)
+                self.assertIn("ReleaseCaptureDraw();", method)
+                self.assertIn("ReleaseDeadline();", method)
+                self.assertNotIn("RenderingServer.FramePostDraw -=", method)
+        finish = self.method("private void Finish(")
+        # The completion callback synchronously enters Close. Both external
+        # sources must already be released before that reentrant owner cleanup.
+        self.assertLess(finish.index("ReleaseCaptureDraw();"), finish.index("completed?.Invoke(report);"))
+        self.assertLess(finish.index("ReleaseDeadline();"), finish.index("completed?.Invoke(report);"))
+
+    def test_cancellation_and_exit_still_clear_identity_and_callbacks(self):
+        close = self.method("internal void Close()")
+        self.assertLess(close.index("if (closed) return;"), close.index("ReleaseCaptureDraw();"))
+        self.assertLess(close.index("closed = true;"), close.index("ReleaseCaptureDraw();"))
+        for signature in ("internal void Close()", "public override void _ExitTree()"):
+            with self.subTest(path=signature):
+                method = self.method(signature)
+                self.assertIn("actor?.ClearSensitive();", method)
+                self.assertIn("display.Texture = null;", method)
+                self.assertIn("stillAllowed = null; completed = null; closeRequested = null; frames.Clear();", method)
+        self.assertIn("deadline = null;", self.method("private void ReleaseDeadline()"))
 
 
 if __name__ == "__main__":

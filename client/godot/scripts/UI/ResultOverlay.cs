@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using Godot;
 using Scgs.Client;
+using V05 = Scgs.Client.V05;
 
 namespace Scgs.GodotClient.UI;
 
@@ -29,6 +30,21 @@ public sealed partial class ResultOverlay : Control
             GameResult.Player1Won when viewer == PlayerId.Player1 => "你获胜了",
             GameResult.Player0Won or GameResult.Player1Won => "对手获胜",
             GameResult.Draw => "平局",
+            _ => "比赛尚未结束",
+        };
+        Visible = true;
+        MouseFilter = MouseFilterEnum.Stop;
+        _restartButton.GrabFocus();
+    }
+
+    public void Present(V05.GameResult result, V05.PlayerId viewer)
+    {
+        _title.Text = result switch
+        {
+            V05.GameResult.Player0Won when viewer == V05.PlayerId.Player0 => "你获胜了",
+            V05.GameResult.Player1Won when viewer == V05.PlayerId.Player1 => "你获胜了",
+            V05.GameResult.Player0Won or V05.GameResult.Player1Won => "对手获胜",
+            V05.GameResult.Draw => "平局",
             _ => "比赛尚未结束",
         };
         Visible = true;

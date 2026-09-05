@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Place native/runtime notices in a completed Godot desktop export."""
+"""Finalize a v05-only AnimeV1 Godot player export (never a fixture build)."""
 
 from __future__ import annotations
 
@@ -33,9 +33,7 @@ LICENSES = {
     ROOT / "client/godot/assets/fonts/NOTICE.md": "NotoSansCJKsc-NOTICE.md",
     ROOT / "client/godot/ASSET_NOTICES.md": "ASSET_NOTICES.md",
     ROOT / "client/godot/assets/visual/ASSET_MANIFEST.json":
-        "ASSET_MANIFEST.json",
-    ROOT / "client/godot/assets/visual/arena/R3_ASSET_MANIFEST.json":
-        "R3_ASSET_MANIFEST.json",
+        "ANIME_V1_SHARED_ASSET_MANIFEST.json",
     ROOT / "client/godot/assets/visual/anime_v1/slice/ASSET_MANIFEST.json":
         "ANIME_V1_ASSET_MANIFEST.json",
     ROOT / "client/godot/assets/visual/anime_v1/slice/PROVENANCE.md":
@@ -48,14 +46,11 @@ LICENSES = {
         "ANIME_V1_CARD_BODY_PROVENANCE.md",
     ROOT / "docs/anime-v1-card-body-r1.md":
         "ANIME_V1_CARD_BODY_README.md",
+    ROOT / "client/godot/assets/visual/anime_v1/cards/PRODUCT_CARD_ART_ASSET_MANIFEST.json":
+        "ANIME_V1_PRODUCT_CARD_ART_ASSET_MANIFEST.json",
+    ROOT / "client/godot/assets/visual/anime_v1/cards/PROVENANCE.md":
+        "ANIME_V1_PRODUCT_CARD_ART_PROVENANCE.md",
 }
-
-WINDOWS_R3_LAUNCHER = ROOT / "scripts/ci/PLAY_R3_VISUAL_SLICE.cmd"
-WINDOWS_ANIME_LAUNCHER = ROOT / "scripts/ci/PLAY_ANIME_STYLE_SLICE.cmd"
-MACOS_ANIME_LAUNCHER = ROOT / "scripts/ci/PLAY_ANIME_STYLE_SLICE.command"
-WINDOWS_CARD_BODY_LAUNCHER = ROOT / "scripts/ci/PLAY_ANIME_CARD_BODY_SLICE.cmd"
-MACOS_CARD_BODY_LAUNCHER = ROOT / "scripts/ci/PLAY_ANIME_CARD_BODY_SLICE.command"
-
 
 def _copy_atomic(source: Path, destination: Path) -> None:
     source = source.resolve(strict=True)
@@ -72,61 +67,56 @@ def _copy_atomic(source: Path, destination: Path) -> None:
         temporary.unlink(missing_ok=True)
 
 
+def _native_destinations(export: Path, platform: str) -> dict[str, Path]:
+    if platform == "windows-x86_64":
+        return {
+            "v05": export.parent / "scgs_v05.dll",
+        }
+    return {
+        "v05": export / "Contents/Frameworks/libscgs_v05.dylib",
+    }
+
+
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--platform", required=True, choices=("windows-x86_64", "macos-arm64")
     )
     parser.add_argument("--export", required=True, type=Path)
-    parser.add_argument("--native-library", required=True, type=Path)
+    parser.add_argument("--product-native-library", required=True, type=Path,
+                        help="same-commit product scgs_v05 library")
     args = parser.parse_args()
 
     export = args.export.resolve(strict=True)
-    native = args.native_library.resolve(strict=True)
+    native_v05 = args.product_native_library.resolve(strict=True)
     if args.platform == "windows-x86_64":
         if not export.is_file() or export.suffix.lower() != ".exe":
             parser.error("the Windows export must be an existing .exe")
-        audit(native, "x86_64")
-        native_destination = export.parent / "scgs_v04.dll"
+        architecture = "x86_64"
         license_directory = export.parent / "licenses"
     else:
         if not export.is_dir() or export.suffix != ".app":
             parser.error("the macOS export must be an existing .app bundle")
-        audit(native, "arm64")
-        native_destination = export / "Contents/Frameworks/libscgs_v04.dylib"
+        architecture = "arm64"
         license_directory = export / "Contents/Resources/licenses"
 
-    _copy_atomic(native, native_destination)
-    if args.platform == "windows-x86_64":
-        _copy_atomic(
-            WINDOWS_R3_LAUNCHER,
-            export.parent / "PLAY_R3_VISUAL_SLICE.cmd",
-        )
-        _copy_atomic(
-            WINDOWS_ANIME_LAUNCHER,
-            export.parent / WINDOWS_ANIME_LAUNCHER.name,
-        )
-        _copy_atomic(
-            WINDOWS_CARD_BODY_LAUNCHER,
-            export.parent / WINDOWS_CARD_BODY_LAUNCHER.name,
-        )
-    else:
-        macos_launcher = export.parent / MACOS_ANIME_LAUNCHER.name
-        _copy_atomic(MACOS_ANIME_LAUNCHER, macos_launcher)
-        macos_launcher.chmod(0o755)
-        card_body_launcher = export.parent / MACOS_CARD_BODY_LAUNCHER.name
-        _copy_atomic(MACOS_CARD_BODY_LAUNCHER, card_body_launcher)
-        card_body_launcher.chmod(0o755)
+    # Fail closed on an old/fixture library before copying anything.
+    audit(native_v05, architecture, "v05")
+    destinations = _native_destinations(export, args.platform)
+    _copy_atomic(native_v05, destinations["v05"])
     for source, output_name in LICENSES.items():
         _copy_atomic(source, license_directory / output_name)
 
     build_info = license_directory / "BUILD_INFO.txt"
     build_info.write_text(
-        "SomeCardGameShit Gate 4B-R2\n"
+        "SomeCardGameShit Product Playable v1\n"
         f"commit={os.environ.get('GITHUB_SHA', 'local')}\n"
         "godot=4.7.2.stable.mono\n"
         "dotnet_sdk=10.0.400\n"
-        "dotnet_runtime=8.0.30\n",
+        "dotnet_runtime=8.0.30\n"
+        "api=scgs_v05\n"
+        "schema=2\n"
+        "visual=AnimeV1\n",
         encoding="utf-8",
         newline="\n",
     )

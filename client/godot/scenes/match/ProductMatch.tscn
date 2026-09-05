@@ -1,0 +1,719 @@
+[gd_scene load_steps=14 format=3]
+
+[ext_resource type="Script" path="res://scripts/Match/ProductMatchScreen.cs" id="1_script"]
+[ext_resource type="PackedScene" path="res://scenes/overlays/PassDeviceOverlay.tscn" id="2_privacy"]
+[ext_resource type="PackedScene" path="res://scenes/panels/MatchInteractionDock.tscn" id="3_dock"]
+[ext_resource type="PackedScene" path="res://scenes/overlays/ResultOverlay.tscn" id="4_result"]
+[ext_resource type="PackedScene" path="res://scenes/overlays/ErrorOverlay.tscn" id="5_error"]
+[ext_resource type="PackedScene" path="res://scenes/panels/DirectActionPanel.tscn" id="6_direct"]
+[ext_resource type="PackedScene" path="res://scenes/panels/ReactionPanel.tscn" id="7_reaction"]
+[ext_resource type="Script" path="res://scripts/UI/DirectDropButton.cs" id="8_drop"]
+[ext_resource type="Script" path="res://scripts/UI/TargetingLine.cs" id="9_line"]
+[ext_resource type="PackedScene" path="res://scenes/battlefield/Battlefield3D.tscn" id="10_battlefield"]
+[ext_resource type="PackedScene" path="res://scenes/panels/CardDetailPanel.tscn" id="11_card_details"]
+[ext_resource type="PackedScene" path="res://scenes/components/GlassSurface.tscn" id="12_glass"]
+[ext_resource type="Material" path="res://assets/themes/circular_portrait_material.tres" id="13_portrait"]
+
+[node name="ProductMatch" type="Control"]
+mouse_filter = 2
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_script")
+
+[node name="Battlefield3D" parent="." instance=ExtResource("10_battlefield")]
+unique_name_in_owner = true
+
+[node name="HudLayer" type="CanvasLayer" parent="."]
+layer = 10
+
+[node name="GlassBackBuffer" type="BackBufferCopy" parent="HudLayer"]
+copy_mode = 2
+
+[node name="ModalLayer" type="CanvasLayer" parent="."]
+layer = 20
+
+[node name="Background" type="ColorRect" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.028, 0.045, 0.075, 0.16)
+mouse_filter = 2
+
+[node name="SafeMargin" type="MarginContainer" parent="."]
+visible = false
+mouse_filter = 2
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/margin_left = 28
+theme_override_constants/margin_top = 12
+theme_override_constants/margin_right = 420
+theme_override_constants/margin_bottom = 12
+
+[node name="Layout" type="VBoxContainer" parent="SafeMargin"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="BattlefieldControlRail" type="MarginContainer" parent="HudLayer"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -334.0
+offset_top = 18.0
+offset_right = -18.0
+offset_bottom = 270.0
+grow_horizontal = 0
+
+[node name="HeaderMargin" type="MarginContainer" parent="HudLayer/BattlefieldControlRail"]
+layout_mode = 2
+theme_override_constants/margin_left = 6
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 6
+theme_override_constants/margin_bottom = 8
+
+[node name="HeaderRow" type="VBoxContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Title" type="Label" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+text = "对局状态"
+vertical_alignment = 1
+
+[node name="ViewerLabel" type="Label" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+text = "观看者：—"
+vertical_alignment = 1
+
+[node name="RevisionLabel" type="Label" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+text = "Revision —"
+vertical_alignment = 1
+
+[node name="OpponentStatusPod" type="PanelContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 70)
+layout_mode = 2
+mouse_filter = 2
+theme_type_variation = &"GlassStatusPod"
+
+[node name="GlassSurface" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OpponentStatusPod" instance=ExtResource("12_glass")]
+show_behind_parent = true
+
+[node name="OpponentStatusRow" type="HBoxContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OpponentStatusPod"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="OpponentPortraitFrame" type="PanelContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OpponentStatusPod/OpponentStatusRow"]
+custom_minimum_size = Vector2(48, 48)
+layout_mode = 2
+theme_type_variation = &"GlassChip"
+
+[node name="OpponentLeaderPortrait" type="TextureRect" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OpponentStatusPod/OpponentStatusRow/OpponentPortraitFrame"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+material = ExtResource("13_portrait")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="OpponentStatusText" type="VBoxContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OpponentStatusPod/OpponentStatusRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 1
+
+[node name="OpponentSeatRow" type="HBoxContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OpponentStatusPod/OpponentStatusRow/OpponentStatusText"]
+layout_mode = 2
+
+[node name="OpponentActiveIndicator" type="Label" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OpponentStatusPod/OpponentStatusRow/OpponentStatusText/OpponentSeatRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.58, 0.65, 1, 1)
+theme_override_font_sizes/font_size = 12
+text = "◆"
+
+[node name="OpponentSeatLabel" type="Label" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OpponentStatusPod/OpponentStatusRow/OpponentStatusText/OpponentSeatRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.8, 0.84, 0.96, 1)
+theme_override_font_sizes/font_size = 13
+text = "对手·P1 ♥25/25"
+clip_text = true
+
+[node name="OpponentHealthBar" type="ProgressBar" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OpponentStatusPod/OpponentStatusRow/OpponentStatusText"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 6)
+layout_mode = 2
+mouse_filter = 2
+value = 100.0
+show_percentage = false
+
+[node name="OpponentResourceLabel" type="Label" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OpponentStatusPod/OpponentStatusRow/OpponentStatusText"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.8, 0.84, 0.96, 1)
+theme_override_font_sizes/font_size = 12
+text = "PP 10/10  裂99  进99"
+clip_text = true
+
+[node name="OwnStatusPod" type="PanelContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 70)
+layout_mode = 2
+mouse_filter = 2
+theme_type_variation = &"GlassStatusPod"
+
+[node name="GlassSurface" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OwnStatusPod" instance=ExtResource("12_glass")]
+show_behind_parent = true
+
+[node name="OwnStatusRow" type="HBoxContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OwnStatusPod"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="OwnPortraitFrame" type="PanelContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OwnStatusPod/OwnStatusRow"]
+custom_minimum_size = Vector2(48, 48)
+layout_mode = 2
+theme_type_variation = &"GlassChip"
+
+[node name="OwnLeaderPortrait" type="TextureRect" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OwnStatusPod/OwnStatusRow/OwnPortraitFrame"]
+unique_name_in_owner = true
+layout_mode = 2
+mouse_filter = 2
+material = ExtResource("13_portrait")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="OwnStatusText" type="VBoxContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OwnStatusPod/OwnStatusRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 1
+
+[node name="OwnSeatRow" type="HBoxContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OwnStatusPod/OwnStatusRow/OwnStatusText"]
+layout_mode = 2
+
+[node name="OwnActiveIndicator" type="Label" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OwnStatusPod/OwnStatusRow/OwnStatusText/OwnSeatRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.35, 1, 0.85, 1)
+theme_override_font_sizes/font_size = 12
+text = "◆"
+
+[node name="OwnSeatLabel" type="Label" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OwnStatusPod/OwnStatusRow/OwnStatusText/OwnSeatRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.62, 0.91, 0.86, 1)
+theme_override_font_sizes/font_size = 13
+text = "己方·P0 ♥25/25"
+clip_text = true
+
+[node name="OwnHealthBar" type="ProgressBar" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OwnStatusPod/OwnStatusRow/OwnStatusText"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 6)
+layout_mode = 2
+mouse_filter = 2
+value = 100.0
+show_percentage = false
+
+[node name="OwnResourceLabel" type="Label" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/OwnStatusPod/OwnStatusRow/OwnStatusText"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.62, 0.91, 0.86, 1)
+theme_override_font_sizes/font_size = 12
+text = "PP 10/10  裂99  进99"
+clip_text = true
+
+[node name="SurrenderButton" type="Button" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(82, 42)
+layout_mode = 2
+focus_mode = 0
+disabled = true
+theme_override_font_sizes/font_size = 15
+text = "投降"
+
+[node name="RailActions" type="HBoxContainer" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="PauseButton" type="Button" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/RailActions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+size_flags_horizontal = 3
+focus_mode = 0
+theme_type_variation = &"IconButton"
+theme_override_font_sizes/font_size = 14
+text = "Ⅱ  暂停"
+
+[node name="ReturnButton" type="Button" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow"]
+unique_name_in_owner = true
+visible = false
+custom_minimum_size = Vector2(126, 46)
+layout_mode = 2
+theme_override_font_sizes/font_size = 15
+text = "返回菜单"
+
+[node name="LogButton" type="Button" parent="HudLayer/BattlefieldControlRail/HeaderMargin/HeaderRow/RailActions"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 36)
+layout_mode = 2
+size_flags_horizontal = 3
+focus_mode = 0
+theme_type_variation = &"IconButton"
+theme_override_font_sizes/font_size = 14
+text = "≡  记录"
+
+[node name="PhaseCapsule" type="PanelContainer" parent="HudLayer"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 10
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -112.0
+offset_top = 18.0
+offset_right = 112.0
+offset_bottom = 62.0
+grow_horizontal = 2
+mouse_filter = 2
+theme_type_variation = &"PhaseChip"
+
+[node name="PhaseLabel" type="Label" parent="HudLayer/PhaseCapsule"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 1, 0.95, 1)
+theme_override_font_sizes/font_size = 17
+text = "行动阶段"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="EndTurnButton" type="Button" parent="HudLayer"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -230.0
+offset_top = -76.0
+offset_right = -18.0
+offset_bottom = -20.0
+grow_horizontal = 0
+grow_vertical = 0
+focus_mode = 0
+disabled = true
+theme_type_variation = &"EndTurnButton"
+text = "结束回合   〉"
+theme_override_font_sizes/font_size = 16
+
+[node name="OpponentPanel" type="PanelContainer" parent="SafeMargin/Layout"]
+custom_minimum_size = Vector2(0, 112)
+layout_mode = 2
+
+[node name="OpponentMargin" type="MarginContainer" parent="SafeMargin/Layout/OpponentPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_bottom = 6
+
+[node name="OpponentInfo" type="VBoxContainer" parent="SafeMargin/Layout/OpponentPanel/OpponentMargin"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="OpponentSummary" type="Label" parent="SafeMargin/Layout/OpponentPanel/OpponentMargin/OpponentInfo"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+
+[node name="OpponentZones" type="Label" parent="SafeMargin/Layout/OpponentPanel/OpponentMargin/OpponentInfo"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.67, 0.74, 0.78, 1)
+theme_override_font_sizes/font_size = 17
+
+[node name="OpponentHandRow" type="HBoxContainer" parent="SafeMargin/Layout/OpponentPanel/OpponentMargin/OpponentInfo"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="OpponentHandLabel" type="Label" parent="SafeMargin/Layout/OpponentPanel/OpponentMargin/OpponentInfo/OpponentHandRow"]
+custom_minimum_size = Vector2(126, 38)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.67, 0.74, 0.78, 1)
+theme_override_font_sizes/font_size = 15
+text = "对手手牌背面"
+vertical_alignment = 1
+
+[node name="OpponentHandBacks" type="HBoxContainer" parent="SafeMargin/Layout/OpponentPanel/OpponentMargin/OpponentInfo/OpponentHandRow"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="OpponentControls" type="HBoxContainer" parent="SafeMargin/Layout/OpponentPanel/OpponentMargin/OpponentInfo"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="OpponentLeaderButton" type="Button" parent="SafeMargin/Layout/OpponentPanel/OpponentMargin/OpponentInfo/OpponentControls"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 34)
+layout_mode = 2
+focus_mode = 0
+disabled = true
+theme_override_font_sizes/font_size = 14
+text = "对方主战者"
+script = ExtResource("8_drop")
+
+[node name="OpponentStandbyButton" type="Button" parent="SafeMargin/Layout/OpponentPanel/OpponentMargin/OpponentInfo/OpponentControls"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 34)
+layout_mode = 2
+focus_mode = 0
+disabled = true
+theme_override_font_sizes/font_size = 14
+text = "查看对方战备"
+
+[node name="Board" type="PanelContainer" parent="SafeMargin/Layout"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="BoardMargin" type="MarginContainer" parent="SafeMargin/Layout/Board"]
+layout_mode = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 5
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 5
+
+[node name="BoardRows" type="VBoxContainer" parent="SafeMargin/Layout/Board/BoardMargin"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="OpponentTacticsLabel" type="Label" parent="SafeMargin/Layout/Board/BoardMargin/BoardRows"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.76, 0.8, 1)
+theme_override_font_sizes/font_size = 15
+text = "对手策略区（3 格）"
+horizontal_alignment = 1
+
+[node name="OpponentTactics" type="HBoxContainer" parent="SafeMargin/Layout/Board/BoardMargin/BoardRows"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_constants/separation = 12
+
+[node name="OpponentUnitsLabel" type="Label" parent="SafeMargin/Layout/Board/BoardMargin/BoardRows"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.76, 0.8, 1)
+theme_override_font_sizes/font_size = 15
+text = "对手单位区（5 格）"
+horizontal_alignment = 1
+
+[node name="OpponentUnits" type="HBoxContainer" parent="SafeMargin/Layout/Board/BoardMargin/BoardRows"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_constants/separation = 12
+
+[node name="MatchMetaLabel" type="Label" parent="SafeMargin/Layout/Board/BoardMargin/BoardRows"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.46, 0.86, 0.81, 1)
+theme_override_font_sizes/font_size = 17
+text = "先手：—  ·  当前行动：—  ·  Seed：—"
+horizontal_alignment = 1
+
+[node name="OwnUnits" type="HBoxContainer" parent="SafeMargin/Layout/Board/BoardMargin/BoardRows"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_constants/separation = 12
+
+[node name="OwnUnitsLabel" type="Label" parent="SafeMargin/Layout/Board/BoardMargin/BoardRows"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.76, 0.8, 1)
+theme_override_font_sizes/font_size = 15
+text = "己方单位区（5 格）"
+horizontal_alignment = 1
+
+[node name="OwnTactics" type="HBoxContainer" parent="SafeMargin/Layout/Board/BoardMargin/BoardRows"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_constants/separation = 12
+
+[node name="OwnTacticsLabel" type="Label" parent="SafeMargin/Layout/Board/BoardMargin/BoardRows"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.76, 0.8, 1)
+theme_override_font_sizes/font_size = 15
+text = "己方策略区（3 格）"
+horizontal_alignment = 1
+
+[node name="OwnPanel" type="PanelContainer" parent="SafeMargin/Layout"]
+custom_minimum_size = Vector2(0, 96)
+layout_mode = 2
+
+[node name="OwnMargin" type="MarginContainer" parent="SafeMargin/Layout/OwnPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 20
+theme_override_constants/margin_top = 6
+theme_override_constants/margin_right = 20
+theme_override_constants/margin_bottom = 6
+
+[node name="OwnInfo" type="VBoxContainer" parent="SafeMargin/Layout/OwnPanel/OwnMargin"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="OwnSummary" type="Label" parent="SafeMargin/Layout/OwnPanel/OwnMargin/OwnInfo"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_font_sizes/font_size = 20
+
+[node name="OwnZones" type="Label" parent="SafeMargin/Layout/OwnPanel/OwnMargin/OwnInfo"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.67, 0.74, 0.78, 1)
+theme_override_font_sizes/font_size = 17
+
+[node name="OwnControls" type="HBoxContainer" parent="SafeMargin/Layout/OwnPanel/OwnMargin/OwnInfo"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="OwnLeaderButton" type="Button" parent="SafeMargin/Layout/OwnPanel/OwnMargin/OwnInfo/OwnControls"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 34)
+layout_mode = 2
+focus_mode = 0
+disabled = true
+theme_override_font_sizes/font_size = 14
+text = "己方主战者"
+script = ExtResource("8_drop")
+
+[node name="OwnStandbyButton" type="Button" parent="SafeMargin/Layout/OwnPanel/OwnMargin/OwnInfo/OwnControls"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 34)
+layout_mode = 2
+focus_mode = 0
+disabled = true
+theme_override_font_sizes/font_size = 14
+text = "查看己方战备"
+
+[node name="HandPanel" type="PanelContainer" parent="SafeMargin/Layout"]
+custom_minimum_size = Vector2(0, 112)
+layout_mode = 2
+
+[node name="HandMargin" type="MarginContainer" parent="SafeMargin/Layout/HandPanel"]
+layout_mode = 2
+theme_override_constants/margin_left = 18
+theme_override_constants/margin_top = 5
+theme_override_constants/margin_right = 18
+theme_override_constants/margin_bottom = 5
+
+[node name="HandLayout" type="VBoxContainer" parent="SafeMargin/Layout/HandPanel/HandMargin"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="PrivacyProof" type="Label" parent="SafeMargin/Layout/HandPanel/HandMargin/HandLayout"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+theme_override_colors/font_color = Color(0.46, 0.86, 0.81, 1)
+theme_override_font_sizes/font_size = 15
+
+[node name="HandScroll" type="ScrollContainer" parent="SafeMargin/Layout/HandPanel/HandMargin/HandLayout"]
+layout_mode = 2
+size_flags_vertical = 3
+horizontal_scroll_mode = 2
+vertical_scroll_mode = 0
+
+[node name="HandCards" type="HBoxContainer" parent="SafeMargin/Layout/HandPanel/HandMargin/HandLayout/HandScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="BattlefieldCardDetails" parent="HudLayer" instance=ExtResource("11_card_details")]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+offset_left = 18.0
+offset_top = 74.0
+offset_right = 306.0
+offset_bottom = 708.0
+theme_type_variation = &"GlassDrawer"
+
+[node name="InteractionDock" parent="HudLayer" instance=ExtResource("3_dock")]
+unique_name_in_owner = true
+layout_mode = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -282.0
+offset_top = 286.0
+offset_right = -16.0
+offset_bottom = 596.0
+grow_horizontal = 0
+theme_type_variation = &"GlassDrawer"
+
+[node name="DirectActionPanel" parent="HudLayer" instance=ExtResource("6_direct")]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 12
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 330.0
+offset_top = -230.0
+offset_right = -360.0
+offset_bottom = -118.0
+grow_horizontal = 2
+grow_vertical = 0
+
+[node name="StandbyTray" type="PanelContainer" parent="HudLayer"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 12
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 160.0
+offset_top = -252.0
+offset_right = -520.0
+offset_bottom = -116.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_type_variation = &"GlassModalSolid"
+
+[node name="Margin" type="MarginContainer" parent="HudLayer/StandbyTray"]
+layout_mode = 2
+theme_override_constants/margin_left = 12
+theme_override_constants/margin_top = 8
+theme_override_constants/margin_right = 12
+theme_override_constants/margin_bottom = 8
+
+[node name="Layout" type="VBoxContainer" parent="HudLayer/StandbyTray/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Header" type="HBoxContainer" parent="HudLayer/StandbyTray/Margin/Layout"]
+layout_mode = 2
+
+[node name="StandbyTrayTitle" type="Label" parent="HudLayer/StandbyTray/Margin/Layout/Header"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_colors/font_color = Color(0.62, 0.91, 0.86, 1)
+theme_override_font_sizes/font_size = 17
+text = "战备区"
+
+[node name="CloseStandbyButton" type="Button" parent="HudLayer/StandbyTray/Margin/Layout/Header"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(72, 34)
+layout_mode = 2
+text = "收起"
+
+[node name="StandbyScroll" type="ScrollContainer" parent="HudLayer/StandbyTray/Margin/Layout"]
+layout_mode = 2
+horizontal_scroll_mode = 2
+vertical_scroll_mode = 0
+
+[node name="StandbyCards" type="HBoxContainer" parent="HudLayer/StandbyTray/Margin/Layout/StandbyScroll"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="ReactionOverlay" parent="ModalLayer" instance=ExtResource("7_reaction")]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -310.0
+offset_top = -132.0
+offset_right = 310.0
+offset_bottom = 132.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="ResolvingShield" type="ColorRect" parent="ModalLayer"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.02, 0.05, 0.075, 0.08)
+mouse_filter = 0
+
+[node name="ResolvingCapsule" type="PanelContainer" parent="ModalLayer/ResolvingShield"]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -154.0
+offset_top = -25.0
+offset_right = 154.0
+offset_bottom = 25.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_type_variation = &"PhaseChip"
+
+[node name="ResolvingLabel" type="Label" parent="ModalLayer/ResolvingShield/ResolvingCapsule"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_colors/font_color = Color(0.78, 0.95, 0.92, 1)
+theme_override_font_sizes/font_size = 17
+text = "◆  正在结算公共战场"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="TargetingLine" type="Control" parent="HudLayer"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("9_line")
+
+[node name="PauseMenu" type="PopupMenu" parent="HudLayer"]
+unique_name_in_owner = true
+size = Vector2i(320, 210)
+
+[node name="ResultOverlay" parent="ModalLayer" instance=ExtResource("4_result")]
+unique_name_in_owner = true
+layout_mode = 1
+
+[node name="ErrorOverlay" parent="ModalLayer" instance=ExtResource("5_error")]
+unique_name_in_owner = true
+layout_mode = 1
+
+[node name="PassDeviceOverlay" parent="ModalLayer" instance=ExtResource("2_privacy")]
+unique_name_in_owner = true
+layout_mode = 1

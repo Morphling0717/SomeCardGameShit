@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
 #include "scgs/native_api_v05.h"
-#include "scgs/product_runtime.hpp"
+#include "scgs/product_game.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -20,6 +20,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -317,7 +318,13 @@ std::vector<std::string> parse_string_array(const Json& value) {
     return result;
 }
 
-void validate_target(const Json& value) {
+struct TargetShape final {
+    std::uint32_t kind = 0U;
+    std::uint32_t player = 0U;
+    std::optional<std::uint64_t> permanent;
+};
+
+TargetShape parse_target(const Json& value) {
     if (!value.is_object()) {
         fail(SCGS_V05_SCHEMA_MISMATCH, "A JSON target must be an object.");
     }
@@ -325,16 +332,19 @@ void validate_target(const Json& value) {
         "kind", "player", "permanent"};
     require_only_fields(value, kTargetFields);
     const std::uint64_t kind = require_unsigned(value, "kind");
-    (void)parse_player(value, "player");
+    const std::uint32_t player = parse_player(value, "player");
     if (kind == 0U) {
         if (optional_field(value, "permanent") != nullptr) {
             fail(SCGS_V05_SCHEMA_MISMATCH, "A leader target cannot name a permanent.");
         }
-        return;
+        return TargetShape{0U, player, std::nullopt};
     }
     if (kind == 1U) {
-        (void)require_unsigned(value, "permanent");
-        return;
+        const std::uint64_t permanent = require_unsigned(value, "permanent");
+        if (permanent == 0U) {
+            fail(SCGS_V05_SCHEMA_MISMATCH, "A permanent target requires a non-zero instance identifier.");
+        }
+        return TargetShape{1U, player, permanent};
     }
     fail(SCGS_V05_SCHEMA_MISMATCH, "The JSON target kind is not supported.");
 }
@@ -343,7 +353,7 @@ struct RequestShape final {
     std::uint32_t player = 0U;
     std::optional<std::uint32_t> action;
     std::optional<std::uint64_t> source;
-    bool has_target = false;
+    std::optional<TargetShape> target;
     std::optional<std::uint64_t> slot;
     std::optional<std::string> mode_id;
     std::optional<std::string> choice_id;
@@ -387,8 +397,7 @@ RequestShape parse_request(const Json& object, const bool require_action) {
         if (value->is_null()) {
             fail(SCGS_V05_SCHEMA_MISMATCH, "Optional JSON fields must be omitted instead of null.");
         }
-        validate_target(*value);
-        result.has_target = true;
+        result.target = parse_target(*value);
     }
     if (const Json* value = optional_field(object, "slot")) {
         result.slot = require_unsigned_value(*value);
@@ -487,7 +496,7 @@ std::uint32_t invalid_field_code(const RequestField field) noexcept {
 
 std::uint32_t validate_request_shape(const RequestShape& request) noexcept {
     if (!request.action.has_value()) {
-        if (request.source.has_value() || request.has_target || request.slot.has_value() ||
+        if (request.source.has_value() || request.target.has_value() || request.slot.has_value() ||
             request.mode_id.has_value() || request.choice_id.has_value() ||
             request.mulligan_cards.has_value() || request.selected_option_ids.has_value() ||
             request.additional_cost_cards.has_value() || request.use_advance.has_value()) {
@@ -499,7 +508,7 @@ std::uint32_t validate_request_shape(const RequestShape& request) noexcept {
     const std::uint32_t action = *request.action;
     const std::array<std::pair<RequestField, bool>, 9U> fields{{
         {RequestField::Source, request.source.has_value()},
-        {RequestField::Target, request.has_target},
+        {RequestField::Target, request.target.has_value()},
         {RequestField::Slot, request.slot.has_value()},
         {RequestField::Mode, request.mode_id.has_value()},
         {RequestField::Choice, request.choice_id.has_value()},
@@ -577,131 +586,158 @@ ParsedConfig parse_config(const Json& object) {
     return {{{player0, player1}}, seed, first_player_mode, shuffle_decks};
 }
 
-struct StoredEvent final {
-    std::uint64_t sequence;
-    std::uint32_t type;
-    std::uint32_t player;
-    std::string public_text;
-    std::string opponent_text;
-    bool hide_from_opponent;
-    std::optional<std::uint32_t> first_player;
-};
+const scgs::v2::ProductDeckDefinition& find_locked_deck(const std::string_view deck_id) {
+    static const std::vector<scgs::v2::ProductDeckDefinition> decks =
+        scgs::v2::make_locked_product_decks();
+    const auto found = std::find_if(decks.begin(), decks.end(), [&](const auto& deck) {
+        return deck.deck_id == deck_id;
+    });
+    if (found == decks.end()) {
+        fail(SCGS_V05_SCHEMA_MISMATCH, "The requested product deck is not supported by schema 2.");
+    }
+    return *found;
+}
 
-struct FoundationSession final {
-    explicit FoundationSession(ParsedConfig value)
+scgs::v2::ProductGameConfig make_game_config(const ParsedConfig& config) {
+    scgs::v2::ProductGameConfig result;
+    for (std::size_t index = 0; index < scgs::kPlayerCount; ++index) {
+        const auto& deck = find_locked_deck(config.decks[index].deck_id);
+        result.main_decks[index] = deck.main_deck;
+        result.standby_decks[index] = deck.standby;
+        result.professions[index] = deck.profession_id;
+        result.evolution_charge_policies[index] = deck.profession_id == "oathguard"
+            ? scgs::v2::EvolutionChargePolicy::RepairToZero
+            : scgs::v2::EvolutionChargePolicy::FutureUseAtLeastTwo;
+    }
+    result.seed = config.seed;
+    result.first_player_mode = static_cast<scgs::FirstPlayerMode>(config.first_player_mode);
+    result.shuffle = config.shuffle_decks;
+    return result;
+}
+
+struct ProductSession final {
+    explicit ProductSession(ParsedConfig value)
         : config(std::move(value)),
-          board(scgs::v2::make_locked_product_catalog()),
-          opaque_namespace(make_opaque_session_namespace()) {
-        for (std::uint32_t index = 0U; index < 2U; ++index) {
-            const auto player = static_cast<scgs::PlayerId>(index);
-            const bool oathguard = config.decks[index].profession_id == "oathguard";
-            const std::string_view hand_card = oathguard ? "LO-01" : "AP-01";
-            const std::string_view amulet_design = oathguard ? "LO-03" : "AP-04";
-            const std::string_view follower_design = oathguard ? "LO-04" : "AP-02";
-            const std::string_view field_design = oathguard ? "LO-10" : "AP-05";
-            for (std::size_t card = 0U; card < 4U; ++card) {
-                (void)board.create_instance(
-                    hand_card, player, scgs::v2::Zone::Hand);
-            }
-            for (std::size_t card = 0U; card < 26U; ++card) {
-                (void)board.create_instance(
-                    hand_card, player, scgs::v2::Zone::Deck);
-            }
-            const scgs::InstanceId amulet = board.create_instance(amulet_design, player);
-            const scgs::InstanceId follower = board.create_instance(follower_design, player);
-            const scgs::InstanceId field = board.create_instance(field_design, player);
-            if (!board.place_main(
-                    player, amulet, 0U, scgs::v2::MoveReason::ScenarioSetup) ||
-                !board.place_main(
-                    player, follower, 1U, scgs::v2::MoveReason::ScenarioSetup) ||
-                !board.play_field(player, field)) {
-                throw std::logic_error("failed to construct the v05 product foundation fixture");
-            }
-            if (oathguard) {
-                const scgs::InstanceId trap = board.create_instance("LO-07", player);
-                if (!board.place_tactic(
-                        player, trap, 0U, scgs::v2::MoveReason::ScenarioSetup)) {
-                    throw std::logic_error("failed to construct the v05 hidden-tactic fixture");
-                }
-            }
-        }
-    }
+          game(scgs::v2::make_locked_product_catalog(), make_game_config(config)),
+          opaque_namespace(make_opaque_session_namespace()) {}
 
-    void begin_choice_tokens() {
+    void sync_choice_tokens() {
+        const auto& pending = game.pending_choice();
+        if (!pending.has_value()) {
+            internal_choice_id.reset();
+            external_choice_id.clear();
+            external_to_internal_options.clear();
+            internal_to_external_options.clear();
+            return;
+        }
+        if (internal_choice_id == pending->choice_id) {
+            return;
+        }
+        internal_choice_id = pending->choice_id;
         const std::string generation = std::to_string(next_choice_generation++);
-        active_choice_id = "choice-" + opaque_namespace + "-" + generation;
-        active_option_ids = {
-            "option-" + opaque_namespace + "-" + generation + "-0",
-            "option-" + opaque_namespace + "-" + generation + "-1"};
+        external_choice_id = "choice-" + opaque_namespace + '-' + generation;
+        external_to_internal_options.clear();
+        internal_to_external_options.clear();
+        for (std::size_t index = 0; index < pending->options.size(); ++index) {
+            const std::string external = "option-" + opaque_namespace + '-' + generation + '-' +
+                std::to_string(index + 1U);
+            external_to_internal_options.emplace(external, pending->options[index].option_id);
+            internal_to_external_options.emplace(pending->options[index].option_id, external);
+        }
     }
 
-    void clear_choice_tokens() noexcept {
-        active_choice_id.clear();
-        for (std::string& option : active_option_ids) {
-            option.clear();
-        }
+    [[nodiscard]] std::string external_option(const std::string_view internal) const {
+        const auto found = internal_to_external_options.find(std::string(internal));
+        return found == internal_to_external_options.end() ? std::string{} : found->second;
     }
 
     ParsedConfig config;
-    scgs::v2::ProductBoard board;
-    scgs::v2::ResolutionQueue resolution;
+    scgs::v2::ProductGame game;
     const std::string opaque_namespace;
-    std::string active_choice_id;
-    std::array<std::string, 2U> active_option_ids;
+    std::optional<scgs::v2::ChoiceId> internal_choice_id;
+    std::string external_choice_id;
+    std::unordered_map<std::string, std::string> external_to_internal_options;
+    std::unordered_map<std::string, std::string> internal_to_external_options;
     std::uint64_t next_choice_generation = 1U;
-    bool started = false;
-    bool finished = false;
-    std::array<bool, 2U> mulligan_done{false, false};
-    std::uint32_t first_player = 0U;
-    std::uint32_t active_player = 0U;
-    std::uint32_t result = 0U;
-    std::uint64_t revision = 0U;
-    std::uint64_t next_sequence = 1U;
-    std::vector<StoredEvent> events;
     std::mutex mutex;
 };
 
-Json make_status(const std::uint32_t code, const char* message) {
+std::uint32_t map_engine_code(
+    const scgs::v2::ProductGameError code,
+    const std::optional<scgs::v2::ActionKind> action = std::nullopt) noexcept {
+    using Error = scgs::v2::ProductGameError;
+    switch (code) {
+        case Error::Ok: return kEngineOk;
+        case Error::InvalidPlayer: return kEngineInvalidPlayer;
+        case Error::NotStarted: return kEngineMatchNotStarted;
+        case Error::AlreadyStarted: return kEngineMatchAlreadyStarted;
+        case Error::StaleRevision: return kEngineStaleRevision;
+        case Error::MatchFinished: return kEngineGameOver;
+        case Error::WrongPhase: return kEngineInvalidPhase;
+        case Error::NotActivePlayer: return 2U;
+        case Error::InvalidZone: return 5U;
+        case Error::InvalidSlot:
+        case Error::SlotOccupied: return 7U;
+        case Error::MainBoardFull: return 10U;
+        case Error::TacticZoneFull: return 11U;
+        case Error::InvalidTarget: return 6U;
+        case Error::InvalidMode: return kEngineInvalidMode;
+        case Error::InsufficientPP: return 8U;
+        case Error::AdvanceUnavailable: return 20U;
+        case Error::FutureAlreadyUsed: return 19U;
+        case Error::EvolutionUnavailable: return 15U;
+        case Error::DeploymentUnavailable: return 22U;
+        case Error::ReactionUnavailable: return 26U;
+        case Error::ChoicePending: return kEngineChoicePending;
+        case Error::NoPendingChoice: return kEngineNoPendingChoice;
+        case Error::MulliganAlreadyDone: return kEngineMulliganAlreadyDone;
+        case Error::ChoiceNotOwned: return kEngineChoiceNotOwned;
+        case Error::InvalidSelection:
+            if (action == scgs::v2::ActionKind::Mulligan) {
+                return 33U;
+            }
+            if (action == scgs::v2::ActionKind::Deploy) {
+                return kEngineInvalidAdditionalCost;
+            }
+            return kEngineInvalidChoice;
+        case Error::InvalidConfiguration:
+        case Error::InvalidCommand:
+        case Error::InvalidCard:
+        case Error::InvalidCardKind:
+        case Error::InternalInvariant:
+            return kEngineInvalidCard;
+    }
+    return kEngineInvalidCard;
+}
+
+const char* engine_message(const std::uint32_t code) noexcept {
+    switch (code) {
+        case kEngineOk: return "ok";
+        case kEngineInvalidPhase: return "invalid phase";
+        case kEngineInvalidPlayer: return "invalid player";
+        case kEngineInvalidCard: return "invalid card or command";
+        case kEngineGameOver: return "game over";
+        case kEngineStaleRevision: return "stale revision";
+        case kEngineChoicePending: return "a product choice is pending";
+        case kEngineNoPendingChoice: return "no pending choice";
+        case kEngineInvalidChoice: return "invalid or unrelated choice fields";
+        case kEngineInvalidMode: return "invalid or unrelated mode field";
+        case kEngineInvalidAdditionalCost: return "invalid or unrelated additional cost fields";
+        case kEngineChoiceNotOwned: return "choice is owned by the other player";
+        case kEngineMatchNotStarted: return "match not started";
+        case kEngineMulliganAlreadyDone: return "mulligan already done";
+        default: return "engine failure";
+    }
+}
+
+Json make_status(const std::uint32_t code, const std::string_view message) {
     return Json{{"engine_code", code}, {"message", message}};
 }
 
-Json make_payment(const std::uint32_t status_code, const char* message) {
-    return Json{
-        {"status", make_status(status_code, message)},
-        {"current_pp_before", 0},
-        {"current_pp_after", 0},
-        {"pp_capacity_before", 0},
-        {"pp_capacity_after", 0},
-        {"cracks_before", 0},
-        {"cracks_after", 0},
-        {"evolution_energy_before", 0},
-        {"evolution_energy_after", 0},
-        {"base_cost", 0},
-        {"burn_cost", 0},
-        {"advance_cost", 0},
-        {"used_advance", false}};
-}
-
-Json make_command(const std::uint32_t player, const std::uint32_t action, const std::uint64_t revision) {
-    Json result{
-        {"player", player},
-        {"action", action},
-        {"expected_revision", revision}};
-    if (action == 0U) {
-        result["mulligan_cards"] = Json::array();
-    }
-    return result;
-}
-
-Json make_resolve_choice_command(
-    const FoundationSession& session,
-    const std::uint32_t player,
-    const std::uint64_t revision,
-    const std::string& option_id) {
-    Json result = make_command(player, 13U, revision);
-    result["choice_id"] = session.active_choice_id;
-    result["selected_option_ids"] = Json::array({option_id});
-    return result;
+bool trap_is_revealed(const ProductSession& session, const scgs::InstanceId card) {
+    return std::any_of(session.game.events().begin(), session.game.events().end(), [&](const auto& event) {
+        return event.kind == scgs::v2::ProductEventKind::TrapActivated && event.source == card;
+    });
 }
 
 Json make_hidden_tactic(const scgs::v2::CardInstance& card) {
@@ -710,8 +746,6 @@ Json make_hidden_tactic(const scgs::v2::CardInstance& card) {
         {"owner", static_cast<std::uint32_t>(card.owner)},
         {"controller", static_cast<std::uint32_t>(card.controller)},
         {"zone", static_cast<std::uint32_t>(scgs::v2::Zone::Tactic)},
-        // The slot is already represented by the tactics array index. Even
-        // sequence is identity-derived for a hidden card and must be zero.
         {"sequence", 0U},
         {"cost", 0},
         {"current_attack", 0},
@@ -728,10 +762,14 @@ Json make_hidden_tactic(const scgs::v2::CardInstance& card) {
         {"countdown", 0}};
 }
 
-Json make_card(const FoundationSession& session, const scgs::InstanceId card_id) {
-    const scgs::v2::CardInstance& card = session.board.instance(card_id);
-    const scgs::v2::CardDefinition& definition = session.board.catalog().at(card.design_id);
-    const bool face_down = card.zone == scgs::v2::Zone::Tactic &&
+Json make_card(
+    const ProductSession& session,
+    const scgs::InstanceId card_id,
+    const bool force_face_up = false) {
+    const auto& board = session.game.board();
+    const scgs::v2::CardInstance& card = board.instance(card_id);
+    const scgs::v2::CardDefinition& definition = board.catalog().at(card.design_id);
+    const bool face_down = !force_face_up && card.zone == scgs::v2::Zone::Tactic &&
         definition.kind == scgs::v2::CardKind::Trap;
     return Json{
         {"instance_id", card.id},
@@ -760,13 +798,37 @@ Json make_card(const FoundationSession& session, const scgs::InstanceId card_id)
         {"countdown", card.countdown}};
 }
 
+bool action_used_this_turn(
+    const ProductSession& session,
+    const scgs::PlayerId player,
+    const scgs::v2::CardAvailability availability,
+    const std::optional<scgs::v2::CardKind> kind = std::nullopt) {
+    for (auto iterator = session.game.events().rbegin(); iterator != session.game.events().rend(); ++iterator) {
+        if (iterator->kind == scgs::v2::ProductEventKind::TurnStarted && iterator->player == player) {
+            break;
+        }
+        if (iterator->kind != scgs::v2::ProductEventKind::CardPlayed ||
+            iterator->player != player || !iterator->source.has_value() ||
+            !session.game.board().contains_instance(*iterator->source)) {
+            continue;
+        }
+        const auto& definition = session.game.board().catalog().at(
+            session.game.board().instance(*iterator->source).design_id);
+        if (definition.availability == availability &&
+            (!kind.has_value() || definition.kind == *kind)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 Json make_player_view(
-    const FoundationSession& session,
+    const ProductSession& session,
     const std::uint32_t player,
     const std::uint32_t viewer) {
-    const DeckIdentity& identity = session.config.decks[player];
     const auto player_id = static_cast<scgs::PlayerId>(player);
-    const scgs::v2::PlayerState& state = session.board.player(player_id);
+    const auto& state = session.game.board().player(player_id);
+    const auto& resources = session.game.resources(player_id);
     Json hand = Json::array();
     if (player == viewer) {
         for (const scgs::InstanceId card : state.hand) {
@@ -783,35 +845,38 @@ Json make_player_view(
             tactics.push_back(nullptr);
             continue;
         }
-        const scgs::v2::CardInstance& instance = session.board.instance(*card);
-        const scgs::v2::CardDefinition& definition =
-            session.board.catalog().at(instance.design_id);
-        const bool hidden = player != viewer && definition.kind == scgs::v2::CardKind::Trap;
-        tactics.push_back(hidden ? make_hidden_tactic(instance) : make_card(session, *card));
+        const auto& instance = session.game.board().instance(*card);
+        const auto& definition = session.game.board().catalog().at(instance.design_id);
+        const bool hidden = player != viewer && definition.kind == scgs::v2::CardKind::Trap &&
+            !trap_is_revealed(session, *card);
+        tactics.push_back(hidden ? make_hidden_tactic(instance) :
+            make_card(session, *card, player != viewer && definition.kind == scgs::v2::CardKind::Trap));
     }
     const auto public_cards = [&](const std::vector<scgs::InstanceId>& cards) {
         Json values = Json::array();
         for (const scgs::InstanceId card : cards) {
-            values.push_back(make_card(session, card));
+            values.push_back(make_card(session, card, true));
         }
         return values;
     };
     Json result{
         {"player", player},
-        {"profession_id", identity.profession_id},
-        {"leader_health", 25},
-        {"maximum_leader_health", 25},
-        {"current_pp", 0},
-        {"pp_capacity", 0},
-        {"cracks", 0},
-        {"evolution_energy", 0},
-        {"own_turn_number", 0},
-        {"fatigue_count", 0},
-        {"mulligan_done", session.mulligan_done[player]},
-        {"evolution_used_this_turn", false},
-        {"advance_used_this_turn", false},
-        {"deploy_used_this_turn", false},
-        {"trap_set_this_turn", false},
+        {"profession_id", session.config.decks[player].profession_id},
+        {"leader_health", state.leader_health},
+        {"maximum_leader_health", state.maximum_leader_health},
+        {"current_pp", resources.current_pp},
+        {"pp_capacity", resources.pp_capacity},
+        {"cracks", resources.cracks},
+        {"evolution_energy", resources.evolution_energy},
+        {"own_turn_number", resources.own_turn_number},
+        {"fatigue_count", resources.fatigue_count},
+        {"mulligan_done", session.game.mulligan_complete(player_id)},
+        {"evolution_used_this_turn", resources.evolved_this_turn},
+        {"advance_used_this_turn", resources.future_used_this_turn},
+        {"deploy_used_this_turn", action_used_this_turn(
+            session, player_id, scgs::v2::CardAvailability::Standby)},
+        {"trap_set_this_turn", action_used_this_turn(
+            session, player_id, scgs::v2::CardAvailability::MainDeck, scgs::v2::CardKind::Trap)},
         {"deck_count", state.deck.size()},
         {"hand_count", state.hand.size()},
         {"hand", std::move(hand)},
@@ -821,46 +886,104 @@ Json make_player_view(
         {"archive", public_cards(state.archive)},
         {"standby", public_cards(state.standby)}};
     if (state.field.has_value()) {
-        result["field"] = make_card(session, *state.field);
+        result["field"] = make_card(session, *state.field, true);
     }
-    // `field` is optional in schema 2 and must be omitted, not null, when empty.
     return result;
 }
 
-Json make_reaction(const FoundationSession& session) {
-    return Json{
-        {"pending", false},
-        {"window", 0U},
-        {"responder", session.active_player},
-        {"subject", 0U},
-        {"depth", 0U},
-        {"eligible_count", 0U},
-        {"eligible_traps", Json::array()},
-        {"revision", session.revision}};
+Json target_json(const std::uint32_t kind, const scgs::PlayerId player,
+    const std::optional<scgs::InstanceId> permanent = std::nullopt) {
+    Json target{{"kind", kind}, {"player", static_cast<std::uint32_t>(player)}};
+    if (permanent.has_value()) {
+        target["permanent"] = *permanent;
+    }
+    return target;
 }
 
-Json make_pending_choice(const FoundationSession& session, const std::uint32_t viewer) {
-    const auto& pending = session.resolution.pending_choice();
+std::optional<Json> command_target_json(
+    const ProductSession& session,
+    const scgs::v2::ProductGameCommand& command) {
+    if (command.target.has_value() && session.game.board().contains_instance(*command.target)) {
+        return target_json(1U, session.game.board().instance(*command.target).controller, command.target);
+    }
+    if (command.action == scgs::v2::ActionKind::Attack) {
+        return target_json(0U, scgs::opponent(command.player));
+    }
+    return std::nullopt;
+}
+
+Json make_reaction(ProductSession& session, const std::uint32_t viewer) {
+    const scgs::v2::ProductReactionContext context = session.game.reaction_context();
+    Json eligible = Json::array();
+    std::size_t eligible_count = 0U;
+    if (context.pending && viewer == static_cast<std::uint32_t>(context.priority)) {
+        for (const auto& action : session.game.list_legal_actions(context.priority)) {
+            if (action.command.action == scgs::v2::ActionKind::ActivateTrap &&
+                action.command.source.has_value()) {
+                eligible.push_back(make_card(session, *action.command.source));
+            }
+        }
+        eligible_count = eligible.size();
+    }
+    std::uint32_t window = 0U;
+    if (context.pending) {
+        window = context.origin_action == scgs::v2::ActionKind::Attack ? 3U :
+            context.origin_action == scgs::v2::ActionKind::CastSpell ? 1U : 2U;
+    }
+    Json result{
+        {"pending", context.pending},
+        {"window", window},
+        {"responder", static_cast<std::uint32_t>(context.pending ? context.priority : session.game.active_player())},
+        {"subject", context.origin_source.value_or(0U)},
+        {"depth", context.chain_size},
+        {"eligible_count", eligible_count},
+        {"eligible_traps", std::move(eligible)},
+        {"revision", session.game.revision()}};
+    if (context.pending && context.origin_source.has_value()) {
+        Json origin{
+            {"action", static_cast<std::uint32_t>(context.origin_action)},
+            {"player", static_cast<std::uint32_t>(context.origin_player)},
+            {"source", *context.origin_source}};
+        scgs::v2::ProductGameCommand command;
+        command.player = context.origin_player;
+        command.action = context.origin_action;
+        command.target = context.origin_target;
+        if (const auto target = command_target_json(session, command)) {
+            origin["target"] = *target;
+        }
+        result["origin"] = std::move(origin);
+    }
+    return result;
+}
+
+Json make_pending_choice(ProductSession& session, const std::uint32_t viewer) {
+    session.sync_choice_tokens();
+    const auto& pending = session.game.pending_choice();
     if (!pending.has_value()) {
-        return Json{{"pending", false}, {"revision", session.revision}};
+        return Json{{"pending", false}, {"revision", session.game.revision()}};
     }
     Json result{
         {"pending", true},
         {"chooser", static_cast<std::uint32_t>(pending->chooser)},
-        {"revision", session.revision}};
+        {"revision", session.game.revision()}};
     if (viewer != static_cast<std::uint32_t>(pending->chooser)) {
         return result;
     }
-    result["choice_id"] = session.active_choice_id;
+    result["choice_id"] = session.external_choice_id;
     result["kind"] = static_cast<std::uint32_t>(pending->kind);
     result["minimum_selections"] = pending->minimum;
     result["maximum_selections"] = pending->maximum;
     result["ordered"] = pending->ordered;
     Json options = Json::array();
     for (const scgs::v2::ChoiceOption& option : pending->options) {
-        Json value{{"option_id", option.option_id}, {"label", "foundation card"}};
+        Json value{{"option_id", session.external_option(option.option_id)}};
         if (option.card.has_value()) {
-            value["card"] = make_card(session, *option.card);
+            const auto& definition = session.game.board().catalog().at(
+                session.game.board().instance(*option.card).design_id);
+            value["label"] = definition.name;
+            value["card"] = make_card(session, *option.card, true);
+        } else {
+            value["label"] = "option";
         }
         options.push_back(std::move(value));
     }
@@ -868,24 +991,31 @@ Json make_pending_choice(const FoundationSession& session, const std::uint32_t v
     return result;
 }
 
-Json make_view(const FoundationSession& session, const std::uint32_t viewer) {
-    std::uint32_t phase = 0U;
-    if (session.started) {
-        phase = session.finished ? 4U : (session.mulligan_done[0] && session.mulligan_done[1] ? 2U : 1U);
+std::uint32_t phase_value(const scgs::v2::ProductGamePhase phase) noexcept {
+    switch (phase) {
+        case scgs::v2::ProductGamePhase::NotStarted: return 0U;
+        case scgs::v2::ProductGamePhase::Mulligan: return 1U;
+        case scgs::v2::ProductGamePhase::Main:
+        case scgs::v2::ProductGamePhase::Choice: return 2U;
+        case scgs::v2::ProductGamePhase::Reaction: return 3U;
+        case scgs::v2::ProductGamePhase::Finished: return 4U;
     }
+    return 0U;
+}
+
+Json make_view(ProductSession& session, const std::uint32_t viewer) {
     Json players = Json::array();
     players.push_back(make_player_view(session, 0U, viewer));
     players.push_back(make_player_view(session, 1U, viewer));
-    // Seed is intentionally absent from both the envelope and view.
     return Json{
         {"viewer", viewer},
-        {"active_player", session.active_player},
-        {"first_player", session.first_player},
-        {"phase", phase},
-        {"result", session.result},
-        {"revision", session.revision},
+        {"active_player", static_cast<std::uint32_t>(session.game.active_player())},
+        {"first_player", static_cast<std::uint32_t>(session.game.first_player())},
+        {"phase", phase_value(session.game.phase())},
+        {"result", static_cast<std::uint32_t>(session.game.result())},
+        {"revision", session.game.revision()},
         {"players", std::move(players)},
-        {"reaction", make_reaction(session)},
+        {"reaction", make_reaction(session, viewer)},
         {"pending_choice", make_pending_choice(session, viewer)}};
 }
 
@@ -893,165 +1023,317 @@ Json make_envelope(const std::uint64_t revision) {
     return Json{{"schema_version", SCGS_V05_SCHEMA_VERSION}, {"revision", revision}};
 }
 
-void append_event(
-    FoundationSession& session,
-    const std::uint32_t type,
-    const std::uint32_t player,
-    std::string public_text,
-    std::string opponent_text = {},
-    const bool hide_from_opponent = false,
-    const std::optional<std::uint32_t> first_player = std::nullopt) {
-    session.events.push_back(StoredEvent{
-        session.next_sequence++,
-        type,
-        player,
-        std::move(public_text),
-        std::move(opponent_text),
-        hide_from_opponent,
-        first_player});
+struct ConvertedCommand final {
+    scgs::v2::ProductGameCommand command;
+    std::uint32_t forced_code = kEngineOk;
+    std::string forced_message = "ok";
+};
+
+ConvertedCommand convert_command(ProductSession& session, const RequestShape& request) {
+    ConvertedCommand result;
+    result.command.player = static_cast<scgs::PlayerId>(request.player);
+    result.command.expected_revision = request.expected_revision;
+    if (!request.action.has_value()) {
+        result.forced_code = kEngineInvalidCard;
+        result.forced_message = "action is required";
+        return result;
+    }
+    result.command.action = static_cast<scgs::v2::ActionKind>(*request.action);
+    if (request.source.has_value()) {
+        result.command.source = *request.source;
+    }
+    if (request.slot.has_value()) {
+        result.command.slot = static_cast<std::size_t>(*request.slot);
+    }
+    result.command.mode_id = request.mode_id.value_or(std::string{});
+    result.command.use_advance = request.use_advance.value_or(false);
+    result.command.selected_cards = request.mulligan_cards.value_or(std::vector<std::uint64_t>{});
+    result.command.additional_cost_cards =
+        request.additional_cost_cards.value_or(std::vector<std::uint64_t>{});
+
+    if (request.target.has_value()) {
+        if (request.target->kind == 1U) {
+            result.command.target = request.target->permanent;
+            if (!request.target->permanent.has_value() ||
+                !session.game.board().contains_instance(*request.target->permanent) ||
+                session.game.board().instance(*request.target->permanent).controller !=
+                    static_cast<scgs::PlayerId>(request.target->player)) {
+                result.forced_code = 6U;
+                result.forced_message = "target identity and controller do not match";
+            }
+        } else if (result.command.action != scgs::v2::ActionKind::Attack ||
+            request.target->player != static_cast<std::uint32_t>(scgs::opponent(result.command.player))) {
+            result.forced_code = 6U;
+            result.forced_message = "leader target is invalid for this action";
+        }
+    }
+
+    if (result.command.action == scgs::v2::ActionKind::ResolveChoice) {
+        session.sync_choice_tokens();
+        if (!request.choice_id.has_value() || *request.choice_id != session.external_choice_id ||
+            !session.internal_choice_id.has_value()) {
+            result.forced_code = kEngineInvalidChoice;
+            result.forced_message = "choice token does not belong to this session";
+            return result;
+        }
+        result.command.choice_id = *session.internal_choice_id;
+        if (!request.selected_option_ids.has_value()) {
+            result.forced_code = kEngineInvalidChoice;
+            result.forced_message = "choice selections are required";
+            return result;
+        }
+        for (const std::string& external : *request.selected_option_ids) {
+            const auto found = session.external_to_internal_options.find(external);
+            if (found == session.external_to_internal_options.end()) {
+                result.forced_code = kEngineInvalidChoice;
+                result.forced_message = "choice option does not belong to this session";
+                return result;
+            }
+            result.command.selected_option_ids.push_back(found->second);
+        }
+    }
+    return result;
 }
 
-std::uint32_t validate_command(const FoundationSession& session, const RequestShape& command) {
-    if (command.player > 1U) {
-        return kEngineInvalidPlayer;
-    }
-    if (!session.started) {
-        return kEngineMatchNotStarted;
-    }
-    if (command.expected_revision != session.revision) {
-        return kEngineStaleRevision;
-    }
-    if (session.finished) {
-        return kEngineGameOver;
-    }
-    if (const std::uint32_t shape_code = validate_request_shape(command);
-        shape_code != kEngineOk) {
-        return shape_code;
-    }
-    const std::uint32_t action = command.action.value_or(99U);
-    if (session.resolution.input_blocked() && action != 10U && action != 13U) {
-        return kEngineChoicePending;
-    }
-    if (action == 10U) {
-        return kEngineOk;
-    }
-    if (action == 13U) {
-        const auto& pending = session.resolution.pending_choice();
-        if (!pending.has_value()) {
-            return kEngineNoPendingChoice;
-        }
-        if (command.player != static_cast<std::uint32_t>(pending->chooser)) {
-            return kEngineChoiceNotOwned;
-        }
-        if (!command.choice_id.has_value() ||
-            *command.choice_id != session.active_choice_id ||
-            !command.selected_option_ids.has_value()) {
-            return kEngineInvalidChoice;
-        }
-        if (command.selected_option_ids->size() < pending->minimum ||
-            command.selected_option_ids->size() > pending->maximum) {
-            return kEngineInvalidChoice;
-        }
-        std::vector<std::string> available;
-        for (const scgs::v2::ChoiceOption& option : pending->options) {
-            available.push_back(option.option_id);
-        }
-        std::vector<std::string> selected;
-        for (const std::string& option : *command.selected_option_ids) {
-            if (std::find(available.begin(), available.end(), option) == available.end() ||
-                std::find(selected.begin(), selected.end(), option) != selected.end()) {
-                return kEngineInvalidChoice;
-            }
-            selected.push_back(option);
-        }
-        return kEngineOk;
-    }
-    const bool mulligan_phase = !(session.mulligan_done[0] && session.mulligan_done[1]);
-    if (action == 0U) {
-        if (!mulligan_phase) {
-            return kEngineInvalidPhase;
-        }
-        if (session.mulligan_done[command.player]) {
-            return kEngineMulliganAlreadyDone;
-        }
-        if (!command.mulligan_cards.has_value()) {
-            return kEngineInvalidCard;
-        }
-        const auto player_id = static_cast<scgs::PlayerId>(command.player);
-        const std::vector<scgs::InstanceId>& hand = session.board.player(player_id).hand;
-        std::vector<std::uint64_t> unique;
-        for (const std::uint64_t card : *command.mulligan_cards) {
-            if (std::find(hand.begin(), hand.end(), card) == hand.end()) {
-                return kEngineInvalidCard;
-            }
-            if (std::find(unique.begin(), unique.end(), card) != unique.end()) {
-                return 33U;
-            }
-            unique.push_back(card);
-        }
-        return kEngineOk;
-    }
-    if (action == 9U) {
-        if (mulligan_phase || command.player != session.active_player) {
-            return kEngineInvalidPhase;
-        }
-        return kEngineOk;
-    }
-    return kEngineInvalidCard;
+Json make_payment(
+    const ProductSession& session,
+    const scgs::PlayerId player,
+    const std::uint32_t code,
+    const std::string_view message,
+    const scgs::v2::ProductPaymentPreview& preview = {}) {
+    const auto& before = session.game.resources(player);
+    const bool projected = code == kEngineOk;
+    return Json{
+        {"status", make_status(code, message)},
+        {"current_pp_before", before.current_pp},
+        {"current_pp_after", projected ? preview.current_pp_after : before.current_pp},
+        {"pp_capacity_before", before.pp_capacity},
+        {"pp_capacity_after", projected ? preview.pp_capacity_after : before.pp_capacity},
+        {"cracks_before", before.cracks},
+        {"cracks_after", projected ? preview.cracks_after : before.cracks},
+        {"evolution_energy_before", before.evolution_energy},
+        {"evolution_energy_after", projected ? preview.evolution_energy_after : before.evolution_energy},
+        {"base_cost", preview.base_cost},
+        {"burn_cost", preview.burn_cost},
+        {"advance_cost", preview.advance_cost},
+        {"used_advance", preview.advanced}};
 }
 
-const char* engine_message(const std::uint32_t code) noexcept {
-    switch (code) {
-        case kEngineOk:
-            return "ok";
-        case kEngineInvalidPhase:
-            return "invalid phase";
-        case kEngineInvalidPlayer:
-            return "invalid player";
-        case kEngineInvalidCard:
-            return "product cards are not enabled in the Gate 5B foundation adapter";
-        case kEngineGameOver:
-            return "game over";
-        case kEngineStaleRevision:
-            return "stale revision";
-        case kEngineChoicePending:
-            return "a product choice is pending";
-        case kEngineNoPendingChoice:
-            return "no pending choice";
-        case kEngineInvalidChoice:
-            return "invalid or unrelated choice fields";
-        case kEngineInvalidMode:
-            return "invalid or unrelated mode field";
-        case kEngineInvalidAdditionalCost:
-            return "invalid or unrelated additional cost fields";
-        case kEngineChoiceNotOwned:
-            return "choice is owned by the other player";
-        case kEngineMatchNotStarted:
-            return "match not started";
-        case kEngineMulliganAlreadyDone:
-            return "mulligan already done";
-        default:
-            return "engine failure";
+Json make_command(ProductSession& session, const scgs::v2::ProductGameCommand& command) {
+    Json result{
+        {"player", static_cast<std::uint32_t>(command.player)},
+        {"action", static_cast<std::uint32_t>(command.action)},
+        {"expected_revision", command.expected_revision}};
+    const auto add_source = [&] {
+        if (command.source.has_value()) {
+            result["source"] = *command.source;
+        }
+    };
+    const auto add_target = [&] {
+        if (const auto target = command_target_json(session, command)) {
+            result["target"] = *target;
+        }
+    };
+    const auto add_mode = [&] {
+        if (!command.mode_id.empty()) {
+            result["mode_id"] = command.mode_id;
+        }
+    };
+    switch (command.action) {
+        case scgs::v2::ActionKind::Mulligan:
+            result["mulligan_cards"] = command.selected_cards;
+            break;
+        case scgs::v2::ActionKind::PlayFollower:
+        case scgs::v2::ActionKind::CastSpell:
+        case scgs::v2::ActionKind::PlayAmulet:
+            add_source(); add_target();
+            if (command.slot.has_value()) result["slot"] = *command.slot;
+            add_mode(); result["use_advance"] = command.use_advance;
+            break;
+        case scgs::v2::ActionKind::PlayTrap:
+            add_source();
+            if (command.slot.has_value()) result["slot"] = *command.slot;
+            add_mode(); result["use_advance"] = command.use_advance;
+            break;
+        case scgs::v2::ActionKind::Attack:
+            add_source(); add_target();
+            break;
+        case scgs::v2::ActionKind::Evolve:
+        case scgs::v2::ActionKind::ActivateTrap:
+            add_source(); add_target(); add_mode();
+            break;
+        case scgs::v2::ActionKind::Deploy:
+            add_source(); add_target();
+            if (command.slot.has_value()) result["slot"] = *command.slot;
+            add_mode();
+            result["additional_cost_cards"] = command.additional_cost_cards;
+            result["use_advance"] = command.use_advance;
+            break;
+        case scgs::v2::ActionKind::PlayField:
+            add_source(); add_target(); add_mode(); result["use_advance"] = command.use_advance;
+            break;
+        case scgs::v2::ActionKind::ResolveChoice:
+            session.sync_choice_tokens();
+            result["choice_id"] = session.external_choice_id;
+            result["selected_option_ids"] = Json::array();
+            for (const std::string& internal : command.selected_option_ids) {
+                result["selected_option_ids"].push_back(session.external_option(internal));
+            }
+            break;
+        case scgs::v2::ActionKind::PassReaction:
+        case scgs::v2::ActionKind::EndTurn:
+        case scgs::v2::ActionKind::Surrender:
+            break;
     }
+    return result;
 }
 
-void require_valid_query(
-    const FoundationSession& session,
-    const RequestShape& query) {
+bool same_target(const Json& lhs, const TargetShape& rhs) {
+    if (lhs.at("kind").get<std::uint32_t>() != rhs.kind ||
+        lhs.at("player").get<std::uint32_t>() != rhs.player) {
+        return false;
+    }
+    if (rhs.kind == 0U) {
+        return true;
+    }
+    return lhs.at("permanent").get<std::uint64_t>() == rhs.permanent;
+}
+
+enum class IgnoredQueryField : std::uint8_t { None, Target, Slot, AdditionalCosts };
+
+bool command_matches_query(
+    ProductSession& session,
+    const scgs::v2::ProductGameCommand& command,
+    const RequestShape& query,
+    const IgnoredQueryField ignored = IgnoredQueryField::None) {
+    if (query.action.has_value() && *query.action != static_cast<std::uint32_t>(command.action)) return false;
+    if (query.source.has_value() && command.source != query.source) return false;
+    if (ignored != IgnoredQueryField::Slot && query.slot.has_value() && command.slot != query.slot) return false;
+    if (query.mode_id.has_value() && command.mode_id != *query.mode_id) return false;
+    if (query.use_advance.has_value() && command.use_advance != *query.use_advance) return false;
+    if (query.mulligan_cards.has_value() && command.selected_cards != *query.mulligan_cards) return false;
+    if (ignored != IgnoredQueryField::AdditionalCosts && query.additional_cost_cards.has_value() &&
+        command.additional_cost_cards != *query.additional_cost_cards) return false;
+    if (ignored != IgnoredQueryField::Target && query.target.has_value()) {
+        const auto candidate = command_target_json(session, command);
+        if (!candidate.has_value() || !same_target(*candidate, *query.target)) return false;
+    }
+    if (query.choice_id.has_value() || query.selected_option_ids.has_value()) {
+        session.sync_choice_tokens();
+        if (command.action != scgs::v2::ActionKind::ResolveChoice) return false;
+        if (query.choice_id.has_value() && *query.choice_id != session.external_choice_id) return false;
+        if (query.selected_option_ids.has_value()) {
+            std::vector<std::string> external;
+            for (const std::string& option : command.selected_option_ids) {
+                external.push_back(session.external_option(option));
+            }
+            if (external != *query.selected_option_ids) return false;
+        }
+    }
+    return true;
+}
+
+void require_valid_query(const ProductSession& session, const RequestShape& query) {
     if (validate_request_shape(query) != kEngineOk) {
-        fail(
-            SCGS_V05_SCHEMA_MISMATCH,
-            "The query contains a field unrelated to its selected action.");
+        fail(SCGS_V05_SCHEMA_MISMATCH, "The query contains a field unrelated to its selected action.");
     }
-    if (!session.started) {
+    if (session.game.phase() == scgs::v2::ProductGamePhase::NotStarted) {
         fail(SCGS_V05_INVALID_ARGUMENT, "The query requires a started match.");
     }
-    if (query.expected_revision != session.revision) {
+    if (query.expected_revision != session.game.revision()) {
         fail(SCGS_V05_INVALID_ARGUMENT, "The query revision is stale.");
     }
-    if (session.finished) {
+    if (session.game.phase() == scgs::v2::ProductGamePhase::Finished) {
         fail(SCGS_V05_INVALID_ARGUMENT, "The query cannot inspect a finished match.");
     }
+}
+
+std::uint32_t event_type(const scgs::v2::ProductGameEvent& event) noexcept {
+    using Kind = scgs::v2::ProductEventKind;
+    switch (event.kind) {
+        case Kind::MatchStarted: return 0U;
+        case Kind::TurnStarted: return 1U;
+        case Kind::TurnEnded: return 2U;
+        case Kind::CardDrawn: return 3U;
+        case Kind::CardArchived: return 5U;
+        case Kind::CostPaid: return 6U;
+        case Kind::CardPlayed:
+        case Kind::CardMoved:
+        case Kind::ChoiceResolved: return 8U;
+        case Kind::AttackDeclared: return 14U;
+        case Kind::AttackCancelled: return 15U;
+        case Kind::Damage: return event.target.has_value() ? 10U : 11U;
+        case Kind::Healing: return 12U;
+        case Kind::Evolved: return 16U;
+        case Kind::TrapActivated: return 20U;
+        case Kind::ReactionPassed:
+        case Kind::ChoiceRequested: return 19U;
+        case Kind::PlayerSurrendered: return 22U;
+        case Kind::MatchEnded: return 23U;
+        case Kind::MulliganSubmitted: return 24U;
+    }
+    return 8U;
+}
+
+bool event_hidden_from_viewer(
+    const ProductSession& session,
+    const scgs::v2::ProductGameEvent& event,
+    const std::uint32_t viewer) {
+    const bool opponent_view = viewer != static_cast<std::uint32_t>(event.player);
+    if (!opponent_view) {
+        return false;
+    }
+    using Kind = scgs::v2::ProductEventKind;
+    if (event.kind == Kind::CardDrawn || event.kind == Kind::MulliganSubmitted ||
+        event.kind == Kind::ChoiceRequested || event.kind == Kind::ChoiceResolved) {
+        return true;
+    }
+    if (event.kind == Kind::CardPlayed && event.source.has_value() &&
+        session.game.board().contains_instance(*event.source)) {
+        const auto& definition = session.game.board().catalog().at(
+            session.game.board().instance(*event.source).design_id);
+        return definition.kind == scgs::v2::CardKind::Trap;
+    }
+    return false;
+}
+
+std::string event_text(
+    const scgs::v2::ProductGameEvent& event,
+    const bool hidden) {
+    using Kind = scgs::v2::ProductEventKind;
+    if (hidden) {
+        switch (event.kind) {
+            case Kind::CardDrawn: return "opponent drew a card";
+            case Kind::CardPlayed: return "opponent set a trap";
+            case Kind::MulliganSubmitted: return "opponent completed mulligan";
+            case Kind::ChoiceRequested: return "opponent is choosing";
+            case Kind::ChoiceResolved: return "opponent completed a private choice";
+            default: return "opponent completed a private choice";
+        }
+    }
+    switch (event.kind) {
+        case Kind::MatchStarted: return "match started";
+        case Kind::MulliganSubmitted: return "mulligan completed";
+        case Kind::CardDrawn: return "card drawn";
+        case Kind::CardArchived: return "card archived";
+        case Kind::TurnStarted: return "turn started";
+        case Kind::TurnEnded: return "turn ended";
+        case Kind::CostPaid: return "cost paid";
+        case Kind::CardPlayed: return "card played";
+        case Kind::CardMoved: return "card moved";
+        case Kind::AttackDeclared: return "attack declared";
+        case Kind::AttackCancelled: return "attack cancelled";
+        case Kind::Damage: return "damage dealt";
+        case Kind::Healing: return "leader healed";
+        case Kind::Evolved: return "follower evolved";
+        case Kind::TrapActivated: return "trap activated";
+        case Kind::ReactionPassed: return "reaction passed";
+        case Kind::ChoiceRequested: return "choice requested";
+        case Kind::ChoiceResolved: return "choice resolved";
+        case Kind::PlayerSurrendered: return "player surrendered";
+        case Kind::MatchEnded: return "match ended";
+    }
+    return "event";
 }
 
 void prepare_output(std::uint64_t* required_bytes) {
@@ -1092,10 +1374,10 @@ scgs_v05_native_code write_json(
 }
 
 std::mutex g_registry_mutex;
-std::unordered_map<scgs_v05_handle, std::shared_ptr<FoundationSession>> g_registry;
+std::unordered_map<scgs_v05_handle, std::shared_ptr<ProductSession>> g_registry;
 scgs_v05_handle g_next_handle = 1U;
 
-std::shared_ptr<FoundationSession> find_session(const scgs_v05_handle handle) {
+std::shared_ptr<ProductSession> find_session(const scgs_v05_handle handle) {
     if (handle == 0U) {
         fail(SCGS_V05_INVALID_HANDLE, "The game handle is invalid.");
     }
@@ -1107,7 +1389,7 @@ std::shared_ptr<FoundationSession> find_session(const scgs_v05_handle handle) {
     return iterator->second;
 }
 
-scgs_v05_handle add_session(std::shared_ptr<FoundationSession> session) {
+scgs_v05_handle add_session(std::shared_ptr<ProductSession> session) {
     const std::lock_guard<std::mutex> lock(g_registry_mutex);
     if (g_next_handle == 0U) {
         fail(SCGS_V05_OUT_OF_MEMORY, "The native handle space has been exhausted.");
@@ -1145,7 +1427,7 @@ scgs_v05_native_code SCGS_V05_CALL scgs_v05_create(
             fail(SCGS_V05_ABI_MISMATCH, "The requested native ABI version is not supported.");
         }
         ParsedConfig config = parse_config(parse_payload(config_json, config_bytes));
-        *out_handle = add_session(std::make_shared<FoundationSession>(std::move(config)));
+        *out_handle = add_session(std::make_shared<ProductSession>(std::move(config)));
         return SCGS_V05_OK;
     });
 }
@@ -1173,43 +1455,10 @@ scgs_v05_native_code SCGS_V05_CALL scgs_v05_start(
             fail(SCGS_V05_INVALID_ARGUMENT, "The engine-code output pointer is null.");
         }
         *out_engine_code = SCGS_V05_NO_ENGINE_CODE;
-        const std::shared_ptr<FoundationSession> session = find_session(handle);
+        const std::shared_ptr<ProductSession> session = find_session(handle);
         const std::lock_guard<std::mutex> lock(session->mutex);
-        if (session->started) {
-            *out_engine_code = kEngineMatchAlreadyStarted;
-            return SCGS_V05_OK;
-        }
-        session->begin_choice_tokens();
-        session->started = true;
-        session->first_player = session->config.first_player_mode == 0U
-            ? session->config.seed % 2U
-            : session->config.first_player_mode - 1U;
-        session->active_player = session->first_player;
-        session->revision = 1U;
-        const std::vector<scgs::InstanceId>& hand =
-            session->board.player(scgs::PlayerId::Player0).hand;
-        scgs::v2::PendingChoice choice;
-        choice.choice_id = 1U;
-        choice.chooser = scgs::PlayerId::Player0;
-        choice.kind = scgs::v2::ChoiceKind::Cards;
-        choice.minimum = 1U;
-        choice.maximum = 1U;
-        choice.options = {
-            scgs::v2::ChoiceOption{session->active_option_ids.at(0), hand.at(0)},
-            scgs::v2::ChoiceOption{session->active_option_ids.at(1), hand.at(1)},
-        };
-        if (!session->resolution.suspend_for_choice(std::move(choice))) {
-            throw std::logic_error("failed to open the v05 foundation pending choice");
-        }
-        append_event(
-            *session,
-            0U,
-            session->first_player,
-            "match started",
-            {},
-            false,
-            session->first_player);
-        *out_engine_code = kEngineOk;
+        const scgs::v2::ProductGameStatus status = session->game.start();
+        *out_engine_code = map_engine_code(status.code);
         return SCGS_V05_OK;
     });
 }
@@ -1223,9 +1472,9 @@ scgs_v05_native_code SCGS_V05_CALL scgs_v05_get_view_json(
     return protect([&]() -> scgs_v05_native_code {
         prepare_output(required_bytes);
         const std::uint32_t parsed_viewer = parse_viewer(viewer);
-        const std::shared_ptr<FoundationSession> session = find_session(handle);
+        const std::shared_ptr<ProductSession> session = find_session(handle);
         const std::lock_guard<std::mutex> lock(session->mutex);
-        Json output = make_envelope(session->revision);
+        Json output = make_envelope(session->game.revision());
         output["view"] = make_view(*session, parsed_viewer);
         return write_json(output, buffer, capacity, required_bytes);
     });
@@ -1241,40 +1490,20 @@ scgs_v05_native_code SCGS_V05_CALL scgs_v05_list_legal_actions_json(
     return protect([&]() -> scgs_v05_native_code {
         prepare_output(required_bytes);
         const RequestShape query = parse_request(parse_payload(query_json, query_bytes), false);
-        const std::shared_ptr<FoundationSession> session = find_session(handle);
+        const std::shared_ptr<ProductSession> session = find_session(handle);
         const std::lock_guard<std::mutex> lock(session->mutex);
         require_valid_query(*session, query);
         Json actions = Json::array();
-        const auto& pending = session->resolution.pending_choice();
-        if (pending.has_value()) {
-            if (query.player == static_cast<std::uint32_t>(pending->chooser) &&
-                (!query.action.has_value() || *query.action == 13U)) {
-                for (const scgs::v2::ChoiceOption& option : pending->options) {
-                    Json command = make_resolve_choice_command(
-                        *session, query.player, session->revision, option.option_id);
-                    actions.push_back(
-                        Json{{"command", std::move(command)}, {"payment", make_payment(0U, "ok")}});
-                }
+        const auto player = static_cast<scgs::PlayerId>(query.player);
+        for (const scgs::v2::ProductLegalAction& action : session->game.list_legal_actions(player)) {
+            if (!command_matches_query(*session, action.command, query)) {
+                continue;
             }
-        } else {
-            const bool in_mulligan = !(session->mulligan_done[0] && session->mulligan_done[1]);
-            if (in_mulligan && !session->mulligan_done[query.player] &&
-                (!query.action.has_value() || *query.action == 0U)) {
-                Json command = make_command(query.player, 0U, session->revision);
-                actions.push_back(Json{{"command", std::move(command)}, {"payment", make_payment(0U, "ok")}});
-            } else if (!in_mulligan && query.player == session->active_player) {
-                Json end_turn = make_command(query.player, 9U, session->revision);
-                if (!query.action.has_value() || *query.action == 9U) {
-                    actions.push_back(Json{{"command", std::move(end_turn)}, {"payment", make_payment(0U, "ok")}});
-                }
-            }
+            actions.push_back(Json{
+                {"command", make_command(*session, action.command)},
+                {"payment", make_payment(*session, player, kEngineOk, "ok", action.payment)}});
         }
-        if (!query.action.has_value() || *query.action == 10U) {
-            Json surrender = make_command(query.player, 10U, session->revision);
-            actions.push_back(
-                Json{{"command", std::move(surrender)}, {"payment", make_payment(0U, "ok")}});
-        }
-        Json output = make_envelope(session->revision);
+        Json output = make_envelope(session->game.revision());
         output["actions"] = std::move(actions);
         return write_json(output, buffer, capacity, required_bytes);
     });
@@ -1290,14 +1519,27 @@ scgs_v05_native_code SCGS_V05_CALL scgs_v05_list_valid_targets_json(
     return protect([&]() -> scgs_v05_native_code {
         prepare_output(required_bytes);
         const RequestShape query = parse_request(parse_payload(query_json, query_bytes), false);
-        const std::shared_ptr<FoundationSession> session = find_session(handle);
+        const std::shared_ptr<ProductSession> session = find_session(handle);
         const std::lock_guard<std::mutex> lock(session->mutex);
         require_valid_query(*session, query);
-        // The foundation adapter exposes no product action until the product
-        // executor is connected. Returning no targets is therefore the only
-        // result that can stay in lockstep with submit_command.
-        Json output = make_envelope(session->revision);
-        output["targets"] = Json::array();
+        Json targets = Json::array();
+        std::unordered_set<std::string> seen;
+        const auto player = static_cast<scgs::PlayerId>(query.player);
+        for (const auto& action : session->game.list_legal_actions(player)) {
+            if (!command_matches_query(*session, action.command, query, IgnoredQueryField::Target)) {
+                continue;
+            }
+            const auto target = command_target_json(*session, action.command);
+            if (!target.has_value()) {
+                continue;
+            }
+            const std::string key = target->dump();
+            if (seen.insert(key).second) {
+                targets.push_back(*target);
+            }
+        }
+        Json output = make_envelope(session->game.revision());
+        output["targets"] = std::move(targets);
         return write_json(output, buffer, capacity, required_bytes);
     });
 }
@@ -1312,13 +1554,20 @@ scgs_v05_native_code SCGS_V05_CALL scgs_v05_list_valid_slots_json(
     return protect([&]() -> scgs_v05_native_code {
         prepare_output(required_bytes);
         const RequestShape query = parse_request(parse_payload(query_json, query_bytes), false);
-        const std::shared_ptr<FoundationSession> session = find_session(handle);
+        const std::shared_ptr<ProductSession> session = find_session(handle);
         const std::lock_guard<std::mutex> lock(session->mutex);
         require_valid_query(*session, query);
-        // No product play command is submit-able by this adapter yet, so
-        // enumerating nominal board indices would violate query/submit parity.
         Json slots = Json::array();
-        Json output = make_envelope(session->revision);
+        std::unordered_set<std::size_t> seen;
+        const auto player = static_cast<scgs::PlayerId>(query.player);
+        for (const auto& action : session->game.list_legal_actions(player)) {
+            if (action.command.slot.has_value() &&
+                command_matches_query(*session, action.command, query, IgnoredQueryField::Slot) &&
+                seen.insert(*action.command.slot).second) {
+                slots.push_back(*action.command.slot);
+            }
+        }
+        Json output = make_envelope(session->game.revision());
         output["slots"] = std::move(slots);
         return write_json(output, buffer, capacity, required_bytes);
     });
@@ -1334,11 +1583,25 @@ scgs_v05_native_code SCGS_V05_CALL scgs_v05_list_valid_donors_json(
     return protect([&]() -> scgs_v05_native_code {
         prepare_output(required_bytes);
         const RequestShape query = parse_request(parse_payload(query_json, query_bytes), false);
-        const std::shared_ptr<FoundationSession> session = find_session(handle);
+        const std::shared_ptr<ProductSession> session = find_session(handle);
         const std::lock_guard<std::mutex> lock(session->mutex);
         require_valid_query(*session, query);
-        Json output = make_envelope(session->revision);
-        output["donors"] = Json::array();
+        Json donors = Json::array();
+        std::unordered_set<scgs::InstanceId> seen;
+        const auto player = static_cast<scgs::PlayerId>(query.player);
+        for (const auto& action : session->game.list_legal_actions(player)) {
+            if (!command_matches_query(
+                    *session, action.command, query, IgnoredQueryField::AdditionalCosts)) {
+                continue;
+            }
+            for (const scgs::InstanceId card : action.command.additional_cost_cards) {
+                if (seen.insert(card).second) {
+                    donors.push_back(card);
+                }
+            }
+        }
+        Json output = make_envelope(session->game.revision());
+        output["donors"] = std::move(donors);
         return write_json(output, buffer, capacity, required_bytes);
     });
 }
@@ -1353,11 +1616,25 @@ scgs_v05_native_code SCGS_V05_CALL scgs_v05_preview_payment_json(
     return protect([&]() -> scgs_v05_native_code {
         prepare_output(required_bytes);
         const RequestShape command = parse_request(parse_payload(command_json, command_bytes), true);
-        const std::shared_ptr<FoundationSession> session = find_session(handle);
+        const std::shared_ptr<ProductSession> session = find_session(handle);
         const std::lock_guard<std::mutex> lock(session->mutex);
-        const std::uint32_t code = validate_command(*session, command);
-        Json output = make_envelope(session->revision);
-        output["payment"] = make_payment(code, engine_message(code));
+        std::uint32_t code = validate_request_shape(command);
+        std::string message = engine_message(code);
+        scgs::v2::ProductPaymentPreview payment;
+        if (code == kEngineOk) {
+            ConvertedCommand converted = convert_command(*session, command);
+            code = converted.forced_code;
+            message = converted.forced_message;
+            if (code == kEngineOk) {
+                const scgs::v2::ProductActionPlan plan = session->game.plan_command(converted.command);
+                code = map_engine_code(plan.status.code, converted.command.action);
+                message = plan.status.message.empty() ? engine_message(code) : plan.status.message;
+                payment = plan.payment;
+            }
+        }
+        Json output = make_envelope(session->game.revision());
+        output["payment"] = make_payment(
+            *session, static_cast<scgs::PlayerId>(command.player), code, message, payment);
         return write_json(output, buffer, capacity, required_bytes);
     });
 }
@@ -1370,12 +1647,12 @@ scgs_v05_native_code SCGS_V05_CALL scgs_v05_get_reaction_context_json(
     std::uint64_t* required_bytes) {
     return protect([&]() -> scgs_v05_native_code {
         prepare_output(required_bytes);
-        (void)parse_viewer(viewer);
-        const std::shared_ptr<FoundationSession> session = find_session(handle);
+        const std::uint32_t parsed_viewer = parse_viewer(viewer);
+        const std::shared_ptr<ProductSession> session = find_session(handle);
         const std::lock_guard<std::mutex> lock(session->mutex);
-        Json output = make_envelope(session->revision);
-        output["reaction"] = make_reaction(*session);
-        output["pending_choice"] = make_pending_choice(*session, viewer);
+        Json output = make_envelope(session->game.revision());
+        output["reaction"] = make_reaction(*session, parsed_viewer);
+        output["pending_choice"] = make_pending_choice(*session, parsed_viewer);
         return write_json(output, buffer, capacity, required_bytes);
     });
 }
@@ -1391,54 +1668,23 @@ scgs_v05_native_code SCGS_V05_CALL scgs_v05_submit_command_json(
         }
         *out_engine_code = SCGS_V05_NO_ENGINE_CODE;
         const RequestShape command = parse_request(parse_payload(command_json, command_bytes), true);
-        const std::shared_ptr<FoundationSession> session = find_session(handle);
+        const std::shared_ptr<ProductSession> session = find_session(handle);
         const std::lock_guard<std::mutex> lock(session->mutex);
-        const std::uint32_t code = validate_command(*session, command);
-        *out_engine_code = code;
-        if (code != kEngineOk) {
+        const std::uint32_t shape_code = validate_request_shape(command);
+        if (shape_code != kEngineOk) {
+            *out_engine_code = shape_code;
             return SCGS_V05_OK;
         }
-        const std::uint32_t action = *command.action;
-        if (action == 0U) {
-            session->mulligan_done[command.player] = true;
-            append_event(
-                *session,
-                24U,
-                command.player,
-                "mulligan completed",
-                "opponent completed mulligan",
-                true);
-        } else if (action == 9U) {
-            append_event(*session, 2U, command.player, "turn ended");
-            session->active_player = 1U - session->active_player;
-            append_event(*session, 1U, session->active_player, "turn started");
-        } else if (action == 10U) {
-            session->resolution.finish_match();
-            session->clear_choice_tokens();
-            session->finished = true;
-            session->result = command.player == 0U ? 2U : 1U;
-            append_event(*session, 22U, command.player, "player surrendered");
-            append_event(*session, 23U, 1U - command.player, "match ended");
-        } else if (action == 13U) {
-            const scgs::v2::Status status = session->resolution.resolve_choice(
-                static_cast<scgs::PlayerId>(command.player),
-                1U,
-                *command.selected_option_ids);
-            if (!status) {
-                *out_engine_code = kEngineInvalidChoice;
-                return SCGS_V05_OK;
-            }
-            (void)session->resolution.take_resolved_choice();
-            session->clear_choice_tokens();
-            append_event(
-                *session,
-                25U,
-                command.player,
-                "private choice completed",
-                "opponent completed a private choice",
-                true);
+        ConvertedCommand converted = convert_command(*session, command);
+        if (converted.forced_code != kEngineOk) {
+            *out_engine_code = converted.forced_code;
+            return SCGS_V05_OK;
         }
-        ++session->revision;
+        const scgs::v2::ProductGameStatus status = session->game.submit_command(converted.command);
+        *out_engine_code = map_engine_code(status.code, converted.command.action);
+        if (status) {
+            session->sync_choice_tokens();
+        }
         return SCGS_V05_OK;
     });
 }
@@ -1453,31 +1699,35 @@ scgs_v05_native_code SCGS_V05_CALL scgs_v05_read_events_json(
     return protect([&]() -> scgs_v05_native_code {
         prepare_output(required_bytes);
         const std::uint32_t parsed_viewer = parse_viewer(viewer);
-        const std::shared_ptr<FoundationSession> session = find_session(handle);
+        const std::shared_ptr<ProductSession> session = find_session(handle);
         const std::lock_guard<std::mutex> lock(session->mutex);
         Json events = Json::array();
         std::uint64_t last_sequence = after_sequence;
-        for (const StoredEvent& event : session->events) {
+        for (const scgs::v2::ProductGameEvent& event : session->game.read_events(after_sequence)) {
             if (event.sequence <= after_sequence) {
                 continue;
             }
-            const bool hidden = event.hide_from_opponent && parsed_viewer != event.player;
+            const bool hidden = event_hidden_from_viewer(*session, event, parsed_viewer);
             Json value{
                 {"sequence", event.sequence},
-                {"type", event.type},
-                {"player", event.player},
-                {"value", 0},
-                {"secondary_value", 0},
+                {"type", event_type(event)},
+                {"player", static_cast<std::uint32_t>(event.player)},
+                {"value", hidden ? 0 : event.value},
+                {"secondary_value", hidden ? 0 : event.secondary_value},
                 {"hidden_card", hidden},
-                {"text", hidden ? event.opponent_text : event.public_text}};
-            if (event.first_player.has_value()) {
-                value["first_player"] = *event.first_player;
+                {"text", event_text(event, hidden)}};
+            if (!hidden && event.source.has_value() &&
+                session->game.board().contains_instance(*event.source)) {
+                value["card"] = *event.source;
+                value["design_id"] = session->game.board().instance(*event.source).design_id;
             }
-            // No event emitted by v05 contains a random_seed field.
+            if (event.kind == scgs::v2::ProductEventKind::MatchStarted) {
+                value["first_player"] = static_cast<std::uint32_t>(session->game.first_player());
+            }
             events.push_back(std::move(value));
             last_sequence = event.sequence;
         }
-        Json output = make_envelope(session->revision);
+        Json output = make_envelope(session->game.revision());
         output["last_sequence"] = last_sequence;
         output["events"] = std::move(events);
         return write_json(output, buffer, capacity, required_bytes);

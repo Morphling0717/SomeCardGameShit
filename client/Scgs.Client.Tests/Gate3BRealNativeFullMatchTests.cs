@@ -29,15 +29,15 @@ public sealed class Gate3BRealNativeFullMatchTests
 
     [TestMethod]
     [TestCategory("NativeIntegration")]
-    public void FixedDeckMatrixCompletesWithPrivacyIndependentCursorsAndAllCommands()
+    public void SyntheticFixtureMatrixCompletesWithPrivacyIndependentCursorsAndAllCommands()
     {
         string nativePath = GetNativeLibraryPath();
         (string Player0, string Player1)[] deckPairs =
         [
-            ("midrange", "midrange"),
-            ("midrange", "advance"),
-            ("advance", "midrange"),
-            ("advance", "advance"),
+            ("synthetic_alpha", "synthetic_alpha"),
+            ("synthetic_alpha", "synthetic_beta"),
+            ("synthetic_beta", "synthetic_alpha"),
+            ("synthetic_beta", "synthetic_beta"),
         ];
         FirstPlayerMode[] firstPlayers =
         [
@@ -63,7 +63,7 @@ public sealed class Gate3BRealNativeFullMatchTests
 
         // Surrender is deliberately excluded from the full-match agent. Exercise
         // it in its own terminal-path session so the eight matrix games still
-        // prove that the fixed decks can reach a natural engine result.
+        // prove that the protocol fixtures can reach a natural engine result.
         RunSurrenderTerminalPath(nativePath, seed, submittedKinds);
 
         ActionKind[] missing = Enum.GetValues<ActionKind>()
@@ -180,7 +180,7 @@ public sealed class Gate3BRealNativeFullMatchTests
         uint seed,
         HashSet<ActionKind> submittedKinds)
     {
-        var config = new GameConfigRequest("midrange", "advance")
+        var config = new GameConfigRequest("synthetic_alpha", "synthetic_beta")
         {
             RandomSeed = seed,
             FirstPlayerMode = FirstPlayerMode.Player0,
@@ -525,10 +525,10 @@ public sealed class Gate3BRealNativeFullMatchTests
             StringComparison.OrdinalIgnoreCase);
         if (isCi)
         {
-            Assert.Fail("SCGS_NATIVE_LIBRARY is required for managed tests in CI.");
+            Assert.Fail("SCGS_NATIVE_LIBRARY must identify the same-commit v04 synthetic fixture library in CI.");
         }
 
-        Assert.Inconclusive("Set SCGS_NATIVE_LIBRARY to run the real-library Gate 3B matrix.");
+        Assert.Inconclusive("Set SCGS_NATIVE_LIBRARY to the v04 synthetic fixture library to run its matrix.");
         throw new InvalidOperationException("MSTest did not terminate an inconclusive test.");
     }
 }

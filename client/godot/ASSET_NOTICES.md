@@ -1,17 +1,16 @@
-# Gate 4B visual asset notices
+# AnimeV1 product visual asset notices
 
-The temporary card illustrations, shared card back, menu background, and two
-deck-bound leader portraits in `assets/visual/` were created specifically for
-SomeCardGameShit with OpenAI's built-in image generation workflow on
-2026-08-24. They are original placeholder assets intended to be replaced by
-production artwork. Their prompts request no third-party logos, trademarks,
-text, watermarks, or copied game assets.
+The product uses original fantasy-anime artwork created specifically for
+SomeCardGameShit with OpenAI's built-in image generation workflow. Source
+manifests preserve individual prompts, dates, hashes and review limitations.
+The retired Gate 4B set of twenty-nine industrial card
+illustrations, two industrial leader portraits, its card back and menu raster
+was removed on 2026-09-05. Those historical files remain recoverable from Git
+history; they are not product assets or licensed contents of this package.
 
-The neutral industrial floor albedo under `assets/visual/arena/` was created
-with the same built-in workflow on 2026-08-25 for the Gate 4B-R3.1 visual
-candidate. It deliberately contains no perimeter frame, gameplay slots,
-faction split, text, logo, watermark, or reference-game imagery. The candidate
-arena meshes and shaders are original repository-authored assets.
+The old industrial floor, machinery model, candidate scene and R3 shaders were
+retired on 2026-09-05 with the industrial product profile. They are recoverable
+from Git history and are not included in this AnimeV1 player build.
 
 Original interface frames, badges, symbols, and fallback graphics are authored
 in this repository as Godot resources or SVG components. YGOPro2 screenshots
@@ -19,10 +18,13 @@ were used only as a clean-room reference for general information density and
 interaction rhythm; no YGOPro2/Yu-Gi-Oh code, coordinates, materials, Prefabs,
 art, logos, audio, or wording are included in this package.
 
-Exact file paths, SHA-256 digests, purposes, generation methods, dates, and
-prompt summaries are recorded in the frozen R2
-`assets/visual/ASSET_MANIFEST.json` and the isolated R3 candidate
-`assets/visual/arena/R3_ASSET_MANIFEST.json`.
+The identity-free neutral front at
+`assets/visual/anime_v1/shared/fallback_front.svg` is a repository-authored
+moon-gold rune on deep indigo, created on 2026-09-05 without reference art. It
+contains no card, profession or series identity. Its path, SHA-256, purpose and
+method are recorded in `assets/visual/ASSET_MANIFEST.json`. Both product unknown
+cards and synthetic protocol fixtures share this fallback and the AnimeV1
+card back; old numeric card identities no longer select artwork.
 
 The isolated Gate 6A AnimeV1 visual slice under
 `assets/visual/anime_v1/slice/` contains fourteen original fantasy-anime
@@ -30,7 +32,13 @@ candidate rasters made for this project with the same built-in workflow on
 2026-08-26. It includes two true-alpha leader masters, seven representative
 card illustrations, two ace evolution alternatives, one shared card back, one
 wordless menu key art, and one open fantasy arena. It uses no reference image
-or third-party game asset and is not yet the default playable product path.
+or third-party game asset. These approved assets now form part of the default
+playable AnimeV1 product path; the historical `slice` directory is retained to
+preserve their provenance and stable hashes.
+The two public leader portraits are cached head-and-shoulders atlas views of
+the unmodified 1024x1536 masters: Aurelia uses pixel rectangle (390, 74, 300,
+300), and Theraea uses (368, 14, 312, 312). These runtime crops do not create
+new raster assets or modify the masters; both HUD and leader targets use them.
 Its exact hashes and summaries are recorded in the adjacent source
 `ASSET_MANIFEST.json` (packaged as `ANIME_V1_ASSET_MANIFEST.json`); complete
 prompts, rejected-background notes, and the human-review boundary are recorded
@@ -75,9 +83,31 @@ material:
 The complete generation prompts, rejection history, no-input-image statement,
 and review boundary are recorded in
 `assets/visual/anime_v1/card_body/PROVENANCE.md`. This notice records project
-provenance only: the Gate 6A-R1 card body remains pending explicit user approval
-and later human commercial-release review; it does not claim final visual
-approval, trademark clearance, or acceptance for shipping.
+provenance. The integrated card-body direction was approved as the
+playable-product baseline before the product-card batch was integrated; it
+remains subject to later human commercial-release review and does not claim
+trademark clearance or acceptance for shipping.
+
+## Gate 5C-6C AnimeV1 product-card illustrations
+
+The product batch under `assets/visual/anime_v1/cards/` contains twenty-eight
+original 1024x1536 card illustrations generated specifically for this project
+with OpenAI's built-in image-generation workflow on 2026-08-26. Together with
+the seven frozen base illustrations under `anime_v1/slice/cards/`, it gives all
+thirty-four constructible Oathguard/Pactmage/neutral definitions and derived
+token `LO-T01` one unique real base illustration. The two locked ace evolution
+alternatives remain in the frozen Gate 6A slice.
+
+The illustrations contain no intentionally embedded gameplay text, card frame,
+cost, statistics, logo, watermark, named franchise character, or third-party
+game asset. Exact paths, SHA-256 hashes, purposes and truthful prompt summaries
+are packaged in `ANIME_V1_PRODUCT_CARD_ART_ASSET_MANIFEST.json`; generation and
+selection history is packaged in `ANIME_V1_PRODUCT_CARD_ART_PROVENANCE.md`.
+The raw batch is capped at 96 MiB and its conservative desktop-compressed mip
+estimate at 64 MiB. The runtime identity-texture working set remains capped at
+twenty-four textures and must not preload the complete thirty-five-card base-art
+catalog. Human full-resolution anatomy, text-like mark, trademark and IP review
+is still required before commercial release.
 
 ## Noto Serif CJK SC SemiBold
 

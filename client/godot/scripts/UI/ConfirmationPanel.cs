@@ -53,6 +53,23 @@ public sealed partial class ConfirmationPanel : PanelContainer
         _cancelButton.GrabFocus();
     }
 
+    public void PresentProductConfirmation(
+        string title,
+        string summary,
+        string detail,
+        bool canConfirm = true)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(title);
+        ArgumentException.ThrowIfNullOrWhiteSpace(summary);
+        Visible = true;
+        _title.Text = title;
+        _summary.Text = summary;
+        _payment.Text = detail;
+        _confirmButton.Disabled = !canConfirm;
+        _cancelButton.Disabled = false;
+        _cancelButton.GrabFocus();
+    }
+
     public void SetBusy(bool busy)
     {
         _confirmButton.Disabled = busy;

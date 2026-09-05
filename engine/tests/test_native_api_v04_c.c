@@ -14,8 +14,8 @@ static int fail(const char* message) {
 
 int main(void) {
     static const char config[] =
-        "{\"schema_version\":1,\"player0_deck\":\"midrange\","
-        "\"player1_deck\":\"advance\",\"random_seed\":3235823838,"
+        "{\"schema_version\":1,\"player0_deck\":\"synthetic_alpha\","
+        "\"player1_deck\":\"synthetic_beta\",\"random_seed\":3235823838,"
         "\"first_player_mode\":1,\"shuffle_decks\":false}";
 
     if (scgs_v04_abi_version() != SCGS_V04_ABI_VERSION) {

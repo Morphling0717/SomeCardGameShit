@@ -40,7 +40,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
     private static readonly Color HiddenFrameColor = new("101d31");
     private static readonly CardFaceRect FullProductRect = new(0.0f, 0.0f, 1.0f, 1.0f);
     private static readonly ArenaVisualProfile R3Profile =
-        ArenaVisualProfile.R3Candidate;
+        ArenaVisualProfile.AnimeV1;
 
     private static readonly BoxMesh CardMesh = new()
     {
@@ -85,6 +85,9 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
     private static readonly StandardMaterial3D LegalOutline = CreateOutlineMaterial(LegalColor);
     private static readonly StandardMaterial3D DestinationOutline = CreateOutlineMaterial(DestinationColor);
     private static readonly StandardMaterial3D SelectedOutline = CreateOutlineMaterial(SelectedColor);
+    private static readonly ShaderMaterial AnimeLegalOutline = CreateAnimeOutline(new Color("e8cd87"));
+    private static readonly ShaderMaterial AnimeDestinationOutline = CreateAnimeOutline(new Color("b6cdee"));
+    private static readonly ShaderMaterial AnimeSelectedOutline = CreateAnimeOutline(new Color("f3dfaf"));
     private static readonly StandardMaterial3D BadgeMaterial = CreateBadgeMaterial();
     private static readonly StandardMaterial3D R3MidrangeFrame =
         CreateCandidateFrameMaterial(R3Profile.MidrangeMetal);
@@ -139,7 +142,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
     private static readonly Font ProductCardFont = LoadProductCardFont();
 
     private ICardVisualCatalog _visualCatalog = CardVisualCatalog.Shared;
-    private ArenaVisualProfile _visualProfile = ArenaVisualProfile.Gate4BR2;
+    private ArenaVisualProfile _visualProfile = ArenaVisualProfile.AnimeV1;
     private MeshInstance3D _baseMesh = null!;
     private MeshInstance3D _artworkSurface = null!;
     private MeshInstance3D _outlineMesh = null!;
@@ -429,8 +432,18 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
     internal bool CiHasPrivacyTextureSentinel(string token) =>
         _ciPrivacyMaterial is { } material &&
         _ciPrivacyTexture is { } texture &&
-        ReferenceEquals(_artworkSurface?.MaterialOverride, material) &&
+        (ReferenceEquals(_artworkSurface?.MaterialOverride, material) ||
+         ReferenceEquals(_productArtwork?.MaterialOverride, material)) &&
         material.ResourceName == token && texture.ResourceName == token;
+
+    internal bool CiHasPrivacyResources => _ciPrivacyMaterial is not null || _ciPrivacyTexture is not null;
+
+    internal bool CiHasActiveHoverTween => _hoverTween is not null &&
+        GodotObject.IsInstanceValid(_hoverTween) && _hoverTween.IsRunning();
+
+    internal bool CiAnonymousFaceHasIdentity => Visible && !_showsIdentity &&
+        (_productFace is not null || CardPresentation?.DefinitionId is not null ||
+         CardPresentation?.InstanceId is not null || !string.IsNullOrEmpty(_faceLabel.Text));
 
     internal bool CiUsesSharedCardBack
     {
@@ -576,9 +589,13 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         _stackUnderlayB.Visible = count >= 5;
         if (_visualProfile.UsesOpenArena)
         {
-            _pileLabel.FontSize = 20;
+            _pileLabel.FontSize = 48;
+            _pileLabel.PixelSize = 0.0092f;
+            _pileLabel.Width = 240.0f;
+            _pileLabel.Billboard = BaseMaterial3D.BillboardModeEnum.Enabled;
+            _pileLabel.Rotation = Vector3.Zero;
             _pileLabel.Modulate = new Color("d9cfbd");
-            _pileLabel.Position = new Vector3(0.0f, 0.106f, 0.72f);
+            _pileLabel.Position = new Vector3(0.0f, 0.28f, 0.94f);
         }
     }
 
@@ -907,14 +924,14 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
     {
         ArgumentException.ThrowIfNullOrEmpty(token);
         EnsureBuilt();
-        if (!Visible || CardPresentation is null)
+        if (!Visible || (CardPresentation is null && _productFace is null))
         {
             throw new InvalidOperationException("A visible card must be bound before arming privacy data.");
         }
 
         _displayText = token;
         _faceLabel.Text = token;
-        CardPresentation = CardPresentation with { Name = token };
+        if (CardPresentation is not null) CardPresentation = CardPresentation with { Name = token };
         SetMeta("ci_private_sentinel", token);
         _baseMesh.SetMeta("ci_private_sentinel", token);
         _artworkSurface.SetMeta("ci_private_sentinel", token);
@@ -939,8 +956,25 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             CullMode = BaseMaterial3D.CullModeEnum.Disabled,
             TextureFilter = BaseMaterial3D.TextureFilterEnum.Nearest,
         };
-        _artworkSurface.MaterialOverride = _ciPrivacyMaterial;
-        _artworkSurface.Visible = true;
+        if (_productFace is not null)
+        {
+            // Exercise the actual schema-2 card's visible artwork plane, not
+            // the hidden legacy plane or a fabricated legacy CardView.
+            _productArtwork.MaterialOverride = _ciPrivacyMaterial;
+            _productArtwork.SetMeta("ci_private_sentinel", token);
+            _productArtwork.Visible = true;
+            _productMaterial.Visible = false;
+            _productFoil.Visible = false;
+        }
+        else
+        {
+            _artworkSurface.MaterialOverride = _ciPrivacyMaterial;
+            _artworkSurface.Visible = true;
+        }
+        CancelHoverTween();
+        _hoverTween = CreateTween().SetLoops();
+        _hoverTween.TweenInterval(0.01);
+        _hoverTween.TweenCallback(Callable.From(() => SetMeta("ci_private_callback", token)));
     }
 
     private void Bind(
@@ -1341,17 +1375,20 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             ? R3BadgeMaterial
             : BadgeMaterial;
 
-    private StandardMaterial3D LegalOutlineMaterial =>
+    private Material LegalOutlineMaterial =>
+        _visualProfile.Id == BattlefieldVisualProfile.AnimeV1 ? AnimeLegalOutline :
         _visualProfile.Id == BattlefieldVisualProfile.R3Candidate
             ? R3LegalOutline
             : LegalOutline;
 
-    private StandardMaterial3D DestinationOutlineMaterial =>
+    private Material DestinationOutlineMaterial =>
+        _visualProfile.Id == BattlefieldVisualProfile.AnimeV1 ? AnimeDestinationOutline :
         _visualProfile.Id == BattlefieldVisualProfile.R3Candidate
             ? R3DestinationOutline
             : DestinationOutline;
 
-    private StandardMaterial3D SelectedOutlineMaterial =>
+    private Material SelectedOutlineMaterial =>
+        _visualProfile.Id == BattlefieldVisualProfile.AnimeV1 ? AnimeSelectedOutline :
         _visualProfile.Id == BattlefieldVisualProfile.R3Candidate
             ? R3SelectedOutline
             : SelectedOutline;
@@ -1993,6 +2030,16 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         Roughness = 0.35f,
     };
 
+    private static ShaderMaterial CreateAnimeOutline(Color accent)
+    {
+        var material = new ShaderMaterial
+        {
+            Shader = GD.Load<Shader>("res://assets/themes/anime_card_outline.gdshader"),
+        };
+        material.SetShaderParameter("accent", accent);
+        return material;
+    }
+
     private static StandardMaterial3D CreateProductBaseMaterial(Color color) => new()
     {
         AlbedoColor = color,
@@ -2207,6 +2254,11 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             ReferenceEquals(_artworkSurface?.MaterialOverride, _ciPrivacyMaterial))
         {
             _artworkSurface.MaterialOverride = null;
+        }
+        if (_ciPrivacyMaterial is not null &&
+            ReferenceEquals(_productArtwork?.MaterialOverride, _ciPrivacyMaterial))
+        {
+            _productArtwork.MaterialOverride = null;
         }
 
         _ciPrivacyMaterial?.Dispose();

@@ -234,14 +234,13 @@ CardCatalog make_synthetic_product_catalog() {
 
     CardDefinition amulet = permanent(synthetic::kAmulet, CardKind::Amulet);
     amulet.countdown = 1;
-    amulet.effects.push_back(EffectSpec{
-        EffectTrigger::OnCountdownEnd,
-        EffectKind::SummonToken,
-        1,
-        TargetSpec::Self,
-        std::nullopt,
-        std::string(synthetic::kToken),
-    });
+    EffectSpec summon;
+    summon.trigger = EffectTrigger::OnCountdownEnd;
+    summon.kind = EffectKind::SummonToken;
+    summon.amount = 1;
+    summon.target = TargetSpec::Self;
+    summon.parameter = std::string(synthetic::kToken);
+    amulet.effects.push_back(std::move(summon));
     catalog.add(std::move(amulet));
     catalog.add(permanent(synthetic::kFieldA, CardKind::Field));
     catalog.add(permanent(synthetic::kFieldB, CardKind::Field));
@@ -469,10 +468,17 @@ Status ProductBoard::move_to_graveyard(
     CardInstance& card = instances_.at(card_id);
     const Zone from = card.zone;
     const PlayerId controller = card.controller;
+    // Standby availability is immutable provenance. A deployed standby card
+    // leaves the normal card cycle even when its actual cause was destruction;
+    // retain that cause independently from the final destination.
+    const Zone destination = catalog_.at(card.design_id).availability == CardAvailability::Standby
+        ? Zone::Archive : Zone::Graveyard;
     detach(card_id);
-    card.zone = Zone::Graveyard;
-    attach_vector(players_[to_index(controller)].graveyard, card_id);
-    record_move(card_id, from, Zone::Graveyard, reason, destroyed);
+    card.zone = destination;
+    attach_vector(destination == Zone::Archive
+        ? players_[to_index(controller)].archive
+        : players_[to_index(controller)].graveyard, card_id);
+    record_move(card_id, from, destination, reason, destroyed);
     return Status::ok();
 }
 
@@ -578,6 +584,19 @@ std::vector<InstanceId> ProductBoard::reveal_top_matching(
     return result;
 }
 
+std::vector<InstanceId> ProductBoard::reveal_top(
+    const PlayerId player_id,
+    const std::size_t count) const {
+    const PlayerState& state = player(player_id);
+    const std::size_t viewed = std::min(count, state.deck.size());
+    std::vector<InstanceId> result;
+    result.reserve(viewed);
+    for (std::size_t offset = 0; offset < viewed; ++offset) {
+        result.push_back(state.deck[state.deck.size() - 1U - offset]);
+    }
+    return result;
+}
+
 DrawResult ProductBoard::draw_one(const PlayerId player_id) {
     PlayerState& state = player(player_id);
     if (state.deck.empty()) {
@@ -598,6 +617,55 @@ DrawResult ProductBoard::draw_one(const PlayerId player_id) {
     return DrawResult{card_id, true, false};
 }
 
+Status ProductBoard::exchange_mulligan(
+    const PlayerId player_id,
+    const std::span<const InstanceId> selected_cards,
+    const bool shuffle,
+    const std::uint64_t seed,
+    std::vector<DrawResult>& replacements) {
+    if (!is_valid_player(player_id)) {
+        return Status::error(ErrorCode::InvalidPlayer, "invalid mulligan player");
+    }
+    PlayerState& state = players_[to_index(player_id)];
+    if (state.deck.size() < selected_cards.size()) {
+        return Status::error(ErrorCode::InvalidChoice, "not enough cards remain for mulligan replacements");
+    }
+    std::unordered_set<InstanceId> unique;
+    for (const InstanceId card_id : selected_cards) {
+        const Status controlled = ensure_controller(player_id, card_id);
+        if (!controlled) {
+            return controlled;
+        }
+        if (instances_.at(card_id).zone != Zone::Hand || !unique.insert(card_id).second) {
+            return Status::error(ErrorCode::InvalidChoice, "mulligan card is invalid or duplicated");
+        }
+    }
+
+    for (const InstanceId card_id : selected_cards) {
+        detach(card_id);
+        instances_.at(card_id).zone = Zone::None;
+    }
+    replacements.clear();
+    replacements.reserve(selected_cards.size());
+    for (std::size_t index = 0; index < selected_cards.size(); ++index) {
+        replacements.push_back(draw_one(player_id));
+    }
+
+    state.deck.insert(state.deck.begin(), selected_cards.begin(), selected_cards.end());
+    for (const InstanceId card_id : selected_cards) {
+        CardInstance& card = instances_.at(card_id);
+        card.controller = player_id;
+        card.zone = Zone::Deck;
+        record_move(card_id, Zone::Hand, Zone::Deck, MoveReason::ReturnedToDeckBottom, false);
+    }
+    if (shuffle) {
+        std::mt19937_64 generator(seed);
+        std::shuffle(state.deck.begin(), state.deck.end(), generator);
+    }
+    normalize(state.deck, instances_);
+    return Status::ok();
+}
+
 DrawThenBottomResult ProductBoard::draw_then_prepare_bottom(const PlayerId player_id) {
     DrawThenBottomResult result;
     result.draw = draw_one(player_id);
@@ -605,6 +673,31 @@ DrawThenBottomResult ProductBoard::draw_then_prepare_bottom(const PlayerId playe
         result.bottom_candidates = player(player_id).hand;
     }
     return result;
+}
+
+Status ProductBoard::move_deck_card_to_hand(
+    const PlayerId player_id,
+    const InstanceId card_id) {
+    const Status controlled = ensure_controller(player_id, card_id);
+    if (!controlled) {
+        return controlled;
+    }
+    CardInstance& card = instances_.at(card_id);
+    if (card.zone != Zone::Deck) {
+        return Status::error(ErrorCode::InvalidZone, "searched card is not in deck");
+    }
+    detach(card_id);
+    PlayerState& state = players_[to_index(player_id)];
+    if (state.hand.size() >= 9U) {
+        card.zone = Zone::Archive;
+        attach_vector(state.archive, card_id);
+        record_move(card_id, Zone::Deck, Zone::Archive, MoveReason::HandOverflow, false);
+        return Status::ok();
+    }
+    card.zone = Zone::Hand;
+    attach_vector(state.hand, card_id);
+    record_move(card_id, Zone::Deck, Zone::Hand, MoveReason::Drawn, false);
+    return Status::ok();
 }
 
 std::vector<InstanceId> ProductBoard::list_permanents(
@@ -871,7 +964,7 @@ Status ProductBoard::expire_amulet_and_reserve(
     if (catalog_.at(amulet.design_id).kind != CardKind::Amulet) {
         return Status::error(ErrorCode::InvalidKind, "countdown expiry requires an amulet");
     }
-    if (amulet.zone != Zone::MainBoard || amulet.countdown != 1 || frame_id == 0) {
+    if (amulet.zone != Zone::MainBoard || amulet.countdown > 1 || frame_id == 0) {
         return Status::error(ErrorCode::InvalidZone, "amulet is not ready for a reserved countdown expiry");
     }
     const std::optional<std::size_t> slot = main_slot_of(amulet_id);
@@ -1049,9 +1142,23 @@ CombatResult ProductBoard::resolve_follower_combat(
     const InstanceId attacker_id,
     const InstanceId defender_id) {
     const CardInstance attacker_before = instances_.at(attacker_id);
-    const CardInstance defender_before = instances_.at(defender_id);
     if (!accept_attack_declaration(attacker_before.controller, attacker_id, defender_id)) {
         throw std::invalid_argument("invalid product follower combat");
+    }
+    return resolve_accepted_follower_combat(attacker_id, defender_id);
+}
+
+CombatResult ProductBoard::resolve_accepted_follower_combat(
+    const InstanceId attacker_id,
+    const InstanceId defender_id) {
+    const CardInstance attacker_before = instances_.at(attacker_id);
+    const CardInstance defender_before = instances_.at(defender_id);
+    if (attacker_before.zone != Zone::MainBoard || defender_before.zone != Zone::MainBoard ||
+        catalog_.at(attacker_before.design_id).kind != CardKind::Follower ||
+        catalog_.at(defender_before.design_id).kind != CardKind::Follower ||
+        attacker_before.controller == defender_before.controller ||
+        !attacker_before.attacked_this_turn) {
+        throw std::invalid_argument("invalid accepted product follower combat");
     }
 
     CardInstance& attacker = instances_.at(attacker_id);
@@ -1122,6 +1229,10 @@ void ProductBoard::ready_starting_turn_permanents(const PlayerId player_id) noex
 }
 
 const CardCatalog& ProductBoard::catalog() const noexcept { return catalog_; }
+
+bool ProductBoard::contains_instance(const InstanceId card) const noexcept {
+    return instances_.contains(card);
+}
 
 const CardInstance& ProductBoard::instance(const InstanceId card) const { return instances_.at(card); }
 
@@ -1343,12 +1454,61 @@ bool evaluate_condition(
         case ConditionKind::FutureUseAtLeast: return context.future_use_amount >= condition.threshold;
         case ConditionKind::TurnRepairAtLeast: return context.turn.actual_repaired >= condition.threshold;
         case ConditionKind::TurnFutureUseAtLeast: return context.turn.future_cracks_added >= condition.threshold;
-        case ConditionKind::TurnBarrierGranted: return context.turn.barrier_granted;
-        case ConditionKind::TurnCountdownExpired: return context.turn.countdown_expired >= condition.threshold;
+        case ConditionKind::TurnBarrierGranted:
+            if (condition.permanent_filter.allowed_kinds.empty() &&
+                condition.permanent_filter.profession_id.empty() &&
+                condition.permanent_filter.series_id.empty()) {
+                return context.turn.barrier_granted;
+            }
+            return std::any_of(context.turn.barrier_sources.begin(), context.turn.barrier_sources.end(),
+                [&](const ProductTurnHistory::PermanentRecord& record) {
+                    return (condition.permanent_filter.allowed_kinds.empty() ||
+                            std::find(condition.permanent_filter.allowed_kinds.begin(),
+                                condition.permanent_filter.allowed_kinds.end(), record.kind) !=
+                                condition.permanent_filter.allowed_kinds.end()) &&
+                        (condition.permanent_filter.profession_id.empty() ||
+                            condition.permanent_filter.profession_id == record.profession_id) &&
+                        (condition.permanent_filter.series_id.empty() ||
+                            condition.permanent_filter.series_id == record.series_id);
+                });
+        case ConditionKind::TurnCountdownExpired:
+            if (condition.permanent_filter.allowed_kinds.empty() &&
+                condition.permanent_filter.profession_id.empty() &&
+                condition.permanent_filter.series_id.empty()) {
+                return context.turn.countdown_expired >= condition.threshold;
+            }
+            return static_cast<int>(std::count_if(
+                context.turn.countdown_sources.begin(), context.turn.countdown_sources.end(),
+                [&](const ProductTurnHistory::PermanentRecord& record) {
+                    return (condition.permanent_filter.allowed_kinds.empty() ||
+                            std::find(condition.permanent_filter.allowed_kinds.begin(),
+                                condition.permanent_filter.allowed_kinds.end(), record.kind) !=
+                                condition.permanent_filter.allowed_kinds.end()) &&
+                        (condition.permanent_filter.profession_id.empty() ||
+                            condition.permanent_filter.profession_id == record.profession_id) &&
+                        (condition.permanent_filter.series_id.empty() ||
+                            condition.permanent_filter.series_id == record.series_id);
+                })) >= condition.threshold;
         case ConditionKind::MatchRepairToZeroAtLeast:
             return context.match.repair_to_zero_count >= condition.threshold;
         case ConditionKind::MatchCountdownExpiredAtLeast:
-            return context.match.countdown_expired >= condition.threshold;
+            if (condition.permanent_filter.allowed_kinds.empty() &&
+                condition.permanent_filter.profession_id.empty() &&
+                condition.permanent_filter.series_id.empty()) {
+                return context.match.countdown_expired >= condition.threshold;
+            }
+            return static_cast<int>(std::count_if(
+                context.match.countdown_sources.begin(), context.match.countdown_sources.end(),
+                [&](const ProductTurnHistory::PermanentRecord& record) {
+                    return (condition.permanent_filter.allowed_kinds.empty() ||
+                            std::find(condition.permanent_filter.allowed_kinds.begin(),
+                                condition.permanent_filter.allowed_kinds.end(), record.kind) !=
+                                condition.permanent_filter.allowed_kinds.end()) &&
+                        (condition.permanent_filter.profession_id.empty() ||
+                            condition.permanent_filter.profession_id == record.profession_id) &&
+                        (condition.permanent_filter.series_id.empty() ||
+                            condition.permanent_filter.series_id == record.series_id);
+                })) >= condition.threshold;
         case ConditionKind::LeaderHealthAtMost: return context.leader_health <= condition.threshold;
         case ConditionKind::BoardCountLessThanOpponent:
             return context.own_board_count < context.enemy_board_count;
@@ -1421,16 +1581,36 @@ FutureUseEvent ProductRuleState::use_future(
     return event;
 }
 
-void ProductRuleState::record_barrier_granted(const PlayerId player_id) {
+void ProductRuleState::record_barrier_granted(
+    const PlayerId player_id,
+    const CardDefinition* source) {
     PlayerRules& state = rules(player_id);
     state.turn.barrier_granted = true;
+    if (source != nullptr) {
+        state.turn.barrier_sources.push_back(ProductTurnHistory::PermanentRecord{
+            source->kind,
+            source->identity.profession_id,
+            source->identity.series_id,
+        });
+    }
     append_event(player_id, ProductRuleEvent::Kind::BarrierGranted, 1, true);
 }
 
-void ProductRuleState::record_countdown_expired(const PlayerId player_id) {
+void ProductRuleState::record_countdown_expired(
+    const PlayerId player_id,
+    const CardDefinition* source) {
     PlayerRules& state = rules(player_id);
     ++state.turn.countdown_expired;
     ++state.match.countdown_expired;
+    if (source != nullptr) {
+        const ProductTurnHistory::PermanentRecord record{
+            source->kind,
+            source->identity.profession_id,
+            source->identity.series_id,
+        };
+        state.turn.countdown_sources.push_back(record);
+        state.match.countdown_sources.push_back(record);
+    }
     append_event(player_id, ProductRuleEvent::Kind::CountdownExpired, 1, true);
 }
 

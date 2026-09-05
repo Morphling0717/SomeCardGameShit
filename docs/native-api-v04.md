@@ -1,8 +1,17 @@
 # `scgs_v04` 原生 API 契约
 
+> **产品内容已退役。** 安装的 `scgs_v04` 只保留 ABI 1.0、以下 14 个导出、
+> schema 1 的结构与枚举、缓冲区／句柄／错误契约；旧 `midrange/advance` 成功
+> 启动及其对局内容不再承诺兼容。任何牌组配置均由 `create` 返回
+> `SCGS_V04_SCHEMA_MISMATCH`，输出句柄为 0，不静默映射至新牌组。
+> 可玩产品只使用 `scgs_v05/schema 2`。成功路径回归使用独立、不安装也不打包的
+> `scgs_v04_fixture` 测试库与 `synthetic_alpha/synthetic_beta`；测试库同样拒绝旧键。
+> legacy v1 wire golden 保持原字节，使用独立协议夹具。
+
 本文是 v0.4 规则引擎 Gate 2 的规范性 C ABI 与 JSON schema 文档。公开声明以
 [`native_api_v04.h`](../engine/include/scgs/native_api_v04.h) 为准；本文冻结载荷语义、
-所有权、错误分类和兼容策略。
+所有权、错误分类和兼容策略。下文的可玩会话范例仅用于上述合成测试构建；
+产品内容退役优先于历史成功载荷描述。
 
 ## 版本与平台
 
@@ -94,15 +103,16 @@ handle、viewer、schema 或其他验证失败而返回，该值保持为 0。
 ```json
 {
   "schema_version": 1,
-  "player0_deck": "midrange",
-  "player1_deck": "advance",
+  "player0_deck": "synthetic_alpha",
+  "player1_deck": "synthetic_beta",
   "random_seed": 12345,
   "first_player_mode": 1,
   "shuffle_decks": true
 }
 ```
 
-`player0_deck` 与 `player1_deck` 必填，只接受 `midrange`、`advance`。其余字段 optional：
+`player0_deck` 与 `player1_deck` 必填；仅测试库接受 `synthetic_alpha`、
+`synthetic_beta`，安装库不再接受任何可玩牌组。其余字段 optional：
 seed 省略表示产品熵源；`first_player_mode` 为 0 Random、1 Player0、2 Player1，默认 0；
 `shuffle_decks` 默认 `true`。规则生命、起手、手牌上限和自定义场景不通过产品 ABI 配置。
 

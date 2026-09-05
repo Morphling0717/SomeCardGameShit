@@ -850,9 +850,12 @@ internal static class ScgsV05Json
             throw new ArgumentException("A leader target cannot name a permanent.", nameof(target));
         }
 
-        if (target.Kind == TargetKind.Permanent && !target.Permanent.HasValue)
+        if (target.Kind == TargetKind.Permanent &&
+            (!target.Permanent.HasValue || target.Permanent.Value == 0))
         {
-            throw new ArgumentException("A permanent target requires an instance identifier.", nameof(target));
+            throw new ArgumentException(
+                "A permanent target requires a non-zero instance identifier.",
+                nameof(target));
         }
     }
 

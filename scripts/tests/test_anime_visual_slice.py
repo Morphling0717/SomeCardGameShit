@@ -369,15 +369,16 @@ class AnimeVisualSliceSourceContractTests(unittest.TestCase):
         self.assertEqual(14, slice_contract["raster_count"])
         self.assertEqual(list(STATES), slice_contract["states"])
 
-    def test_bootstrap_bypasses_native_preflight_before_menu(self) -> None:
+    def test_product_bootstrap_rejects_retired_preview_before_session_creation(self) -> None:
         source = (ROOT / "client/godot/scripts/Bootstrap/BootstrapController.cs").read_text(encoding="utf-8")
-        parse = source.index("AnimeVisualSliceLaunch.Parse(arguments)")
-        replace = source.index("ReplaceScreen(animeSlice)")
-        menu = source.index("ShowMainMenu();", replace)
-        native = source.index("NativeLibraryLocator.ResolveAbsolutePath()", replace)
-        self.assertLess(parse, replace)
-        self.assertLess(replace, menu)
-        self.assertLess(replace, native)
+        rejection = source.index('StartsWith("--anime-"')
+        session = source.index("V05.ScgsV05GameSession.Create(")
+        self.assertLess(rejection, session)
+        self.assertIn("Retired preview/legacy modes are not product launch modes", source)
+        self.assertNotIn("AnimeVisualSliceLaunch.Parse", source)
+        self.assertNotIn("ReplaceScreen(animeSlice)", source)
+        self.assertIn("NativeLibraryLocator.ResolveProductAbsolutePath()", source)
+        self.assertIn("ProductMatch.tscn", source)
 
     def test_preview_has_no_client_or_native_dependency(self) -> None:
         preview = "\n".join(
@@ -434,7 +435,7 @@ class AnimeVisualSliceSourceContractTests(unittest.TestCase):
         self.assertNotIn("AnimePortraitPreview", covered)
         self.assertNotIn("TriggerHitPulse", covered)
 
-    def test_matrix_runner_keeps_product_path_separate(self) -> None:
+    def test_archived_slice_contract_is_not_product_acceptance(self) -> None:
         runner = (ROOT / "scripts/ci/capture_anime_visual_slice.ps1").read_text(encoding="utf-8")
         for viewport in ("1280x720", "1600x900", "2560x1440", "2560x1600"):
             self.assertIn(viewport, runner)
@@ -445,14 +446,15 @@ class AnimeVisualSliceSourceContractTests(unittest.TestCase):
         self.assertNotIn("--ci-visual-suite=", runner)
 
         workflow = (ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-        self.assertIn('-Viewports "1024x684"', workflow)
-        self.assertIn("-AllowCiRunnerViewport", workflow)
-        # Two original AnimeV1 checks plus the independent Gate 6A-R1 source
-        # and packaged real-actor card-body slices use the hosted runner's real
-        # 1024x684 display. Only the original validator needs its own explicit
-        # runner opt-in; the card-body launcher applies the shared policy.
-        self.assertEqual(4, workflow.count("--expected-viewport 1024x684"))
-        self.assertEqual(2, workflow.count("--allow-ci-runner-viewport"))
+        self.assertNotIn("capture_anime_visual_slice.ps1", workflow)
+        self.assertNotIn("--expected-viewport 1024x684", workflow)
+        self.assertNotIn("--allow-ci-runner-viewport", workflow)
+        self.assertIn("run_product_smoke.py", workflow)
+        heavy = (ROOT / ".github/workflows/windows-visual-heavy.yml").read_text(encoding="utf-8")
+        for viewport in ("1280x720", "1600x900", "2560x1440", "2560x1600"):
+            self.assertIn(viewport, heavy)
+        self.assertIn("--capture", heavy)
+        self.assertIn("--performance", heavy)
 
         suite = (ROOT / "client/godot/scripts/Ci/AnimeVisualSliceSuite.cs").read_text(encoding="utf-8")
         policy = (ROOT / "client/godot/scripts/Preview/AnimeSliceMotionProfile.cs").read_text(encoding="utf-8")

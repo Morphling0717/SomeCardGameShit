@@ -17,8 +17,7 @@ public sealed class BattlefieldHandRig
     private const float FarCameraDepth = 9.2f;
     private const float HoverForward = 0.52f;
     private const float SelectedForward = 0.28f;
-    private const float Gate4BR2DepthStep = 0.008f;
-    private const float R3CandidateDepthStep = 0.135f;
+    private const float CardReliefDepthStep = 0.135f;
 
     private readonly Camera3D _camera;
     private BattlefieldViewportLayout _layout;
@@ -27,7 +26,7 @@ public sealed class BattlefieldHandRig
     public BattlefieldHandRig(
         Camera3D camera,
         BattlefieldViewportLayout layout,
-        BattlefieldVisualProfile visualProfile = BattlefieldVisualProfile.Gate4BR2)
+        BattlefieldVisualProfile visualProfile = BattlefieldVisualProfile.AnimeV1)
     {
         _camera = camera ?? throw new ArgumentNullException(nameof(camera));
         _layout = layout;
@@ -125,15 +124,11 @@ public sealed class BattlefieldHandRig
 
         float rollDegrees = normalized *
                             (near ? hand.NearMaximumRoll : -hand.FarMaximumRoll);
-        float depthStep = _visualProfile.Id == BattlefieldVisualProfile.R3Candidate
-            ? R3CandidateDepthStep
-            : Gate4BR2DepthStep;
+        float depthStep = CardReliefDepthStep;
         // A candidate card's labels sit roughly 0.10 world units above its
         // face. Each following card must therefore advance beyond that
         // relief, and a focused card must advance beyond the entire fan.
-        bool candidateFocused =
-            _visualProfile.Id == BattlefieldVisualProfile.R3Candidate &&
-            (hovered || selected);
+        bool candidateFocused = hovered || selected;
         float focusForward = candidateFocused
             ? BattlefieldPerspective.MaximumHandCards * depthStep +
               (hovered ? 0.22f : 0.12f)

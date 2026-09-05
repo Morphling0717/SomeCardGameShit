@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import json
-import re
 import subprocess
 import sys
 import tempfile
@@ -14,21 +13,6 @@ from scripts.ci.validate_gate4a_report import EXPECTED_FIELDS, ReportError, vali
 
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-def _record_body(source: str, record_name: str) -> str:
-    marker = f"private sealed record {record_name}"
-    start = source.index(marker)
-    opening = source.index("{", start)
-    depth = 0
-    for index in range(opening, len(source)):
-        if source[index] == "{":
-            depth += 1
-        elif source[index] == "}":
-            depth -= 1
-            if depth == 0:
-                return source[opening:index + 1]
-    raise AssertionError(f"unterminated C# record: {record_name}")
 
 
 def valid_report(presentation: str = "3d") -> dict[str, object]:
@@ -94,16 +78,13 @@ class Gate4aReportTests(unittest.TestCase):
         self.assertIn("`presentation_mode=\"3d\"`", guide)
         self.assertIn("`presentation_mode=\"legacy-2d\"`", guide)
 
-    def test_godot_report_producer_matches_the_strict_field_whitelist(self) -> None:
-        source = (
-            ROOT / "client/godot/scripts/Bootstrap/BootstrapController.cs"
-        ).read_text(encoding="utf-8")
-        self.assertIn("private sealed record Gate4ASmokeReport", source)
-        report_source = _record_body(source, "Gate4ASmokeReport")
-        fields = set(re.findall(r'JsonPropertyName\("([^"]+)"\)', report_source))
-        self.assertEqual(EXPECTED_FIELDS, fields)
-        self.assertIn("public int SchemaVersion { get; init; } = 3;", report_source)
-        self.assertIn('public string Gate { get; init; } = "4A";', report_source)
+    def test_historical_fixture_preserves_the_exact_frozen_whitelist(self) -> None:
+        fixture = json.loads((ROOT / "scripts/tests/fixtures/legacy-reports/gate4a.example.json").read_text(encoding="utf-8"))
+        self.assertEqual(EXPECTED_FIELDS, set(fixture))
+        self.assertEqual(valid_report(), fixture)
+        validate(fixture, "full-match", "3d")
+        source = (ROOT / "client/godot/scripts/Bootstrap/BootstrapController.cs").read_text(encoding="utf-8")
+        self.assertNotIn("record Gate4ASmokeReport", source)
 
     def test_valid_default_3d_full_match(self) -> None:
         validate(valid_report(), "full-match", "3d")

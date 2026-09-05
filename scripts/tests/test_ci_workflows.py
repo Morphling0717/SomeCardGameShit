@@ -40,6 +40,7 @@ class ChangeClassifierTests(unittest.TestCase):
             "client/godot/assets/fonts/NOTICE.md",
             "client/godot/assets/visual/anime_v1/slice/PROVENANCE.md",
             "client/godot/assets/visual/anime_v1/card_body/PROVENANCE.md",
+            "client/godot/assets/visual/anime_v1/cards/PROVENANCE.md",
             "docs/anime-v1-visual-slice.md",
             "docs/anime-v1-card-body-r1.md",
             "docs/native-api-v04.md",
@@ -110,33 +111,47 @@ class WorkflowTieringContractTests(unittest.TestCase):
             "Audit v05 native artifact",
             "Locked managed restore, build, and tests",
             "Godot headless import",
-            "Godot AnimeV1 display-backed structural screenshot matrix",
-            "Godot AnimeV1 integrated card-body real-actor slice",
-            "SCGS_ANIME_CARD_BODY_SLICE_OK",
-            "validate_anime_card_body_slice.py",
-            "Godot default 3D current-project native smoke",
-            "Export and finalize Windows client",
-            "Audit and launch exported Windows default 3D client",
-            "Round-trip audit and launch packaged Windows default 3D client",
-            "--require-anime-card-body-launcher",
+            "Product v05 current-project full UI and minimum-size smoke",
+            "--artifact source --coverage full-ui --viewport 1600x900 --display",
+            "--artifact source --coverage natural-ui --viewport 1280x720 --display",
+            "Export and finalize v05-only Windows client",
+            "Audit and launch exported v05 Windows client",
+            "Round-trip audit and launch packaged v05 Windows client",
+            "--artifact export --coverage natural-ui",
+            "--artifact zip --coverage natural-ui",
+            "SomeCardGameShit-product-playable-v1-windows-x86_64.zip",
         ):
             self.assertIn(marker, self.fast)
         self.assertEqual(1, self.fast.count("Compress-Archive"))
         self.assertNotIn("Copy-Item -LiteralPath $r2Package", self.fast)
+        for marker in ("--ci-smoke", "--ci-anime", "--require-anime", "--capture", "--performance", "2560x1600"):
+            self.assertNotIn(marker, self.fast)
 
-    def test_heavy_workflow_is_scheduled_manual_and_never_claims_warp_timing(self) -> None:
+    def test_desktop_player_exports_only_v05_and_managed_uses_explicit_fixture(self) -> None:
+        self.assertNotIn("--v04-library", self.fast)
+        self.assertEqual(2, self.fast.count("--v05-library"))
+        self.assertEqual(2, self.fast.count("--product-native-library"))
+        self.assertIn("build/ci-msvc/Release/scgs_v04_fixture.dll", self.fast)
+        self.assertIn("build/ci-macos/libscgs_v04_fixture.dylib", self.fast)
+        self.assertIn(
+            'codesign --force --sign - "$app/Contents/Frameworks/libscgs_v05.dylib"',
+            self.fast,
+        )
+
+        self.assertNotIn("--v04-library", self.heavy)
+        self.assertEqual(1, self.heavy.count("--v05-library"))
+        self.assertNotIn("--product-native-library", self.heavy)
+        self.assertIn("build/ci-visual-heavy/Release/scgs_v04_fixture.dll", self.heavy)
+
+    def test_heavy_workflow_is_explicit_four_resolution_real_product_acceptance(self) -> None:
         self.assertIn('cron: "17 20 * * *"', self.heavy)
         self.assertIn("workflow_dispatch:", self.heavy)
         self.assertIn('".github/workflows/windows-visual-heavy.yml"', self.heavy)
-        self.assertIn("legacy 2D source regression smoke", self.heavy)
-        self.assertIn("Gate 4B-R2 1600x900 visual and resource suite", self.heavy)
-        self.assertIn("R3 candidate", self.heavy)
-        self.assertIn("Round-trip launch packaged Windows migration launchers", self.heavy)
-        self.assertIn("--skip-performance-budget", self.heavy)
-        self.assertNotIn("p95 <=", self.heavy)
-        self.assertNotIn("p95 ≤", self.heavy)
-        self.assertNotIn("2560x1440", self.heavy)
-        self.assertNotIn("2560x1600", self.heavy)
+        self.assertIn("inputs.ref || github.sha", self.heavy)
+        for marker in ("1280x720", "1600x900", "2560x1440", "2560x1600", "--capture", "--display", "--performance", '"--coverage", "full-ui"'):
+            self.assertIn(marker, self.heavy)
+        for marker in ("--skip-performance-budget", "--ci-smoke", "--legacy-2d-board", "--export-release", "Compress-Archive", "--require-anime"):
+            self.assertNotIn(marker, self.heavy)
 
 
 if __name__ == "__main__":

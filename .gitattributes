@@ -12,3 +12,7 @@ scripts/ci/PLAY_ANIME_CARD_BODY_SLICE.cmd text eol=lf
 scripts/ci/PLAY_ANIME_CARD_BODY_SLICE.command text eol=lf
 client/godot/assets/visual/anime_v1/slice/ASSET_MANIFEST.json text eol=lf
 client/godot/assets/visual/anime_v1/card_body/CARD_BODY_ASSET_MANIFEST.json text eol=lf
+client/godot/assets/visual/anime_v1/cards/*.png binary
+client/godot/assets/visual/anime_v1/cards/*.png.import text eol=lf
+client/godot/assets/visual/anime_v1/cards/PRODUCT_CARD_ART_ASSET_MANIFEST.json text eol=lf
+client/godot/assets/visual/anime_v1/cards/PROVENANCE.md text eol=lf

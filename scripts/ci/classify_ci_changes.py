@@ -31,6 +31,7 @@ PACKAGED_DOCUMENTS = {
     "client/godot/assets/fonts/NOTICE.md",
     "client/godot/assets/visual/anime_v1/slice/PROVENANCE.md",
     "client/godot/assets/visual/anime_v1/card_body/PROVENANCE.md",
+    "client/godot/assets/visual/anime_v1/cards/PROVENANCE.md",
     "docs/anime-v1-visual-slice.md",
     "docs/anime-v1-card-body-r1.md",
     "docs/native-api-v04.md",

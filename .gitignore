@@ -27,3 +27,7 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .ouroboros/
+
+# Local Godot MCP credentials, scratch probes and generated client configs.
+/client/godot/.mcp.json
+/client/godot/__mcp_probe/

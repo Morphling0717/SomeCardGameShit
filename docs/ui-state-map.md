@@ -1,5 +1,37 @@
 # Godot UI 状态图
 
+## 当前 v05 产品状态（2026-09-05）
+
+实际控制器为 `Scgs.Hotseat.Product.ProductHotseatMatchController`，画面为 `ProductMatchScreen`。14 类 schema-2 动作包括原 0～10，加护符、场地、ResolveChoice。状态机的执行证据见 [原生记录](product-playable-v1-engine-evidence.md) / [总报告](../TEST_REPORT.md)，不以本图代替实机验收。
+
+```text
+菜单 → 两席产品牌组设置 → create/start
+  → Covered(Player0) ──主动揭示──> 安全快照 + 同 revision 查询/事件
+      ├─ MulliganSelecting → 公共两帧提交 → MulliganReview → 确认看完
+      ├─ Action / Reaction → 来源与必要选择
+      ├─ Choice → 私密候选/排序（已支付的选择不能取消，只能完成或投降）
+      └─ Finished → 结果、重开或菜单
+
+规范命令准备 → Resolving（Snapshot/Viewer/LegalActions/Events 为空）
+  → 公共场面完成两帧 → SubmitPreparedCommand
+      ├─ 同操作者：刷新原 viewer
+      ├─ 新操作者：Covered(next)，揭示前不读其数据
+      ├─ 规则拒绝：Covered(previous, FailedCommand)，主动揭示再刷新
+      └─ native/协议异常：Faulted → 受控重开/菜单
+
+场景退出 → 输入锁/清私密/递增 generation → Dispose
+```
+
+- 显式选择包括动作、模式、额外代价、格位、目标、预支和 pending choice；最后一个必要单选完成后准备提交。调度整批确认、真正多选/排序完成与投降二次确认保持独立。
+- 法术先明确选择己方空策略位，再目标/预支；不能直接拖向敌人或错误区域。合法来源/落点只从已有候选派生。
+- 同 revision 的选择和事件 ACK 不重建卡面；高亮和上下文仍更新。当前 hover 详情在同 revision/viewer 下保持，Covered/Resolving 清空固定详情。
+- Covered 完全不透明；Resolving 使用去身份的公共投影并锁物理射线。隐藏牌不携带图像身份、卡名、稳定 ID 或可执行旧回调。
+- 旧 legacy 2D 与无 native 样片不是产品状态；当前启动参数直接拒绝它们。
+
+## 历史状态图（以下按当时 Gate 解释）
+
+> **Historical：以下 11 动作、v04/legacy presenter 和旧错误恢复路径为历史设计；现行 Choice、拒绝命令后遮挡和 v05 生命周期以上节为准。**
+
 Gate 4B-R2 在 Gate 4A/4A.1 的默认 3D/2.5D 完整热座闭环与 Gate 4B-R1 产品壳上重写前景手牌、卡牌数值、稳定镜头和战场/HUD 构图，同时保留隐藏的 legacy 2D 回归 presenter。`HotseatUiState` 与 `HotseatInteractionContext` 是两个 presenter 的共同输入，但不是规则真值；快照、合法行动、支付与胜负仍来自引擎。本轮不改变 11 种 `ActionKind`、两阶段提交或热座隐私状态机。
 
 ## 应用生命周期

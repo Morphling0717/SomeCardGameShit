@@ -1,0 +1,235 @@
+{
+  "schema_version": 1,
+  "gate": "5C-6C",
+  "budget": {
+    "source_payload_bytes_max": 100663296,
+    "estimated_vram_bytes_max": 67108864,
+    "runtime_resident_identity_texture_limit": 24
+  },
+  "assets": [
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/AP-01.png",
+      "sha256": "82904ada9b2766a264f24ae0edbb269c824832eb008ae2c8b276445e834ae888",
+      "purpose": "AP-01 渊契使魔·墨契 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创黑紫动漫幻想使魔从空白契书中跃出，猫形与书签轮廓结合，尾部化作两道洋红契约线；无文字、卡框、Logo或水印。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/AP-02.png",
+      "sha256": "2d88bd125f9a00b8f7abe0746fd5356bcbb7b343bda9baf6007b6d46035bd527",
+      "purpose": "AP-02 借时优等生·伊蕾娜 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创短发契术学生以悬浮刻度盘牵引未来能量，透明紫色屏障环身，黑紫学院服配古金细节；无现实校徽、文字、卡框、Logo或水印。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/AP-04.png",
+      "sha256": "34cb94ff7f6ab8d59f7c5d0aa71711ea67c11592684e6299334a17933503b67d",
+      "purpose": "AP-04 未偿禁书《第七码》 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创黑紫禁书悬在裂隙大厅中央，七枚不等金属锁环与即将断开的倒数结构包围无字封面；无眼形、可读文字、卡框、Logo或水印。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/AP-06.png",
+      "sha256": "bfaafc10d510b23091e0462d69408621e789d19c3e8850969cb62de39f7337a8",
+      "purpose": "AP-06 债印风纪官·赛菈 product card illustration",
+      "generation_method": "OpenAI built-in image generation; regenerated and refined to remove text-like paper details",
+      "date": "2026-08-26",
+      "prompt_summary": "原创银灰高马尾风纪官持细长契刃向前划出红线，黑紫制服与两枚债印突出严厉身份和临时突进；移除纸页与文字状细节。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/AP-07.png",
+      "sha256": "dfba2945d75cdb059f2be4e72aa2f8cb924fcdd2c2b61faabe00b0d4fa0635d1",
+      "purpose": "AP-07 黑蔷薇校医·维奥拉 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创黑蔷薇校医以花形注能器抽取红色能量并回灌治疗装置，动作积极但画面非血腥；无文字、卡框、Logo或水印。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/AP-08.png",
+      "sha256": "c1cad679af2eebc3838d78df36455fef44367cebc763a0ba38b3a043e5729946",
+      "purpose": "AP-08 契式·延期清算 product card illustration",
+      "generation_method": "OpenAI built-in image generation; refined to remove text-like paper details",
+      "date": "2026-08-26",
+      "prompt_summary": "原创契约天平以二分构图表现两种模式：一侧缝合裂隙，另一侧给随从披上强化甲与屏障；移除纸页和可读文字。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/AP-09.png",
+      "sha256": "df440f8cde479e26cf3f883d1d8a01e09aef40d0cd8a7e4c4c5a48350e22e292",
+      "purpose": "AP-09 带债讲师·雷维尔 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创契术讲师在学院中同时操纵规整契约与撕裂未来两组无字魔法结构，黑紫绯红光线强调双路线；无卡框、Logo或水印。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/AP-10.png",
+      "sha256": "8f38303fdb58f87237bacfd1625694c6126b51a3f0709bde2cd4eb35d1c55410",
+      "purpose": "AP-10 债权吞噬兽·格里姆 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创厚重契约兽吞入最多五束紫红裂痕并聚成攻击光球，体量强调守护且避免传统恶龙轮廓；无文字、卡框、Logo或水印。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/AP-S01.png",
+      "sha256": "ba365905f79145c03c12685a14cd1d95b1971233e6dc8843ad2893c6f9de2770",
+      "purpose": "AP-S01 催债魔犬·奥尔特 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创瘦长装甲魔犬沿新生裂隙扑向前景，金属契约扣般的齿部与红色致命轨迹突出突进必杀；无文字、卡框、Logo或水印。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/AP-S02.png",
+      "sha256": "e825ca2f88d63c717af90fe4fdd02ea5e2e04527378faeb642339ac84bc4bf8a",
+      "purpose": "AP-S02 封债医龙·塞拉菲姆 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创白骨色但非骸骨的医疗魔导龙以盾翼覆盖伤者，将紫色债务吸入胸腔容器，兼具守护、屏障与治疗读感。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/AP-S03.png",
+      "sha256": "3d44739f19fb7082f7b6d31bff5113978d0d03e7726b08abb530a9cbdf8873af",
+      "purpose": "AP-S03 禁书装订机·奥库塔 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创多臂黄铜魔导装订机拆解并压合归零禁书，中央释放洋红修复光，使用精密幻想机械而非旧科幻素材。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/AP-S04.png",
+      "sha256": "8ac3644c77663d618b0edb0c65bf8f65b118e5bdb24fa44687200dde5010ecd2",
+      "purpose": "AP-S04 终期债主·阿巴顿 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创巨型人形债主从多层紫黑裂隙门后跨入，手中封存缩小的契约永久物，以压迫透视表现终结疾驰。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/LO-01.png",
+      "sha256": "e56746d18538a8cb329b4e585d59b814ff00328b838772580309694aa06282a5",
+      "purpose": "LO-01 曜誓传令使·菲娅 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创白金苍蓝传令使从四枚悬浮日轮文牒中选取一枚，晨光和翼形信物突出检索与传递承诺；无文字、卡框、Logo或水印。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/LO-02.png",
+      "sha256": "ad25e14668a8fac446836ac9dda5a6cd5cd37d4ead89668bbac329cd261d7d1d",
+      "purpose": "LO-02 曜誓偿愿祭司·米蕾 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创铂金祭司双手扣合断裂蓝色光环，将碎裂能量化作治疗光，温柔专注且不使用现实宗教标志。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/LO-04.png",
+      "sha256": "cad9e22c84c259a9f8910d145ee8e26cde2bb510458c3fe4c2c5c53551ae7425",
+      "purpose": "LO-04 曜誓盾侍·格兰 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创盾侍半跪举起环形塔盾，完整蓝金屏障贴盾展开，紧凑正面轮廓表现守护与屏障；无文字、卡框、Logo或水印。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/LO-05.png",
+      "sha256": "bee5b987f1e8f36323488188bbf6036e566818413899ab2d305f49d2162e97e7",
+      "purpose": "LO-05 日轮突骑·希尔妲 product card illustration",
+      "generation_method": "OpenAI built-in image generation; refined to use the locked bipedal land-runner silhouette",
+      "date": "2026-08-26",
+      "prompt_summary": "原创女骑手驾驭轻甲双足陆行兽高速切入，日轮枪越过修复光轨，侧向构图突出突进；不使用马形坐骑、文字、卡框、Logo或水印。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/LO-06.png",
+      "sha256": "d348639d7fe131c47376020f9da60af8b58b5230a631bb20fe822e927005f764",
+      "purpose": "LO-06 归誓圣仪 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创仪式台上两段断裂誓约环重新归一，紫色裂隙被金蓝光缝合并凝出新文牒，主体为法术仪式而非人物。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/LO-08.png",
+      "sha256": "3e980f62b81eecbdee2d24179c6092ab644c4966208324e9573a410d8fc54fd3",
+      "purpose": "LO-08 曜誓破阵骑·莱昂 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创重甲骑士击破敌阵后仍站立，破损铠甲被新生屏障覆盖，长枪与碎盾构成斜线强调战斗击杀后存活。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/LO-09.png",
+      "sha256": "3d69bd76f98e0ae9ea29df18092f72d626451dc9b3d017b16c30ce330453e4ff",
+      "purpose": "LO-09 曜誓大司祭·伊莲 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创成熟大司祭在伤员前展开双层日轮结界，以白金法杖把紫色裂痕转为治疗光，姿态庄严有力量。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/LO-10.png",
+      "sha256": "9a8f9e7389901ca994603e6eb54f7b44b14d457ab680f7a2f273b36b78e076bc",
+      "purpose": "LO-10 日轮圣庭·索拉里斯 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创白金圣庭围绕无字日轮纹章展开，苍蓝能量水道汇入中央台座，以纵深建筑构图明确场地身份。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/LO-S01.png",
+      "sha256": "143dfed41890471004250ede57d74bfc887377730fff0f3c3f1378fd20033be5",
+      "purpose": "LO-S01 曜誓援军长·凯因 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创结实援军长把备用环盾递给另一名骑士，自己守在前景，突出公开增援与同伴受益；无文字、卡框、Logo或水印。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/LO-S02.png",
+      "sha256": "9e359f119f225e9babcf409f61820ae9df00a291f5772edee03cdcade05698fe",
+      "purpose": "LO-S02 破晓处刑骑·维奥娜 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创黑白双层轻甲女骑士在破晓完成精准横斩，屏障碎片汇成修复光，速度感强而克制。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/LO-S03.png",
+      "sha256": "973e8372ce4951c2aa4c0735b17e59fb47a9cc3bc03a747b130153ec45f97ae8",
+      "purpose": "LO-S03 圣碑巨像·阿德拉斯 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创晨钟石碑拼合的高大守卫巨像，胸口完整日轮、肩部覆盖苍蓝屏障，巨大比例与简洁轮廓兼顾缩略可读性。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/LO-S04.png",
+      "sha256": "4cf619b817a7b13a0c2b99c0d1b49f2dd18162ec502b0739d13d261c0d6440cc",
+      "purpose": "LO-S04 曜冠天马骑·塞蕾涅 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创曜冠骑士驾驭具白金光板翼的幻想天马自云层俯冲，远处两道裂痕已闭合，突出疾驰终结。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/LO-T01.png",
+      "sha256": "33ce8a52ab4a3a56e7771c267d1808b9747772f55f6ebe3b8da9977261537d0e",
+      "purpose": "LO-T01 誓光守卫 derived-token illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创白金石块与蓝金光线凝成的人形守卫持无刃环盾，比例和头部轮廓与大型圣碑巨像明确区分；无文字、卡框、Logo或水印。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/NT-01.png",
+      "sha256": "321ab74fb601fbf9659d0cada9465f1b934a8e6f5c1e75d31b5bbedc387ed1ff",
+      "purpose": "NT-01 边境游骑·埃尔 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创旅行游骑乘长耳荒原兽越过边界，观察拥挤敌阵后拔出短枪，使用雾青与皮革色且不带职业纹章。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/NT-02.png",
+      "sha256": "378a92c4a7bddc0eb7be346a8d4651b47aac3f3fa6f21e8920fa75866a96fb4e",
+      "purpose": "NT-02 白垩城门卫 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创白垩城门前的朴素重甲门卫持宽盾站立，厚实守护轮廓以城墙刻痕为背景，不使用曜誓日轮纹章。"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/cards/NT-03.png",
+      "sha256": "f16d9abf0dc47032f1d5b372f8221d5e313cfd94c3f60f5cc3468194fa1e353a",
+      "purpose": "NT-03 旅途篝火 product card illustration",
+      "generation_method": "OpenAI built-in image generation; selected product-candidate output",
+      "date": "2026-08-26",
+      "prompt_summary": "原创风雨边境中的小型篝火与围坐旅具，暖橙火星化作无字地图轮廓，表现一回合后的宁静补给。"
+    }
+  ]
+}

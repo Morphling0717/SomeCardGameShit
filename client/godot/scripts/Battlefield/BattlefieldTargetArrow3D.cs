@@ -19,7 +19,10 @@ public sealed partial class BattlefieldTargetArrow3D : Node3D
         EnsureBuilt();
         Vector3 delta = end - start;
         float length = delta.Length();
-        if (length < 0.15f)
+        // The head itself is half a world unit long. A shorter preview
+        // degenerates into a red slab covering the selected card; its outline
+        // already identifies the source until the pointer moves away.
+        if (length < 0.55f)
         {
             Visible = false;
             return;

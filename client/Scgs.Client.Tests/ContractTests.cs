@@ -131,7 +131,7 @@ public sealed class ContractTests
     [TestMethod]
     public void RequestSerializationInjectsSchemaAndOmitsNullOptionals()
     {
-        var config = new GameConfigRequest("midrange", "advance")
+        var config = new GameConfigRequest("synthetic_alpha", "synthetic_beta")
         {
             RandomSeed = 123U,
             FirstPlayerMode = FirstPlayerMode.Player0,
@@ -140,7 +140,7 @@ public sealed class ContractTests
         using JsonDocument configJson = JsonDocument.Parse(ScgsJson.SerializeConfig(config));
         JsonElement configRoot = configJson.RootElement;
         Assert.AreEqual(1U, configRoot.GetProperty("schema_version").GetUInt32());
-        Assert.AreEqual("midrange", configRoot.GetProperty("player0_deck").GetString());
+        Assert.AreEqual("synthetic_alpha", configRoot.GetProperty("player0_deck").GetString());
         Assert.AreEqual(123U, configRoot.GetProperty("random_seed").GetUInt32());
 
         var command = new GameCommandRequest(PlayerId.Player0, ActionKind.EndTurn, 7U);

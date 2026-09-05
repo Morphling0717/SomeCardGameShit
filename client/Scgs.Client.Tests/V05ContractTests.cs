@@ -204,12 +204,102 @@ public sealed class V05ContractTests
         Assert.ThrowsExactly<ArgumentException>(() =>
             V05.ScgsV05Json.SerializeCommand(missingPermanent));
 
+        var zeroPermanent = new V05.GameCommandRequest(
+            V05.PlayerId.Player0,
+            V05.ActionKind.Attack,
+            1)
+        {
+            Target = V05.Target.PermanentTarget(V05.PlayerId.Player1, 0),
+        };
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            V05.ScgsV05Json.SerializeCommand(zeroPermanent));
+
+        var zeroPermanentQuery = new V05.ActionQueryRequest(V05.PlayerId.Player0, 1)
+        {
+            Action = V05.ActionKind.Attack,
+            Target = V05.Target.PermanentTarget(V05.PlayerId.Player1, 0),
+        };
+        Assert.ThrowsExactly<ArgumentException>(() =>
+            V05.ScgsV05Json.SerializeQuery(zeroPermanentQuery));
+
         var missingChoice = new V05.GameCommandRequest(
             V05.PlayerId.Player0,
             V05.ActionKind.ResolveChoice,
             1);
         Assert.ThrowsExactly<ArgumentException>(() =>
             V05.ScgsV05Json.SerializeCommand(missingChoice));
+    }
+
+    [TestMethod]
+    public void LeaderAndPermanentTargetsRoundTripWithoutLosingTheirShape()
+    {
+        var leaderCommand = new V05.GameCommandRequest(
+            V05.PlayerId.Player0,
+            V05.ActionKind.Attack,
+            17)
+        {
+            Source = 41,
+            Target = V05.Target.Leader(V05.PlayerId.Player1),
+        };
+        using JsonDocument commandJson = JsonDocument.Parse(
+            V05.ScgsV05Json.SerializeCommand(leaderCommand));
+        JsonElement commandTarget = commandJson.RootElement.GetProperty("target");
+        Assert.AreEqual((uint)V05.TargetKind.Leader, commandTarget.GetProperty("kind").GetUInt32());
+        Assert.AreEqual((uint)V05.PlayerId.Player1, commandTarget.GetProperty("player").GetUInt32());
+        Assert.IsFalse(commandTarget.TryGetProperty("permanent", out _));
+
+        var permanentQuery = new V05.ActionQueryRequest(V05.PlayerId.Player1, 19)
+        {
+            Action = V05.ActionKind.Evolve,
+            Source = 77,
+            Target = V05.Target.PermanentTarget(V05.PlayerId.Player0, ulong.MaxValue),
+        };
+        using JsonDocument queryJson = JsonDocument.Parse(
+            V05.ScgsV05Json.SerializeQuery(permanentQuery));
+        JsonElement queryTarget = queryJson.RootElement.GetProperty("target");
+        Assert.AreEqual((uint)V05.TargetKind.Permanent, queryTarget.GetProperty("kind").GetUInt32());
+        Assert.AreEqual((uint)V05.PlayerId.Player0, queryTarget.GetProperty("player").GetUInt32());
+        Assert.AreEqual(ulong.MaxValue, queryTarget.GetProperty("permanent").GetUInt64());
+
+        const string nativeTargets = """
+            {
+              "schema_version":2,
+              "revision":19,
+              "targets":[
+                {"kind":0,"player":1},
+                {"kind":1,"player":0,"permanent":18446744073709551615}
+              ]
+            }
+            """;
+        V05.TargetsEnvelope roundTrip = V05.ScgsV05Json.DeserializeTargets(nativeTargets);
+        Assert.HasCount(2, roundTrip.Targets);
+        Assert.AreEqual(V05.TargetKind.Leader, roundTrip.Targets[0].Kind);
+        Assert.AreEqual(V05.PlayerId.Player1, roundTrip.Targets[0].Player);
+        Assert.IsNull(roundTrip.Targets[0].Permanent);
+        Assert.AreEqual(V05.TargetKind.Permanent, roundTrip.Targets[1].Kind);
+        Assert.AreEqual(V05.PlayerId.Player0, roundTrip.Targets[1].Player);
+        Assert.AreEqual(ulong.MaxValue, roundTrip.Targets[1].Permanent);
+    }
+
+    [TestMethod]
+    public void InvalidInboundTargetShapesAreProtocolFailures()
+    {
+        string[] invalidTargets =
+        [
+            "{\"kind\":0,\"player\":1,\"permanent\":7}",
+            "{\"kind\":1,\"player\":1}",
+            "{\"kind\":1,\"player\":1,\"permanent\":0}",
+            "{\"kind\":1,\"player\":2,\"permanent\":7}",
+        ];
+
+        foreach (string target in invalidTargets)
+        {
+            string payload = $$"""
+                {"schema_version":2,"revision":1,"targets":[{{target}}]}
+                """;
+            Assert.ThrowsExactly<ScgsProtocolException>(() =>
+                V05.ScgsV05Json.DeserializeTargets(payload));
+        }
     }
 
     [TestMethod]

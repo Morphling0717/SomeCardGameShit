@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import copy
-import re
+import json
 import unittest
 from pathlib import Path
 
@@ -11,21 +11,6 @@ from scripts.ci.validate_gate3c_report import EXPECTED_FIELDS, ReportError, vali
 
 
 ROOT = Path(__file__).resolve().parents[2]
-
-
-def _record_body(source: str, record_name: str) -> str:
-    marker = f"private sealed record {record_name}"
-    start = source.index(marker)
-    opening = source.index("{", start)
-    depth = 0
-    for index in range(opening, len(source)):
-        if source[index] == "{":
-            depth += 1
-        elif source[index] == "}":
-            depth -= 1
-            if depth == 0:
-                return source[opening:index + 1]
-    raise AssertionError(f"unterminated C# record: {record_name}")
 
 
 def valid_report() -> dict[str, object]:
@@ -81,15 +66,14 @@ class Gate3cReportTests(unittest.TestCase):
             guide,
         )
 
-    def test_godot_report_producer_matches_the_strict_field_whitelist(self) -> None:
-        source = (ROOT / "client/godot/scripts/Bootstrap/BootstrapController.cs").read_text(
-            encoding="utf-8"
-        )
-        report_source = _record_body(source, "Gate3CSmokeReport")
-        fields = set(re.findall(r'JsonPropertyName\("([^"]+)"\)', report_source))
-        self.assertEqual(EXPECTED_FIELDS, fields)
-        self.assertIn("public int SchemaVersion { get; init; } = 2;", report_source)
-        self.assertIn('public string Gate { get; init; } = "3C";', report_source)
+    def test_historical_fixture_preserves_the_exact_frozen_whitelist(self) -> None:
+        fixture = json.loads((ROOT / "scripts/tests/fixtures/legacy-reports/gate3c.example.json").read_text(encoding="utf-8"))
+        self.assertEqual(EXPECTED_FIELDS, set(fixture))
+        self.assertEqual(valid_report(), fixture)
+        validate(fixture, "full-match")
+        # Product startup no longer has a frozen-v04 report producer.
+        source = (ROOT / "client/godot/scripts/Bootstrap/BootstrapController.cs").read_text(encoding="utf-8")
+        self.assertNotIn("record Gate3CSmokeReport", source)
 
     def test_valid_terminal_report(self) -> None:
         validate(valid_report(), "full-match")

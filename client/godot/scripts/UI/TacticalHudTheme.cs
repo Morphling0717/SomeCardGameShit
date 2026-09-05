@@ -27,6 +27,14 @@ internal sealed record TacticalHudTheme(
     private const string DefaultGlassMaterialPath =
         "res://assets/themes/glass_panel_material.tres";
 
+    internal static TacticalHudTheme AnimeV1 { get; } = new(
+        new Color(0.10f, 0.07f, 0.19f, 0.68f), new Color(0.82f, 0.69f, 0.43f, 0.62f),
+        new Color(0.18f, 0.12f, 0.28f, 0.74f), new Color(0.85f, 0.73f, 0.48f, 0.68f),
+        new Color("f2e9d5"), new Color("c9bdd8"), new Color("e4c787"),
+        new Color("ad759d"), new Color(0.15f, 0.10f, 0.23f, 0.8f),
+        new Color(0.29f, 0.22f, 0.38f, 0.92f), new Color(0.40f, 0.30f, 0.48f, 0.94f),
+        new Color(0.21f, 0.15f, 0.29f, 0.94f), new Color(0.90f, 0.77f, 0.49f, 0.9f));
+
     internal static TacticalHudTheme R3Candidate { get; } = new(
         new Color(0.055f, 0.063f, 0.068f, 0.72f),
         new Color(0.48f, 0.48f, 0.44f, 0.48f),

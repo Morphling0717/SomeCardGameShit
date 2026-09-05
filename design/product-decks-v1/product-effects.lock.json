@@ -1,0 +1,539 @@
+{
+  "$schema": "./product-effects.schema.json",
+  "schema_version": "1.0.0",
+  "status": "executable_product",
+  "default_definition": {
+    "implementation_status": "executable_product",
+    "effects_compiled": true
+  },
+  "definitions": [
+    {
+      "design_id": "LO-01",
+      "effects": [
+        {
+          "effect_id": "lo01-search",
+          "trigger": "on_entry",
+          "kind": "search_top",
+          "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "card_filter": {
+            "allowed_card_types": [], "excluded_card_types": ["follower"],
+            "profession_id": "oathguard", "series_id": "luminous_oath", "neutral": false
+          },
+          "reveal_count": 4,
+          "selection_minimum": 0,
+          "selection_maximum": 1,
+          "randomize_remainder": true
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "LO-02",
+      "effects": [
+        {
+          "effect_id": "lo02-entry-repair", "trigger": "on_entry", "kind": "repair_cracks",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 }
+        },
+        {
+          "effect_id": "lo02-zero-heal", "trigger": "on_entry", "kind": "heal_leader",
+          "value": { "source": "fixed", "fixed": 2, "multiplier": 1, "cap": 0 },
+          "conditions": { "all": [{ "kind": "repair_to_zero", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] },
+          "dependency": "previous_effect_succeeded", "depends_on_effect_id": "lo02-entry-repair"
+        },
+        {
+          "effect_id": "lo02-evolve-repair", "trigger": "on_evolve", "kind": "repair_cracks",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 }
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "LO-03",
+      "effects": [
+        {
+          "effect_id": "lo03-entry-repair", "trigger": "on_entry", "kind": "repair_cracks",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 }
+        },
+        {
+          "trigger_owner_turn_only": true,
+          "effect_id": "lo03-zero-countdown", "trigger": "on_repair_to_zero", "kind": "change_countdown",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+          "target": "self", "once": { "scope": "source_owner_turn", "key": "lo03-zero-countdown", "consumption": "on_trigger" },
+          "trigger_player_relation": "source_controller"
+        },
+        {
+          "effect_id": "lo03-expire-summon", "trigger": "on_countdown_end", "kind": "summon_token",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+          "parameter": "LO-T01", "preserve_source_slot": true
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "LO-04",
+      "effects": [
+        {
+          "effect_id": "lo04-seamless-barrier", "trigger": "on_entry", "kind": "grant_keyword",
+          "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "target": "self", "keyword": "barrier", "duration": "permanent",
+          "conditions": { "all": [{ "kind": "cracks_at_most", "threshold": 0, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "LO-05",
+      "effects": [
+        {
+          "effect_id": "lo05-repaired-buff", "trigger": "on_entry", "kind": "modify_stats",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+          "secondary_amount": 1, "target": "self", "duration": "permanent",
+          "conditions": { "all": [{ "kind": "turn_repair_at_least", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "LO-06",
+      "effects": [
+        {
+          "effect_id": "lo06-repair", "trigger": "on_play", "kind": "repair_cracks",
+          "value": { "source": "fixed", "fixed": 2, "multiplier": 1, "cap": 0 }
+        },
+        {
+          "effect_id": "lo06-zero-draw", "trigger": "on_play", "kind": "draw",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+          "conditions": { "all": [{ "kind": "repair_to_zero", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] },
+          "dependency": "previous_effect_succeeded", "depends_on_effect_id": "lo06-repair"
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "LO-07",
+      "effects": [
+        {
+          "effect_id": "lo07-repair", "trigger": "on_attack_declared", "kind": "repair_cracks",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+          "trigger_player_relation": "opponent_of_source_controller"
+        },
+        {
+          "effect_id": "lo07-cancel", "trigger": "on_attack_declared", "kind": "cancel_attack",
+          "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "conditions": { "all": [{ "kind": "cracks_at_most", "threshold": 0, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] },
+          "trigger_player_relation": "opponent_of_source_controller"
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "LO-08",
+      "effects": [
+        {
+          "effect_id": "lo08-kill-repair", "trigger": "on_combat_kill_survived", "kind": "repair_cracks",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+          "once": { "scope": "source_turn", "key": "lo08-kill-repair", "consumption": "on_trigger" }
+        },
+        {
+          "effect_id": "lo08-zero-barrier", "trigger": "on_combat_kill_survived", "kind": "grant_keyword",
+          "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "target": "self", "keyword": "barrier", "duration": "permanent",
+          "conditions": { "all": [{ "kind": "repair_to_zero", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] },
+          "dependency": "previous_effect_succeeded", "depends_on_effect_id": "lo08-kill-repair"
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "LO-09",
+      "effects": [
+        {
+          "effect_id": "lo09-repair", "trigger": "on_entry", "kind": "repair_cracks",
+          "value": { "source": "fixed", "fixed": 2, "multiplier": 1, "cap": 0 }
+        },
+        {
+          "effect_id": "lo09-heal-actual", "trigger": "on_entry", "kind": "heal_leader",
+          "value": { "source": "actual_repair", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "dependency": "previous_effect_succeeded", "depends_on_effect_id": "lo09-repair"
+        },
+        {
+          "effect_id": "lo09-zero-barrier", "trigger": "on_entry", "kind": "grant_keyword",
+          "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "target": "self", "keyword": "barrier", "duration": "permanent",
+          "conditions": { "all": [{ "kind": "repair_to_zero", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] },
+          "dependency": "previous_effect_succeeded", "depends_on_effect_id": "lo09-repair"
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "LO-10",
+      "effects": [
+        {
+          "trigger_owner_turn_only": true,
+          "effect_id": "lo10-first-repair-buff", "trigger": "on_actual_repair", "kind": "modify_stats",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+          "secondary_amount": 1, "target": "friendly_follower", "duration": "permanent",
+          "once": { "scope": "source_owner_turn", "key": "lo10-first-repair", "consumption": "on_trigger" },
+          "trigger_player_relation": "source_controller",
+          "conditions": { "all": [{ "kind": "actual_repair_at_least", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] },
+          "target_filter": { "allowed_card_types": ["follower"], "profession_id": "oathguard", "series_id": "luminous_oath", "include_main_board": true, "include_field": false, "exclude_source": false },
+          "selection_minimum": 1, "selection_maximum": 1
+        },
+        {
+          "trigger_owner_turn_only": true,
+          "effect_id": "lo10-seamless-barrier", "trigger": "on_actual_repair", "kind": "grant_keyword",
+          "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "target": "friendly_follower", "keyword": "barrier", "duration": "permanent",
+          "conditions": { "all": [{ "kind": "cracks_at_most", "threshold": 0, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] },
+          "dependency": "previous_effect_succeeded", "depends_on_effect_id": "lo10-first-repair-buff",
+          "target_from_effect_id": "lo10-first-repair-buff",
+          "target_filter": { "allowed_card_types": ["follower"], "profession_id": "oathguard", "series_id": "luminous_oath", "include_main_board": true, "include_field": false, "exclude_source": false }
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "LO-11",
+      "effects": [
+        {
+          "effect_id": "lo11-on-time-storm", "trigger": "on_entry", "kind": "grant_keyword",
+          "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "target": "self", "keyword": "storm", "duration": "permanent",
+          "conditions": { "all": [{ "kind": "on_time", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }, { "kind": "cracks_at_most", "threshold": 0, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        },
+        {
+          "effect_id": "lo11-on-time-barrier", "trigger": "on_entry", "kind": "grant_keyword",
+          "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "target": "self", "keyword": "barrier", "duration": "permanent",
+          "conditions": { "all": [{ "kind": "on_time", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }, { "kind": "cracks_at_most", "threshold": 0, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        },
+        {
+          "effect_id": "lo11-fallback-rush", "trigger": "on_entry", "kind": "grant_keyword",
+          "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "target": "self", "keyword": "rush", "duration": "permanent",
+          "conditions": { "all": [], "any": [{ "kind": "advanced", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }, { "kind": "cracks_at_least", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }] }
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "LO-S01",
+      "effects": [
+        {
+          "effect_id": "los01-seamless-buff", "trigger": "on_entry", "kind": "modify_stats",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+          "secondary_amount": 1, "target": "friendly_follower", "duration": "permanent",
+          "conditions": { "all": [{ "kind": "cracks_at_most", "threshold": 0, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] },
+          "target_filter": { "allowed_card_types": ["follower"], "profession_id": "", "series_id": "", "include_main_board": true, "include_field": false, "exclude_source": true },
+          "selection_minimum": 1, "selection_maximum": 1
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "LO-S02",
+      "effects": [
+        {
+          "effect_id": "los02-kill-repair", "trigger": "on_combat_kill_survived", "kind": "repair_cracks",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+          "once": { "scope": "source_turn", "key": "los02-kill-repair", "consumption": "on_trigger" }
+        }
+      ],
+      "modes": []
+    },
+    { "design_id": "LO-S03", "effects": [], "modes": [] },
+    { "design_id": "LO-S04", "effects": [], "modes": [] },
+    {
+      "design_id": "AP-01",
+      "effects": [
+        {
+          "effect_id": "ap01-last-words-draw", "trigger": "on_last_words", "kind": "draw",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+          "conditions": { "all": [{ "kind": "cracks_at_least", "threshold": 2, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "AP-02",
+      "effects": [
+        {
+          "effect_id": "ap02-field-barrier", "trigger": "on_entry", "kind": "grant_keyword",
+          "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "target": "self", "keyword": "barrier", "duration": "permanent",
+          "conditions": { "all": [{ "kind": "field_is", "threshold": 1, "read_cap": 0, "parameter": "AP-05", "permanent_filter": null }], "any": [] }
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "AP-03",
+      "effects": [
+        {
+          "effect_id": "ap03-debt-four-damage", "trigger": "on_play", "kind": "damage_follower",
+          "value": { "source": "fixed", "fixed": 5, "multiplier": 1, "cap": 0 },
+          "target": "enemy_follower",
+          "conditions": { "all": [{ "kind": "cracks_at_least", "threshold": 4, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        },
+        {
+          "effect_id": "ap03-base-damage", "trigger": "on_play", "kind": "damage_follower",
+          "value": { "source": "fixed", "fixed": 3, "multiplier": 1, "cap": 0 },
+          "target": "enemy_follower",
+          "conditions": { "all": [{ "kind": "cracks_at_most", "threshold": 3, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "AP-04",
+      "effects": [
+        {
+          "trigger_owner_turn_only": true,
+          "effect_id": "ap04-future-countdown", "trigger": "on_future_used", "kind": "change_countdown",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+          "target": "self", "once": { "scope": "source_owner_turn", "key": "ap04-future-countdown", "consumption": "on_trigger" },
+          "trigger_player_relation": "source_controller"
+        },
+        {
+          "effect_id": "ap04-debt-four-draw", "trigger": "on_countdown_end", "kind": "draw",
+          "value": { "source": "fixed", "fixed": 2, "multiplier": 1, "cap": 0 },
+          "conditions": { "all": [{ "kind": "cracks_at_least", "threshold": 4, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        },
+        {
+          "effect_id": "ap04-base-draw", "trigger": "on_countdown_end", "kind": "draw",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+          "conditions": { "all": [{ "kind": "cracks_at_most", "threshold": 3, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "AP-05",
+      "effects": [
+        {
+          "effect_id": "ap05-play-draw", "trigger": "on_play", "kind": "draw",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 }
+        },
+        {
+          "effect_id": "ap05-play-bottom", "trigger": "on_play", "kind": "put_on_deck_bottom",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+          "dependency": "previous_draw_entered_hand", "depends_on_effect_id": "ap05-play-draw",
+          "selection_minimum": 1, "selection_maximum": 1
+        },
+        {
+          "trigger_owner_turn_only": true,
+          "effect_id": "ap05-future-draw", "trigger": "on_future_used", "kind": "draw",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+          "once": { "scope": "source_owner_turn", "key": "ap05-future-cycle", "consumption": "on_trigger" },
+          "trigger_player_relation": "source_controller"
+        },
+        {
+          "trigger_owner_turn_only": true,
+          "effect_id": "ap05-future-bottom", "trigger": "on_future_used", "kind": "put_on_deck_bottom",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+          "dependency": "previous_draw_entered_hand", "depends_on_effect_id": "ap05-future-draw",
+          "selection_minimum": 1, "selection_maximum": 1
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "AP-06",
+      "effects": [
+        {
+          "effect_id": "ap06-debt-rush", "trigger": "on_entry", "kind": "grant_keyword",
+          "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "target": "self", "keyword": "rush", "duration": "owner_turn",
+          "conditions": { "all": [{ "kind": "cracks_at_least", "threshold": 2, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "AP-07",
+      "effects": [
+        {
+          "effect_id": "ap07-advanced-rush", "trigger": "on_entry", "kind": "grant_keyword",
+          "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "target": "self", "keyword": "rush", "duration": "owner_turn",
+          "conditions": { "all": [{ "kind": "advanced", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "AP-08",
+      "effects": [],
+      "modes": [
+        {
+          "mode_id": "repair",
+          "effects": [
+            {
+              "effect_id": "ap08-repair", "trigger": "on_play", "kind": "repair_cracks",
+              "value": { "source": "fixed", "fixed": 2, "multiplier": 1, "cap": 0 }
+            }
+          ]
+        },
+        {
+          "mode_id": "empower",
+          "effects": [
+            {
+              "effect_id": "ap08-empower-stats", "trigger": "on_play", "kind": "modify_stats",
+              "value": { "source": "fixed", "fixed": 2, "multiplier": 1, "cap": 0 },
+              "secondary_amount": 2, "target": "friendly_follower", "duration": "permanent",
+              "target_filter": { "allowed_card_types": ["follower"], "profession_id": "pactmage", "series_id": "abyssal_pact", "include_main_board": true, "include_field": false, "exclude_source": false }
+            },
+            {
+              "effect_id": "ap08-empower-barrier", "trigger": "on_play", "kind": "grant_keyword",
+              "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+              "target": "friendly_follower", "keyword": "barrier", "duration": "permanent",
+              "dependency": "previous_effect_succeeded", "depends_on_effect_id": "ap08-empower-stats",
+              "target_from_effect_id": "ap08-empower-stats",
+              "target_filter": { "allowed_card_types": ["follower"], "profession_id": "pactmage", "series_id": "abyssal_pact", "include_main_board": true, "include_field": false, "exclude_source": false }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "design_id": "AP-09",
+      "effects": [
+        {
+          "effect_id": "ap09-on-time-repair", "trigger": "on_entry", "kind": "repair_cracks",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+          "conditions": { "all": [{ "kind": "on_time", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        },
+        {
+          "effect_id": "ap09-on-time-barrier", "trigger": "on_entry", "kind": "grant_keyword",
+          "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "target": "self", "keyword": "barrier", "duration": "permanent",
+          "conditions": { "all": [{ "kind": "on_time", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        },
+        {
+          "effect_id": "ap09-advanced-draw", "trigger": "on_entry", "kind": "draw",
+          "value": { "source": "fixed", "fixed": 2, "multiplier": 1, "cap": 0 },
+          "conditions": { "all": [{ "kind": "advanced", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        },
+        {
+          "effect_id": "ap09-advanced-discard", "trigger": "on_entry", "kind": "discard",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+          "conditions": { "all": [{ "kind": "advanced", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] },
+          "dependency": "previous_effect_succeeded", "depends_on_effect_id": "ap09-advanced-draw",
+          "selection_minimum": 1, "selection_maximum": 1
+        },
+        {
+          "effect_id": "ap09-advanced-rush", "trigger": "on_entry", "kind": "grant_keyword",
+          "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "target": "self", "keyword": "rush", "duration": "owner_turn",
+          "conditions": { "all": [{ "kind": "advanced", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "AP-10",
+      "effects": [
+        {
+          "effect_id": "ap10-optional-debt-damage", "trigger": "on_entry", "kind": "damage_follower",
+          "value": { "source": "cracks", "fixed": 0, "multiplier": 1, "cap": 5 },
+          "target": "enemy_follower", "optional": true,
+          "selection_minimum": 0, "selection_maximum": 1
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "AP-11",
+      "effects": [
+        {
+          "effect_id": "ap11-on-time-attack", "trigger": "on_entry", "kind": "modify_stats",
+          "value": { "source": "fixed", "fixed": 2, "multiplier": 1, "cap": 0 },
+          "secondary_amount": 0, "target": "self", "duration": "owner_turn",
+          "conditions": { "all": [{ "kind": "on_time", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }, { "kind": "cracks_at_least", "threshold": 4, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        },
+        {
+          "effect_id": "ap11-on-time-storm", "trigger": "on_entry", "kind": "grant_keyword",
+          "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "target": "self", "keyword": "storm", "duration": "owner_turn",
+          "conditions": { "all": [{ "kind": "on_time", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }, { "kind": "cracks_at_least", "threshold": 4, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        },
+        {
+          "effect_id": "ap11-fallback-rush", "trigger": "on_entry", "kind": "grant_keyword",
+          "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "target": "self", "keyword": "rush", "duration": "permanent",
+          "conditions": { "all": [], "any": [{ "kind": "advanced", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }, { "kind": "cracks_at_most", "threshold": 3, "read_cap": 0, "parameter": "", "permanent_filter": null }] }
+        }
+      ],
+      "modes": []
+    },
+    { "design_id": "AP-S01", "effects": [], "modes": [] },
+    { "design_id": "AP-S02", "effects": [], "modes": [] },
+    {
+      "design_id": "AP-S03",
+      "effects": [
+        {
+          "effect_id": "aps03-entry-repair", "trigger": "on_entry", "kind": "repair_cracks",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 }
+        }
+      ],
+      "modes": []
+    },
+    { "design_id": "AP-S04", "effects": [], "modes": [] },
+    {
+      "design_id": "NT-01",
+      "effects": [
+        {
+          "effect_id": "nt01-outnumbered-rush", "trigger": "on_entry", "kind": "grant_keyword",
+          "value": { "source": "fixed", "fixed": 0, "multiplier": 1, "cap": 0 },
+          "target": "self", "keyword": "rush", "duration": "owner_turn",
+          "conditions": { "all": [{ "kind": "board_count_less_than_opponent", "threshold": 1, "read_cap": 0, "parameter": "", "permanent_filter": null }], "any": [] }
+        }
+      ],
+      "modes": []
+    },
+    { "design_id": "NT-02", "effects": [], "modes": [] },
+    {
+      "design_id": "NT-03",
+      "effects": [
+        {
+          "effect_id": "nt03-expire-draw", "trigger": "on_countdown_end", "kind": "draw",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 }
+        },
+        {
+          "effect_id": "nt03-expire-heal", "trigger": "on_countdown_end", "kind": "heal_leader",
+          "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 }
+        }
+      ],
+      "modes": []
+    },
+    {
+      "design_id": "NT-04",
+      "effects": [],
+      "modes": [
+        {
+          "mode_id": "damage_follower",
+          "effects": [
+            {
+              "effect_id": "nt04-damage", "trigger": "on_play", "kind": "damage_follower",
+              "value": { "source": "fixed", "fixed": 4, "multiplier": 1, "cap": 0 },
+              "target": "enemy_follower"
+            }
+          ]
+        },
+        {
+          "mode_id": "destroy_amulet_or_field",
+          "effects": [
+            {
+              "effect_id": "nt04-destroy", "trigger": "on_play", "kind": "destroy_permanent",
+              "value": { "source": "fixed", "fixed": 1, "multiplier": 1, "cap": 0 },
+              "target": "enemy_permanent",
+              "target_filter": { "allowed_card_types": ["amulet", "field"], "profession_id": "", "series_id": "", "include_main_board": true, "include_field": true, "exclude_source": false }
+            }
+          ]
+        }
+      ]
+    },
+    { "design_id": "LO-T01", "effects": [], "modes": [] }
+  ]
+}

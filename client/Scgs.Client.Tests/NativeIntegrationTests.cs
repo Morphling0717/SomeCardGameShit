@@ -20,7 +20,7 @@ public sealed class NativeIntegrationTests
     {
         string nativePath = GetNativeLibraryPath();
 
-        var config = new GameConfigRequest("midrange", "advance")
+        var config = new GameConfigRequest("synthetic_alpha", "synthetic_beta")
         {
             RandomSeed = 7,
             FirstPlayerMode = FirstPlayerMode.Player0,
@@ -41,8 +41,11 @@ public sealed class NativeIntegrationTests
         Assert.HasCount(0, player0.Players[1].Hand);
         Assert.HasCount(0, player1.Players[0].Hand);
         Assert.IsGreaterThan(0UL, player0.Players[1].HandCount);
-        Assert.IsTrue(player0.Players[0].Hand.Any(card =>
-            card.Name.Any(character => character > 0x7F)));
+        Assert.IsTrue(player0.Players[0].Hand.All(card =>
+            card.DefinitionId.HasValue &&
+            card.Name.StartsWith("synthetic ", StringComparison.Ordinal) &&
+            card.Name.EndsWith($" {card.DefinitionId.Value}", StringComparison.Ordinal)),
+            "The v04 regression library must expose only synthetic fixture identities.");
 
         var query = new ActionQueryRequest(PlayerId.Player0, player0.Revision);
         LegalActionsResult legal = session.ListLegalActions(query);
@@ -112,6 +115,21 @@ public sealed class NativeIntegrationTests
 
     [TestMethod]
     [TestCategory("NativeIntegration")]
+    [DataRow("midrange")]
+    [DataRow("advance")]
+    public void ProtocolFixtureLibraryDoesNotAliasRetiredProductDecks(string retiredDeck)
+    {
+        string nativePath = GetNativeLibraryPath();
+        ScgsNativeException error = Assert.ThrowsExactly<ScgsNativeException>(() =>
+        {
+            using ScgsGameSession unexpected = ScgsGameSession.Create(
+                new GameConfigRequest(retiredDeck, "synthetic_beta"), nativePath);
+        });
+        Assert.AreEqual(NativeCode.SchemaMismatch, error.Code);
+    }
+
+    [TestMethod]
+    [TestCategory("NativeIntegration")]
     public void NativeFailureRetainsSameThreadDiagnosticAndDoesNotBecomeEngineStatus()
     {
         string nativePath = GetNativeLibraryPath();
@@ -145,10 +163,10 @@ public sealed class NativeIntegrationTests
             StringComparison.OrdinalIgnoreCase);
         if (isCi)
         {
-            Assert.Fail("SCGS_NATIVE_LIBRARY is required for managed tests in CI.");
+            Assert.Fail("SCGS_NATIVE_LIBRARY must identify the same-commit v04 synthetic fixture library in CI.");
         }
 
-        Assert.Inconclusive("Set SCGS_NATIVE_LIBRARY to run the real-library integration test.");
+        Assert.Inconclusive("Set SCGS_NATIVE_LIBRARY to the v04 synthetic fixture library to run integration tests.");
         throw new InvalidOperationException("MSTest did not terminate an inconclusive test.");
     }
 }

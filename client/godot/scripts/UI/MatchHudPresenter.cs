@@ -3,6 +3,8 @@ using Scgs.Client;
 using Scgs.GodotClient.Battlefield;
 using Scgs.GodotClient.Visuals;
 using Scgs.Hotseat;
+using Scgs.Hotseat.Product;
+using V05 = Scgs.Client.V05;
 
 namespace Scgs.GodotClient.UI;
 
@@ -77,6 +79,31 @@ public sealed class MatchHudPresenter
             view.Players[(int)opponent].MaximumLeaderHealth);
     }
 
+    public void RenderProduct(V05.MatchView view)
+    {
+        ArgumentNullException.ThrowIfNull(view);
+        EnsureBound();
+        if (view.Players.Length != 2)
+        {
+            throw new V05.ScgsV05NativeException(
+                (uint)V05.NativeCode.InternalError,
+                "The product HUD requires exactly two players.");
+        }
+
+        PlayerId viewer = Battlefield3DPresenter.LegacyPlayer(view.Viewer);
+        PlayerId active = Battlefield3DPresenter.LegacyPlayer(view.ActivePlayer);
+        _perspectiveViewer = viewer;
+        PlayerId opponent = Other(viewer);
+        BindPortraits(viewer);
+        V05.PlayerView own = view.Players.Single(player => player.Player == view.Viewer);
+        V05.PlayerView other = view.Players.Single(player =>
+            Battlefield3DPresenter.LegacyPlayer(player.Player) == opponent);
+        BindPlayerStatus(true, viewer, active, own.LeaderHealth, own.MaximumLeaderHealth);
+        BindPlayerStatus(false, opponent, active, other.LeaderHealth, other.MaximumLeaderHealth);
+        BindProductResources("Own", own);
+        BindProductResources("Opponent", other);
+    }
+
     /// <summary>
     /// Keeps the last safe perspective while presenting the neutral public
     /// projection during the two-frame resolving interval.
@@ -104,6 +131,33 @@ public sealed class MatchHudPresenter
             board.ActivePlayer,
             board.Players[(int)opponent].LeaderHealth,
             board.Players[(int)opponent].MaximumLeaderHealth);
+    }
+
+    public void RenderProductPublic(ProductHotseatPublicBoardView board)
+    {
+        ArgumentNullException.ThrowIfNull(board);
+        EnsureBound();
+        if (!_perspectiveViewer.HasValue || board.Players.Count != 2)
+        {
+            return;
+        }
+
+        PlayerId viewer = _perspectiveViewer.Value;
+        PlayerId opponent = Other(viewer);
+        PlayerId active = Battlefield3DPresenter.LegacyPlayer(board.ActivePlayer);
+        ProductHotseatPublicPlayerView own = board.Players.Single(player =>
+            Battlefield3DPresenter.LegacyPlayer(player.Player) == viewer);
+        ProductHotseatPublicPlayerView other = board.Players.Single(player =>
+            Battlefield3DPresenter.LegacyPlayer(player.Player) == opponent);
+        BindPlayerStatus(true, viewer, active, own.LeaderHealth, own.MaximumLeaderHealth);
+        BindPlayerStatus(false, opponent, active, other.LeaderHealth, other.MaximumLeaderHealth);
+        BindProductResources("Own", own.CurrentPp, own.PpCapacity, own.Cracks, own.EvolutionEnergy);
+        BindProductResources(
+            "Opponent",
+            other.CurrentPp,
+            other.PpCapacity,
+            other.Cracks,
+            other.EvolutionEnergy);
     }
 
     public MatchHudLayout ApplyLayout(
@@ -226,6 +280,25 @@ public sealed class MatchHudPresenter
         int safeMaximum = Math.Max(maximumHealth, 1);
         healthBar.MaxValue = safeMaximum;
         healthBar.Value = Math.Clamp(health, 0, safeMaximum);
+    }
+
+    private void BindProductResources(string prefix, V05.PlayerView player) =>
+        BindProductResources(
+            prefix,
+            player.CurrentPp,
+            player.PpCapacity,
+            player.Cracks,
+            player.EvolutionEnergy);
+
+    private void BindProductResources(
+        string prefix,
+        int currentPp,
+        int ppCapacity,
+        int cracks,
+        int evolutionEnergy)
+    {
+        EnsureBound().GetNode<Label>($"%{prefix}ResourceLabel").Text =
+            FormatCompactResources(currentPp, ppCapacity, cracks, evolutionEnergy);
     }
 
     internal static string FormatCompactSeat(

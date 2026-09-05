@@ -63,6 +63,56 @@ int main(void) {
     }
     free(view);
 
+    static const char leader_target_query[] =
+        "{\"schema_version\":2,\"player\":0,\"action\":4,"
+        "\"target\":{\"kind\":0,\"player\":1},\"expected_revision\":1}";
+    required = 0U;
+    if (scgs_v05_list_valid_targets_json(
+            handle,
+            leader_target_query,
+            (uint64_t)(sizeof(leader_target_query) - 1U),
+            NULL,
+            0U,
+            &required) != SCGS_V05_BUFFER_TOO_SMALL ||
+        required < 2U) {
+        (void)scgs_v05_destroy(handle);
+        return fail("leader target query did not cross the C11 transport");
+    }
+
+    static const char permanent_target_query[] =
+        "{\"schema_version\":2,\"player\":0,\"action\":4,"
+        "\"target\":{\"kind\":1,\"player\":1,\"permanent\":77},"
+        "\"expected_revision\":1}";
+    required = 0U;
+    if (scgs_v05_list_valid_targets_json(
+            handle,
+            permanent_target_query,
+            (uint64_t)(sizeof(permanent_target_query) - 1U),
+            NULL,
+            0U,
+            &required) != SCGS_V05_BUFFER_TOO_SMALL ||
+        required < 2U) {
+        (void)scgs_v05_destroy(handle);
+        return fail("permanent target query did not cross the C11 transport");
+    }
+
+    static const char zero_permanent_target_query[] =
+        "{\"schema_version\":2,\"player\":0,\"action\":4,"
+        "\"target\":{\"kind\":1,\"player\":1,\"permanent\":0},"
+        "\"expected_revision\":1}";
+    required = 99U;
+    if (scgs_v05_list_valid_targets_json(
+            handle,
+            zero_permanent_target_query,
+            (uint64_t)(sizeof(zero_permanent_target_query) - 1U),
+            NULL,
+            0U,
+            &required) != SCGS_V05_SCHEMA_MISMATCH ||
+        required != 0U) {
+        (void)scgs_v05_destroy(handle);
+        return fail("zero permanent target crossed the C11 schema boundary");
+    }
+
     if (scgs_v05_destroy(handle) != SCGS_V05_OK) {
         return fail("destroy failed");
     }

@@ -24,13 +24,12 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
     private readonly List<BattlefieldSurfaceRef> _keyboardSurfaces = [];
     private readonly Dictionary<ulong, Godot.Environment?> _arenaEnvironments = [];
     private ICardVisualCatalog _visualCatalog = CardVisualCatalog.Shared;
-    private BattlefieldVisualProfile _visualProfile = BattlefieldVisualProfile.Gate4BR2;
-    private ArenaVisualProfile _arenaVisualProfile = ArenaVisualProfile.Gate4BR2;
+    private BattlefieldVisualProfile _visualProfile = BattlefieldVisualProfile.AnimeV1;
+    private ArenaVisualProfile _arenaVisualProfile = ArenaVisualProfile.AnimeV1;
     private MatchVisualIdentity _visualIdentity = MatchVisualIdentity.FromDecks(
         LeaderPortraitCatalog.MidrangeDeckId,
         LeaderPortraitCatalog.AdvanceDeckId);
-    private Node3D? _gate4BR2Arena;
-    private Node3D? _r3CandidateArena;
+    private Node3D? _animeArena;
     private BattlefieldCameraRig _camera = null!;
     private BattlefieldHandRig _handRig = null!;
     private BattlefieldRaycastInput _raycastInput = null!;
@@ -177,6 +176,7 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
     {
         BattlefieldVisualProfile.Gate4BR2 => "gate4b-r2",
         BattlefieldVisualProfile.R3Candidate => "r3-candidate",
+        BattlefieldVisualProfile.AnimeV1 => "anime-v1",
         _ => throw new InvalidOperationException("The battlefield visual profile is unknown."),
     };
 
@@ -1779,49 +1779,25 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
 
     private void ActivateArenaProfile(ArenaVisualProfile profile)
     {
-        _gate4BR2Arena ??= GetNodeOrNull<Node3D>("AuthoredArena");
-        bool useCandidate = profile.Id == BattlefieldVisualProfile.R3Candidate;
-        if (useCandidate && _gate4BR2Arena is not null)
+        if (profile.Id != BattlefieldVisualProfile.AnimeV1)
+            throw new InvalidOperationException("Retired battlefield presentation.");
+        if (_animeArena is null)
         {
-            SetArenaActive(_gate4BR2Arena, active: false);
+            _animeArena = GD.Load<PackedScene>(profile.AuthoredArenaScenePath!).Instantiate<Node3D>();
+            _animeArena.Name = "AnimeV1Arena";
+            AddChild(_animeArena);
+            MoveChild(_animeArena, 0);
         }
-        if (profile.AuthoredArenaScenePath is { } scenePath &&
-            _r3CandidateArena is null)
-        {
-            PackedScene scene = GD.Load<PackedScene>(scenePath) ??
-                throw new InvalidOperationException(
-                    $"The authored arena scene could not be loaded: {scenePath}");
-            Node3D candidate = scene.Instantiate<Node3D>();
-            if (candidate.Name != "AuthoredArena")
-            {
-                candidate.Free();
-                throw new InvalidOperationException(
-                    $"The authored arena root must be named AuthoredArena: {scenePath}");
-            }
-
-            // Keep the approved R2 authored arena resident and reversible. The
-            // candidate receives a distinct runtime name only after validating
-            // its authored root contract, so direct scene tests remain useful.
-            candidate.Name = "R3CandidateArena";
-            SetArenaActive(candidate, active: false);
-            AddChild(candidate);
-            MoveChild(candidate, 0);
-            _r3CandidateArena = candidate;
-        }
-
-        if (_r3CandidateArena is not null && GodotObject.IsInstanceValid(_r3CandidateArena))
-        {
-            SetArenaActive(_r3CandidateArena, useCandidate);
-        }
-        if (_gate4BR2Arena is not null && GodotObject.IsInstanceValid(_gate4BR2Arena))
-        {
-            SetArenaActive(_gate4BR2Arena, !useCandidate);
-        }
+        SetArenaActive(_animeArena, true);
     }
 
     private void SetArenaActive(Node3D arena, bool active)
     {
         arena.Visible = active;
+        foreach (CanvasLayer layer in EnumerateDescendants(arena).OfType<CanvasLayer>())
+        {
+            layer.Visible = active;
+        }
         foreach (WorldEnvironment world in EnumerateDescendants(arena).OfType<WorldEnvironment>())
         {
             ulong id = world.GetInstanceId();
@@ -1854,17 +1830,7 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         }
 
         _built = true;
-        // Product scenes author the static arena, materials and lights in the
-        // editor. Keep the procedural fallback for direct test construction and
-        // downstream embedders which instantiate the presenter without its scene.
-        _gate4BR2Arena = GetNodeOrNull<Node3D>("AuthoredArena");
-        if (_gate4BR2Arena is null)
-        {
-            _gate4BR2Arena = new Node3D { Name = "AuthoredArena" };
-            AddChild(_gate4BR2Arena);
-            BuildTable(_gate4BR2Arena);
-        }
-
+        // The single product arena is authored; no procedural legacy table fallback.
         _camera = new BattlefieldCameraRig { Name = "BattlefieldCamera" };
         AddChild(_camera);
         Vector2 viewportSize = GetViewport()?.GetVisibleRect().Size ??
@@ -1921,128 +1887,6 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
         }
 
         _fxTween = null;
-    }
-
-    private void BuildTable(Node3D arenaRoot)
-    {
-        ArgumentNullException.ThrowIfNull(arenaRoot);
-        var worldEnvironment = new WorldEnvironment
-        {
-            Name = "BattlefieldEnvironment",
-            Environment = new Godot.Environment
-            {
-                BackgroundMode = Godot.Environment.BGMode.Color,
-                BackgroundColor = new Color("20272d"),
-                AmbientLightSource = Godot.Environment.AmbientSource.Color,
-                AmbientLightColor = new Color("6f8796"),
-                AmbientLightEnergy = 0.62f,
-                ReflectedLightSource = Godot.Environment.ReflectionSource.Bg,
-            },
-        };
-        arenaRoot.AddChild(worldEnvironment);
-
-        var table = new MeshInstance3D
-        {
-            Name = "Table",
-            Mesh = new BoxMesh
-            {
-                Size = new Vector3(
-                    BattlefieldPerspective.BoardWidth,
-                    0.24f,
-                    BattlefieldPerspective.BoardDepth),
-            },
-            Position = new Vector3(0.0f, -0.18f, 0.0f),
-            MaterialOverride = new StandardMaterial3D
-            {
-                AlbedoColor = new Color("132c36"),
-                Metallic = 0.12f,
-                Roughness = 0.82f,
-            },
-        };
-        arenaRoot.AddChild(table);
-
-        AddTerritorySurface(
-            arenaRoot,
-            "OpponentTerritory",
-            -1.0f,
-            new Color("172f3b"));
-        AddTerritorySurface(
-            arenaRoot,
-            "ViewerTerritory",
-            1.0f,
-            new Color("183d43"));
-
-        var centerLine = new MeshInstance3D
-        {
-            Name = "CenterLine",
-            Mesh = new BoxMesh
-            {
-                Size = new Vector3(BattlefieldPerspective.BoardWidth - 0.35f, 0.022f, 0.13f),
-            },
-            Position = new Vector3(0.0f, -0.028f, 0.0f),
-            MaterialOverride = new StandardMaterial3D
-            {
-                AlbedoColor = new Color("59d8cf"),
-                EmissionEnabled = true,
-                Emission = new Color("42bdb5") * 0.75f,
-            },
-            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
-        };
-        arenaRoot.AddChild(centerLine);
-
-        var keyLight = new DirectionalLight3D
-        {
-            Name = "KeyLight",
-            RotationDegrees = new Vector3(-58.0f, -25.0f, 0.0f),
-            LightColor = new Color("d8f1ec"),
-            LightEnergy = 1.25f,
-            ShadowEnabled = true,
-        };
-        arenaRoot.AddChild(keyLight);
-
-        var fillLight = new OmniLight3D
-        {
-            Name = "FillLight",
-            Position = new Vector3(0.0f, 7.0f, 1.0f),
-            OmniRange = 23.0f,
-            LightColor = new Color("87a9d8"),
-            LightEnergy = 3.2f,
-            ShadowEnabled = false,
-        };
-        arenaRoot.AddChild(fillLight);
-    }
-
-    private static void AddTerritorySurface(
-        Node3D arenaRoot,
-        string name,
-        float side,
-        Color color)
-    {
-        float halfDepth = (BattlefieldPerspective.BoardDepth / 2.0f) - 0.09f;
-        var territory = new MeshInstance3D
-        {
-            Name = name,
-            Mesh = new BoxMesh
-            {
-                Size = new Vector3(
-                    BattlefieldPerspective.BoardWidth - 0.35f,
-                    0.012f,
-                    halfDepth),
-            },
-            Position = new Vector3(
-                0.0f,
-                -0.046f,
-                side * ((halfDepth / 2.0f) + 0.065f)),
-            MaterialOverride = new StandardMaterial3D
-            {
-                AlbedoColor = color,
-                EmissionEnabled = true,
-                Emission = color * 0.08f,
-                Roughness = 0.86f,
-            },
-            CastShadow = GeometryInstance3D.ShadowCastingSetting.Off,
-        };
-        arenaRoot.AddChild(territory);
     }
 
     private void OnSurfaceClicked(ulong revision, BattlefieldSurfaceRef source)

@@ -2,6 +2,7 @@
 #include "scgs/native_api_v04.h"
 
 #include "scgs/game.hpp"
+#include "v04_synthetic_fixture.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -50,8 +51,8 @@ Json fixed_config(
     const bool shuffle = false) {
     return Json{
         {"schema_version", SCGS_V04_SCHEMA_VERSION},
-        {"player0_deck", "midrange"},
-        {"player1_deck", "advance"},
+        {"player0_deck", "synthetic_alpha"},
+        {"player1_deck", "synthetic_beta"},
         {"random_seed", seed},
         {"first_player_mode", first_player_mode},
         {"shuffle_decks", shuffle},
@@ -524,32 +525,32 @@ void test_input_validation_and_safe_errors(TestContext& context) {
     expect_create_code("[]", SCGS_V04_SCHEMA_MISMATCH);
     expect_create_code("{}", SCGS_V04_SCHEMA_MISMATCH);
     expect_create_code(
-        R"({"schema_version":2,"player0_deck":"midrange","player1_deck":"advance"})",
+        R"({"schema_version":2,"player0_deck":"synthetic_alpha","player1_deck":"synthetic_beta"})",
         SCGS_V04_SCHEMA_MISMATCH);
     expect_create_code(
-        R"({"schema_version":1,"player0_deck":"unknown","player1_deck":"advance"})",
+        R"({"schema_version":1,"player0_deck":"unknown","player1_deck":"synthetic_beta"})",
         SCGS_V04_SCHEMA_MISMATCH);
     expect_create_code(
-        R"({"schema_version":1,"player0_deck":7,"player1_deck":"advance"})",
+        R"({"schema_version":1,"player0_deck":7,"player1_deck":"synthetic_beta"})",
         SCGS_V04_SCHEMA_MISMATCH);
     expect_create_code(
-        R"({"schema_version":1,"player0_deck":"midrange","player1_deck":"advance","random_seed":-1})",
+        R"({"schema_version":1,"player0_deck":"synthetic_alpha","player1_deck":"synthetic_beta","random_seed":-1})",
         SCGS_V04_SCHEMA_MISMATCH);
     expect_create_code(
-        R"({"schema_version":1,"player0_deck":"midrange","player1_deck":"advance","random_seed":4294967296})",
+        R"({"schema_version":1,"player0_deck":"synthetic_alpha","player1_deck":"synthetic_beta","random_seed":4294967296})",
         SCGS_V04_SCHEMA_MISMATCH);
     expect_create_code(
-        R"({"schema_version":1,"player0_deck":"midrange","player1_deck":"advance","first_player_mode":99})",
+        R"({"schema_version":1,"player0_deck":"synthetic_alpha","player1_deck":"synthetic_beta","first_player_mode":99})",
         SCGS_V04_SCHEMA_MISMATCH);
     expect_create_code(
-        R"({"schema_version":1,"player0_deck":"midrange","player1_deck":"advance","shuffle_decks":"false"})",
+        R"({"schema_version":1,"player0_deck":"synthetic_alpha","player1_deck":"synthetic_beta","shuffle_decks":"false"})",
         SCGS_V04_SCHEMA_MISMATCH);
     expect_create_code(
-        R"({"schema_version":1,"player0_deck":"midrange","player1_deck":"advance","random_seed":null})",
+        R"({"schema_version":1,"player0_deck":"synthetic_alpha","player1_deck":"synthetic_beta","random_seed":null})",
         SCGS_V04_SCHEMA_MISMATCH);
 
     std::string invalid_utf8 =
-        R"({"schema_version":1,"player0_deck":"midrange","player1_deck":"advance","note":")";
+        R"({"schema_version":1,"player0_deck":"synthetic_alpha","player1_deck":"synthetic_beta","note":")";
     invalid_utf8.push_back(static_cast<char>(0xC3));
     invalid_utf8.push_back('(');
     invalid_utf8 += R"("})";
@@ -639,7 +640,7 @@ void test_input_validation_and_safe_errors(TestContext& context) {
     const BufferResult error = exercise_buffer_contract(context, last_error_call, false);
     EXPECT(context, !error.text.empty());
     EXPECT(context, error.text.find("unknown") == std::string::npos);
-    EXPECT(context, error.text.find("midrange") == std::string::npos);
+    EXPECT(context, error.text.find("synthetic_alpha") == std::string::npos);
 
     destroy_game(context, handle);
 }
@@ -651,7 +652,7 @@ void test_all_output_buffer_contracts(TestContext& context) {
     const BufferResult view = get_view(context, handle, 0U, true);
     const std::uint64_t revision = view.json.value("revision", 0U);
     expect_envelope(context, view.json, "view", revision);
-    EXPECT(context, view.text.find("先驱侦察兵") != std::string::npos);
+    EXPECT(context, view.text.find("synthetic unit 28673") != std::string::npos);
 
     const Json query = query_for(0U, revision);
     const BufferResult actions = list_actions(context, handle, query, true);
@@ -722,8 +723,8 @@ void test_privacy_event_cursors_and_atomicity(TestContext& context) {
     EXPECT(context, p1_view["players"][0]["hand"].empty());
     EXPECT(context, p0_view["players"][1]["hand_count"] == 4U);
     EXPECT(context, p1_view["players"][0]["hand_count"] == 4U);
-    EXPECT(context, player0.text.find("燃耗战士") == std::string::npos);
-    EXPECT(context, player1.text.find("先驱侦察兵") == std::string::npos);
+    EXPECT(context, player0.text.find("synthetic unit 28931") == std::string::npos);
+    EXPECT(context, player1.text.find("synthetic unit 28673") == std::string::npos);
 
     const BufferResult p0_events_first = read_events(context, handle, 0U, 0U);
     const BufferResult p0_events_again = read_events(context, handle, 0U, 0U);
@@ -737,7 +738,7 @@ void test_privacy_event_cursors_and_atomicity(TestContext& context) {
         if (event.value("type", 99U) == 3U && event.value("player", 99U) == 1U) {
             p0_saw_hidden_enemy_draw = event.value("hidden_card", false) &&
                                        !event.contains("card") && !event.contains("definition_id") &&
-                                       event.value("text", std::string{}).find("燃耗") == std::string::npos;
+                                       event.value("text", std::string{}).find("synthetic unit 28931") == std::string::npos;
         }
     }
     for (const Json& event : p1_events_first.json["events"]) {
@@ -748,7 +749,7 @@ void test_privacy_event_cursors_and_atomicity(TestContext& context) {
     }
     EXPECT(context, p0_saw_hidden_enemy_draw);
     EXPECT(context, p1_saw_own_draw);
-    EXPECT(context, p0_events_first.text.find("燃耗战士") == std::string::npos);
+    EXPECT(context, p0_events_first.text.find("synthetic unit 28931") == std::string::npos);
 
     const std::uint64_t first_cursor = p0_events_first.json.value("last_sequence", 0U);
     const BufferResult no_new_events = read_events(context, handle, 0U, first_cursor);
@@ -1112,7 +1113,7 @@ void test_direct_cpp_semantic_parity(TestContext& context) {
     config.first_player_mode = scgs::FirstPlayerMode::Player0;
     config.shuffle_decks = false;
     scgs::Game direct(
-        scgs::make_v04_catalog(), scgs::make_midrange_deck(), scgs::make_advance_deck(), config);
+        scgs::test_fixture::make_catalog(), scgs::test_fixture::make_alpha_deck(), scgs::test_fixture::make_beta_deck(), config);
     EXPECT(context, direct.start());
 
     scgs_v04_handle handle = create_game(context);
@@ -1179,7 +1180,7 @@ void test_full_match_direct_semantic_parity(TestContext& context) {
     config.first_player_mode = scgs::FirstPlayerMode::Player0;
     config.shuffle_decks = true;
     scgs::Game direct(
-        scgs::make_v04_catalog(), scgs::make_midrange_deck(), scgs::make_advance_deck(), config);
+        scgs::test_fixture::make_catalog(), scgs::test_fixture::make_alpha_deck(), scgs::test_fixture::make_beta_deck(), config);
     EXPECT(context, direct.start());
 
     scgs_v04_handle handle = create_game(context, fixed_config(parity_seed, 1U, true));
@@ -1319,8 +1320,8 @@ void test_cost_only_payment_preview(TestContext& context) {
 
 void test_deterministic_advance_and_burn(TestContext& context) {
     Json advance_config = fixed_config(0xAD0A0CEU, 1U, false);
-    advance_config["player0_deck"] = "advance";
-    advance_config["player1_deck"] = "midrange";
+    advance_config["player0_deck"] = "synthetic_beta";
+    advance_config["player1_deck"] = "synthetic_alpha";
 
     scgs_v04_handle advance_handle = create_game(context, advance_config);
     start_game(context, advance_handle);
@@ -1337,7 +1338,7 @@ void test_deterministic_advance_and_burn(TestContext& context) {
         1U,
         &before_advance.json["view"],
         0U,
-        "超前先锋");
+        "synthetic unit 28929");
     EXPECT(context, advance.has_value());
     if (advance.has_value()) {
         EXPECT(context, advance->value("use_advance", false));
@@ -1362,7 +1363,7 @@ void test_deterministic_advance_and_burn(TestContext& context) {
         EXPECT(context, after.json["view"]["players"][0]["cracks"] == 2);
         bool found_advanced_unit = false;
         for (const Json& unit : after.json["view"]["players"][0]["units"]) {
-            if (!unit.is_null() && unit.value("name", std::string{}) == "超前先锋") {
+            if (!unit.is_null() && unit.value("name", std::string{}) == "synthetic unit 28929") {
                 found_advanced_unit = unit.value("temporary_rush", false);
             }
         }
@@ -1388,7 +1389,7 @@ void test_deterministic_advance_and_burn(TestContext& context) {
     const BufferResult burn_actions = list_actions(
         context, burn_handle, query_for(0U, before_burn.json.value("revision", 0U)));
     std::optional<Json> burn = find_command(
-        burn_actions.json["actions"], 1U, &before_burn.json["view"], 0U, "燃耗战士");
+        burn_actions.json["actions"], 1U, &before_burn.json["view"], 0U, "synthetic unit 28931");
     EXPECT(context, burn.has_value());
     if (burn.has_value()) {
         (*burn)["use_advance"] = false;
@@ -1429,7 +1430,7 @@ void test_deterministic_donor_query(TestContext& context) {
     BufferResult opening_actions = list_actions(
         context, handle, query_for(0U, opening.json.value("revision", 0U)));
     std::optional<Json> pioneer = find_command(
-        opening_actions.json["actions"], 1U, &opening.json["view"], 0U, "先驱侦察兵");
+        opening_actions.json["actions"], 1U, &opening.json["view"], 0U, "synthetic unit 28673");
     EXPECT(context, pioneer.has_value());
     if (pioneer.has_value()) {
         (*pioneer)["use_advance"] = false;
@@ -1441,7 +1442,7 @@ void test_deterministic_donor_query(TestContext& context) {
     BufferResult turn_two_actions = list_actions(
         context, handle, query_for(0U, turn_two.json.value("revision", 0U)));
     std::optional<Json> assault = find_command(
-        turn_two_actions.json["actions"], 1U, &turn_two.json["view"], 0U, "突击前锋");
+        turn_two_actions.json["actions"], 1U, &turn_two.json["view"], 0U, "synthetic unit 28675");
     EXPECT(context, assault.has_value());
     if (assault.has_value()) {
         (*assault)["use_advance"] = false;
@@ -1453,7 +1454,7 @@ void test_deterministic_donor_query(TestContext& context) {
     BufferResult turn_three_actions = list_actions(
         context, handle, query_for(0U, turn_three.json.value("revision", 0U)));
     const std::optional<Json> support = find_command(
-        turn_three_actions.json["actions"], 2U, &turn_three.json["view"], 0U, "后方支援");
+        turn_three_actions.json["actions"], 2U, &turn_three.json["view"], 0U, "synthetic spell 28682");
     EXPECT(context, support.has_value());
     if (support.has_value()) {
         const BufferResult support_payment = preview_command(context, handle, *support);
@@ -1472,7 +1473,7 @@ void test_deterministic_donor_query(TestContext& context) {
 
     std::uint64_t guard_ace = 0;
     for (const Json& standby : ready_view["players"][0]["standby"]) {
-        if (standby.value("name", std::string{}) == "戍卫王机") {
+        if (standby.value("name", std::string{}) == "synthetic unit 28687") {
             guard_ace = standby.value("instance_id", 0U);
         }
     }
@@ -1499,7 +1500,7 @@ void test_deterministic_donor_query(TestContext& context) {
 
     std::uint64_t assault_id = 0U;
     for (const Json& unit : ready_view["players"][0]["units"]) {
-        if (!unit.is_null() && unit.value("name", std::string{}) == "突击前锋") {
+        if (!unit.is_null() && unit.value("name", std::string{}) == "synthetic unit 28675") {
             assault_id = unit.value("instance_id", 0U);
         }
     }
@@ -1534,7 +1535,7 @@ void test_deterministic_donor_query(TestContext& context) {
         EXPECT(context, donor_archived);
         bool component_transferred = false;
         for (const Json& unit : deployed.json["view"]["players"][0]["units"]) {
-            if (!unit.is_null() && unit.value("name", std::string{}) == "戍卫王机") {
+            if (!unit.is_null() && unit.value("name", std::string{}) == "synthetic unit 28687") {
                 component_transferred = unit["granted_component"].value("has_component", false) &&
                                         unit["granted_component"].value("granted_kind", 99U) == 7U;
             }
@@ -1552,7 +1553,7 @@ void test_deterministic_donor_query(TestContext& context) {
     const BufferResult evolve_actions = list_actions(
         context, handle, query_for(0U, evolve_ready.json.value("revision", 0U)));
     const std::optional<Json> evolve = find_command(
-        evolve_actions.json["actions"], 5U, &evolve_ready.json["view"], 0U, "戍卫王机");
+        evolve_actions.json["actions"], 5U, &evolve_ready.json["view"], 0U, "synthetic unit 28687");
     EXPECT(context, evolve.has_value());
     if (evolve.has_value()) {
         const std::uint64_t revision = evolve_ready.json.value("revision", 0U);
@@ -1566,7 +1567,7 @@ void test_deterministic_donor_query(TestContext& context) {
         for (const Json& unit : evolved.json["view"]["players"][0]["units"]) {
             saw_evolved_guard_ace = saw_evolved_guard_ace ||
                                     (!unit.is_null() &&
-                                     unit.value("name", std::string{}) == "戍卫王机" &&
+                                     unit.value("name", std::string{}) == "synthetic unit 28687" &&
                                      unit.value("evolved", false));
         }
         EXPECT(context, saw_evolved_guard_ace);
@@ -1581,7 +1582,7 @@ void test_deterministic_donor_query(TestContext& context) {
 
 void test_deterministic_trap_privacy_and_reaction(TestContext& context) {
     Json config = fixed_config(0x7A4F00U, 1U, false);
-    config["player1_deck"] = "midrange";
+    config["player1_deck"] = "synthetic_alpha";
     scgs_v04_handle handle = create_game(context, config);
     start_game(context, handle);
 
@@ -1630,7 +1631,7 @@ void test_deterministic_trap_privacy_and_reaction(TestContext& context) {
         }
 
         std::optional<Json> selected = find_command(
-            actions.json["actions"], 3U, &view, actor, "拦截伏策");
+            actions.json["actions"], 3U, &view, actor, "synthetic trap 28684");
         if (selected.has_value()) {
             EXPECT(context, submit(context, handle, *selected) == 0U);
             setter = actor;
@@ -1642,14 +1643,14 @@ void test_deterministic_trap_privacy_and_reaction(TestContext& context) {
         selected = find_command(actions.json["actions"], 1U);
         if (!selected.has_value()) {
             selected = find_command(
-                actions.json["actions"], 2U, &view, actor, "后方支援");
+                actions.json["actions"], 2U, &view, actor, "synthetic spell 28682");
         }
         if (!selected.has_value()) {
             selected = find_command(actions.json["actions"], 2U);
         }
         if (!selected.has_value()) {
             selected = find_command(
-                actions.json["actions"], 3U, &view, actor, "战令设施");
+                actions.json["actions"], 3U, &view, actor, "synthetic relic 28683");
         }
         if (!selected.has_value()) {
             selected = find_command(actions.json["actions"], 3U);
@@ -1685,7 +1686,7 @@ void test_deterministic_trap_privacy_and_reaction(TestContext& context) {
         }
     }
     EXPECT(context, saw_safe_set_event);
-    EXPECT(context, hidden_events.text.find("拦截伏策") == std::string::npos);
+    EXPECT(context, hidden_events.text.find("synthetic trap 28684") == std::string::npos);
 
     bool opened_reaction = false;
     std::optional<Json> declared_attack;
@@ -1744,7 +1745,7 @@ void test_deterministic_trap_privacy_and_reaction(TestContext& context) {
         EXPECT(context, responder["eligible_traps"].size() == responder["eligible_count"]);
         EXPECT(context, non_responder.value("eligible_count", 0U) == responder["eligible_count"]);
         EXPECT(context, non_responder["eligible_traps"].empty());
-        EXPECT(context, non_responder.dump().find("拦截伏策") == std::string::npos);
+        EXPECT(context, non_responder.dump().find("synthetic trap 28684") == std::string::npos);
         EXPECT(context, declared_attack.has_value());
         EXPECT(context, responder.contains("origin"));
         EXPECT(context, non_responder.contains("origin"));
@@ -1776,7 +1777,7 @@ void test_deterministic_trap_privacy_and_reaction(TestContext& context) {
             for (const Json& slot : after_pass.json["view"]["players"][*setter]["tactics"]) {
                 trap_remains = trap_remains ||
                                (!slot.is_null() &&
-                                slot.value("name", std::string{}) == "拦截伏策");
+                                slot.value("name", std::string{}) == "synthetic trap 28684");
             }
             EXPECT(context, trap_remains);
         }
@@ -1828,7 +1829,7 @@ void test_deterministic_trap_privacy_and_reaction(TestContext& context) {
                        source_name(
                            before_activation.json["view"],
                            *setter,
-                           activate->value("source", 0U)) == "拦截伏策");
+                           activate->value("source", 0U)) == "synthetic trap 28684");
                 EXPECT(context, submit(context, handle, *activate) == 0U);
                 BufferResult after_activation = get_view(context, handle, *setter);
                 EXPECT(context, after_activation.json.value("revision", 0U) == revision + 1U);
@@ -1854,7 +1855,7 @@ void test_deterministic_trap_privacy_and_reaction(TestContext& context) {
                 for (const Json& slot : after_activation.json["view"]["players"][*setter]["tactics"]) {
                     trap_still_set = trap_still_set ||
                                      (!slot.is_null() &&
-                                      slot.value("name", std::string{}) == "拦截伏策");
+                                      slot.value("name", std::string{}) == "synthetic trap 28684");
                 }
                 EXPECT(context, !trap_still_set);
                 const Json events = read_events(context, handle, *setter, cursor).json["events"];

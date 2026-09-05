@@ -1,5 +1,37 @@
 # Godot 客户端架构
 
+## 当前产品客户端（2026-09-05）
+
+`BootstrapController` 的唯一正式对局路径是 `ScgsV05GameSession → ProductHotseatMatchController → ProductMatchScreen`。默认菜单及两副牌组均为 AnimeV1 产品，不再运行 v04 或独立审批样片。实际实机/包/CI 结果见 [TEST_REPORT](../TEST_REPORT.md)；原生逐卡证据见 [engine evidence](product-playable-v1-engine-evidence.md)。
+
+### 责任与输入
+
+- Bootstrap 显示菜单后做 v05 ABI/schema 预检，不读取私密 viewer；缺库时保留菜单并禁用本地对局。
+- 两席选择 `oathguard_luminous_oath_v1` 或 `pactmage_abyssal_pact_v1`，创建/启动后先进入 Covered。当前 viewer 永远朝向近端，换向发生在完全遮挡期间。
+- ProductMatchScreen 只管理 session 编排、HUD、公开/私密模式与两帧提交时序；`Battlefield3DPresenter.Product` 绑定 v05 DTO，`BattlefieldHandRig` 保持相机相对手牌。
+- 同 revision、同 viewer 可复用 actor，而交互高亮仍从当前合法行动更新；详情按 revision/viewer 更新，不因事件 ACK 清空当前 hover。
+- `ProductSurfaceIntentPolicy` 只把来源/落点和合法候选对齐，保留玩家归属、区域及具体编号，不新增规则验证。无效拖放须在 native 查询前被本地拒绝。
+- 来源 → 模式/额外代价/具体格位/目标/预支 → 规范命令；付费后的选择以 opaque option ID 完成，不能取消原行动。调度批次与投降保留专用确认。
+- 所有 native 调用仍在 Godot 主线程顺序执行；客户端不直接读取引擎内部状态。
+
+### 隐私和生命周期
+
+准备命令同步清除 actor、详情、日志、候选、回调、拖拽及 tween 的私密状态，从 `ProductHotseatPublicBoardView` 绘制中立场面。显示环境等待两个 FramePostDraw，再提交；纯 headless 只能使用 process-frame 专用门，不能冒充 GPU 画面验收。提交后先查询原 viewer 来决定操作者，换人则 Covered，下一 viewer 揭示前零读取。
+
+离场/重开先锁输入、清敏感内容并增加 session generation，再延迟切换/释放旧会话。异步提交和事件 ACK 都校验会话身份、generation、mode 与 revision。Finished/Faulted/Disposed 不接受战场射线或旧拖拽。
+
+### 构建与退役边界
+
+- Godot 4.7.2 .NET / Compatibility，SDK 10.0.400；Godot net8.0，纯托管双 TFM。
+- 编辑器产品库为 `native/windows-x86_64/scgs_v05.dll` 或 `native/macos-arm64/libscgs_v05.dylib`；Windows 包放 EXE 旁，macOS 放 Contents/Frameworks 后重签。只能加载审计过的显式绝对路径。
+- 玩家包只携带 v05；v04 fixture 不进入安装/导出。开发 MCP 插件、autoload、token/probe 必须被 export strip 排除，并做新包审计。
+- `--ci-product-smoke` 是当前真实产品验收入口。旧 `--ci-smoke`、`--legacy-2d-board`、`--r3-visual*`、`--ci-visual-suite*`、`--anime-*` 被拒绝；保留的旧类和报告只为历史/合同 fixture，不是可选产品模式。
+- 来源及许可证见 `client/godot/ASSET_NOTICES.md`；启动/导出具体命令见 [Godot README](../client/godot/README.md)。
+
+## 历史 Gate 4B-R2 架构（以下不是现行启动指南）
+
+> **Historical：以下 v04、旧牌组、legacy 2D、样片 launcher 与旧素材数量仅记录历史 Gate；由上面的 v05/AnimeV1 产品边界替代。**
+
 本文描述 Gate 4B-R2 的 Godot 4.7.2 .NET 桌面客户端边界。规则、费用、目标、响应与胜负仍完全由 C++ 引擎裁决；托管层只编排安全查询/规范命令，Godot 的 authored 默认 3D 与隐藏 legacy 2D presenter 都只把点击、拖拽和键盘输入转换成同一套 surface intent。相机相对手牌架、卡牌数值徽章、视觉目录、HUD 和基础特效都是可替换的表现边界，不是第二套规则实现。
 
 ## 分层

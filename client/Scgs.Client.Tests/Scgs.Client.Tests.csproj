@@ -15,6 +15,8 @@
     <ProjectReference Include="..\Scgs.Hotseat\Scgs.Hotseat.csproj" />
     <Compile Include="..\godot\scripts\Match\ViewerRevealGate.cs"
              Link="GodotContracts\ViewerRevealGate.cs" />
+    <Compile Include="..\godot\scripts\Match\MatchSetup.cs"
+             Link="GodotContracts\MatchSetup.cs" />
     <Compile Include="..\godot\scripts\Native\NativeLibraryLayout.cs"
              Link="GodotContracts\NativeLibraryLayout.cs" />
     <Compile Include="..\godot\scripts\Visual\ClientVisualSettings.cs"
@@ -37,6 +39,10 @@
              Link="GodotContracts\CardFaces\ProductCardVisualCatalog.cs" />
     <Compile Include="..\godot\scripts\CardFaces\CardFrameStyleCatalog.cs"
              Link="GodotContracts\CardFaces\CardFrameStyleCatalog.cs" />
+    <Compile Include="..\godot\scripts\Presentation\ProductCardTextCatalog.Generated.cs"
+             Link="GodotContracts\Presentation\ProductCardTextCatalog.Generated.cs" />
+    <Compile Include="..\godot\scripts\Presentation\ProductCardPresentation.cs"
+             Link="GodotContracts\Presentation\ProductCardPresentation.cs" />
   </ItemGroup>
 
 </Project>

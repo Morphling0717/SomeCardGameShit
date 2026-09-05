@@ -1,5 +1,36 @@
 # 架构说明
 
+## 当前架构：Product Playable v1（2026-09-05）
+
+当前产品已经使用 v05 真实规则会话与 AnimeV1，不再由 FoundationSession 或 v04 旧牌组驱动。源码状态与验收结果分开记录：[原生证据](product-playable-v1-engine-evidence.md)、[总测试报告](../TEST_REPORT.md)。
+
+```text
+card-pool.lock + runtime-foundation.lock + product-effects.lock
+               → 已提交的 product_catalog_v2.generated.cpp
+               → ProductGame（命令/支付/效果/响应/终局）
+                    ├─ ProductBoard（区域/战斗/离场原因）
+                    └─ ResolutionQueue / PendingChoice / TriggerOrderPlanner
+               → scgs_v05 ABI 2.0 / schema 2（14 导出）
+               → Scgs.Client.V05 / IScgsV05GameSession
+               → Scgs.Hotseat.Product / ProductHotseatMatchController
+               → BootstrapController / ProductMatchScreen / AnimeV1
+```
+
+- 34 个可构筑定义与 1 个衍生物均由声明式效果图标记为产品可执行；真实定义语义场景与独立合成能力矩阵分别验证，普通构建不依赖 Python。
+- 两副产品键为 `oathguard_luminous_oath_v1` / `pactmage_abyssal_pact_v1`；每副 30 主牌＋4 战备。五格混合随从/护符、三策略位、独立场地；不存在 v04 通用组件部署语义。
+- 所有公开命令先走同一计划/验证/支付投影。待选择阻断普通命令；只允许 ResolveChoice 或投降。触发排序、检索、弃牌、置底均可暂停恢复。
+- `MoveReason` 区分破坏、替换、到期、额外代价、封存和终局清理；战备离场进入封存但保留原因。终局清队列，MatchEnded 唯一且最后。
+- v05 传输只返回观看者安全 DTO；对方手牌无身份，背面伏策匿名，私密 option 只给选择者；实时视图与开局事件不输出 seed。
+- Godot 不计算规则。产品 surface 映射只比较已有合法候选的玩家、区域、格位、来源/目标；点击/拖拽进入同一控制器。
+- `Resolving` 只含公共投影，两帧显示后提交；操作者变更先 `Covered`，不得预读下一 viewer。
+- Godot / Scgs.Client / Scgs.Hotseat 工具链仍为 Godot 4.7.2 .NET、SDK 10.0.400、net8.0 客户端、net10.0 测试。主线程顺序调用、绝对路径加载与安全 token 生命周期不变。
+- AnimeV1 是唯一产品画面，旧科幻卡图与产品 profile/preview 入口已退役；不是面向玩家的双模式。当前卡体继续复用相机相对手牌、有限 actor 池和原创组合层。
+- 正式 v04 只保留 ABI/schema/wire 兼容形状，不再有可成功创建的产品牌组；独立 `scgs_v04_fixture` 保留成功协议回归且不安装、不打包。见 [v04 契约](native-api-v04.md)。
+
+## 历史架构记录（以下全文只描述当时的 Gate，不是当前调用链）
+
+> **Historical：下文关于“当前 v04”“FoundationSession”“尚未可玩”“legacy/样片参数”的描述均已被上节替代。保留它们用于追溯架构演变，不得据此恢复退役入口。**
+
 ## 现行结构
 
 项目采用“规则真值、客户端契约、表现层”分层：

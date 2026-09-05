@@ -20,6 +20,8 @@ public enum BattlefieldSurfaceKind : uint
     Leader = 6,
     CastZone = 7,
     StandbyPile = 8,
+    FieldCard = 9,
+    FieldSlot = 10,
 }
 
 public enum BattlefieldSurfaceGesture : uint

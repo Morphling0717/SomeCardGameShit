@@ -6,24 +6,24 @@ namespace Scgs.GodotClient.UI;
 
 public sealed partial class MainMenuScreen : Control
 {
-    private const string MenuBackgroundPath =
-        "res://assets/visual/menu/gate4b-menu-background.png";
+    private const string ProductMenuBackgroundPath =
+        "res://assets/visual/anime_v1/slice/menu/menu-key-art.png";
 
-    private static readonly (string Key, string Label)[] FixedDecks =
+    private static readonly (string Key, string Label)[] ProductDecks =
     [
-        ("midrange", "常规中速"),
-        ("advance", "预支实验"),
+        ("oathguard_luminous_oath_v1", "誓卫 · 曜誓骑士团"),
+        ("pactmage_abyssal_pact_v1", "契术 · 渊契魔导院"),
     ];
 
     private static readonly Dictionary<string, (string Faction, string Description)> DeckCopy =
         new(StringComparer.Ordinal)
         {
-            ["midrange"] = (
-                "蓝钢军事 · 稳定推进",
-                "以侦察、护卫与指挥协同建立场面，依靠精确交换和重型战备结束对局。"),
-            ["advance"] = (
-                "紫金工业 · 能量债务",
-                "借预支、燃耗与裂痕换取爆发节奏，再以债务装甲和巨型机枢收束战局。"),
+            ["oathguard_luminous_oath_v1"] = (
+                "誓卫 · 曜誓骑士团",
+                "积极清偿裂痕，以无隙、修复归零、守护、突进与屏障建立坚固阵线。"),
+            ["pactmage_abyssal_pact_v1"] = (
+                "契术 · 渊契魔导院",
+                "主动动用未来，以裂痕阈值、必杀、吸血与疾驰换取危险而凌厉的节奏。"),
         };
 
     private Control _homePage = null!;
@@ -61,6 +61,14 @@ public sealed partial class MainMenuScreen : Control
 
     public event Action<ClientVisualSettings>? VisualSettingsChanged;
 
+    /// <summary>
+    /// Source compatibility only. Retired product decks have no UI route.
+    /// </summary>
+    public void ConfigureLegacyDeckCatalogForAutomation()
+    {
+        throw new InvalidOperationException("The legacy product menu was retired; use the v05 product entry.");
+    }
+
     public override void _Ready()
     {
         BindNodes();
@@ -69,6 +77,8 @@ public sealed partial class MainMenuScreen : Control
         PopulateSettingsOptions();
         WireSignals();
         LoadOptionalBackground();
+        ApplyProductCopy();
+        AnimeProductTheme.Apply(this);
 
         _automationRun = IsAutomationRun(OS.GetCmdlineUserArgs());
         _settingsStore = new GodotVisualSettingsStore();
@@ -247,16 +257,37 @@ public sealed partial class MainMenuScreen : Control
 
     private void LoadOptionalBackground()
     {
-        if (!ResourceLoader.Exists(MenuBackgroundPath, "Texture2D"))
+        string path = ProductMenuBackgroundPath;
+        if (!ResourceLoader.Exists(path, "Texture2D"))
         {
             return;
         }
 
-        Texture2D? texture = ResourceLoader.Load<Texture2D>(MenuBackgroundPath);
+        Texture2D? texture = ResourceLoader.Load<Texture2D>(path);
         if (texture is not null)
         {
             GetNode<TextureRect>("%MenuBackground").Texture = texture;
         }
+    }
+
+    private void ApplyProductCopy()
+    {
+        GetNode<Label>("SafeArea/MainLayout/BrandColumn/Protocol").Text =
+            "誓约与深渊 · 原创幻想卡牌";
+        Label developmentTitle = GetNode<Label>("SafeArea/MainLayout/BrandColumn/Title");
+        developmentTitle.AddThemeFontSizeOverride("font_size", 30);
+        GetNode<Label>("SafeArea/MainLayout/BrandColumn/Subtitle").Text =
+            "原创日式幻想卡牌对战\n立下誓约，驾驭深渊之契";
+        GetNode<Label>("SafeArea/MainLayout/BrandColumn/Edition").Text =
+            "开发代号 · 本地双人试玩";
+        GetNode<Label>("SafeArea/MainLayout/RightShell/PageRoot/HomePage/HomeHeading").Text = "启程";
+        _aboutDialog.DialogText =
+            "SomeCardGameShit · 产品热座版\n\n" +
+            "原创日式幻想卡牌对战。当前版本提供誓卫与契术两副完整固定牌组的本地热座对局。\n\n" +
+            "客户端：Godot 4.7.2 .NET（MIT）\n" +
+            "字体：Noto Sans CJK SC（SIL OFL 1.1）\n" +
+            "原生规则引擎：项目 GPL-3.0-or-later\n\n" +
+            "完整许可证、原创素材声明和第三方声明随导出包提供。";
     }
 
     private void OpenSettings()
@@ -445,10 +476,10 @@ public sealed partial class MainMenuScreen : Control
         }
     }
 
-    private static void PopulateDecks(OptionButton selector, int defaultIndex)
+    private void PopulateDecks(OptionButton selector, int defaultIndex)
     {
         selector.Clear();
-        foreach ((string key, string label) in FixedDecks)
+        foreach ((string key, string label) in ProductDecks)
         {
             selector.AddItem(label);
             selector.SetItemMetadata(selector.ItemCount - 1, key);
@@ -495,7 +526,8 @@ public sealed partial class MainMenuScreen : Control
 
     private static bool IsAutomationRun(string[] arguments)
     {
-        return arguments.Contains("--ci-smoke", StringComparer.Ordinal) ||
+        return arguments.Contains("--ci-product-smoke", StringComparer.Ordinal) ||
+               arguments.Contains("--ci-smoke", StringComparer.Ordinal) ||
                arguments.Any(argument =>
                    argument.StartsWith("--ci-visual-suite=", StringComparison.Ordinal)) ||
                arguments.Contains("--r3-visual-slice", StringComparer.Ordinal) ||

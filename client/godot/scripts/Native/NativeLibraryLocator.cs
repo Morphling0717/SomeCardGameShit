@@ -7,7 +7,16 @@ internal static class NativeLibraryLocator
     private const string OverrideArgument = "--native-library=";
     private const string OverrideEnvironment = "SCGS_NATIVE_LIBRARY";
 
-    public static string ResolveAbsolutePath()
+    public static string ResolveAbsolutePath() =>
+        ResolveAbsolutePath(ScgsNativeApiGeneration.ProductV05);
+
+    public static string ResolveLegacyFixtureAbsolutePath() =>
+        ResolveAbsolutePath(ScgsNativeApiGeneration.LegacyV04);
+
+    public static string ResolveProductAbsolutePath() =>
+        ResolveAbsolutePath(ScgsNativeApiGeneration.ProductV05);
+
+    private static string ResolveAbsolutePath(ScgsNativeApiGeneration api)
     {
         // Reject unsupported hosts before considering overrides so an explicit
         // path cannot accidentally make Linux look like a supported product.
@@ -40,7 +49,8 @@ internal static class NativeLibraryLocator
             target,
             OS.GetExecutablePath(),
             AppContext.BaseDirectory,
-            ProjectSettings.GlobalizePath("res://native"));
+            ProjectSettings.GlobalizePath("res://native"),
+            api);
 
         foreach (string absolute in candidates)
         {
@@ -51,7 +61,8 @@ internal static class NativeLibraryLocator
         }
 
         throw new FileNotFoundException(
-            "找不到 scgs_v04 原生库。请通过 --native-library=<绝对路径> 或 " +
+            $"找不到 {(api == ScgsNativeApiGeneration.ProductV05 ? "scgs_v05" : "scgs_v04")} 原生库。" +
+            "请通过 --native-library=<绝对路径> 或 " +
             $"{OverrideEnvironment} 指定 CI/导出后 staging 产物。已检查：\n" +
             string.Join("\n", candidates));
     }

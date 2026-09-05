@@ -7,6 +7,10 @@
 #include "scgs/game.hpp"
 #include "scgs/types.hpp"
 
+#if defined(SCGS_V04_SYNTHETIC_FIXTURE)
+#include "v04_synthetic_fixture.hpp"
+#endif
+
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -413,13 +417,28 @@ struct ParsedConfig final {
 };
 
 scgs::DeckList parse_deck_name(const std::string& name) {
-    if (name == "midrange") {
-        return scgs::make_midrange_deck();
+#if defined(SCGS_V04_SYNTHETIC_FIXTURE)
+    if (name == "synthetic_alpha") {
+        return scgs::test_fixture::make_alpha_deck();
     }
-    if (name == "advance") {
-        return scgs::make_advance_deck();
+    if (name == "synthetic_beta") {
+        return scgs::test_fixture::make_beta_deck();
     }
-    fail(SCGS_V04_SCHEMA_MISMATCH, "The requested fixed deck is not supported.");
+#else
+    (void)name;
+#endif
+    // Retired products are never mapped to a fixture or a schema-2 deck.
+    fail(SCGS_V04_SCHEMA_MISMATCH, "This v04 configuration is retired or unsupported; use the product v05 API.");
+}
+
+scgs::CardCatalog session_catalog() {
+#if defined(SCGS_V04_SYNTHETIC_FIXTURE)
+    return scgs::test_fixture::make_catalog();
+#else
+    // The compatibility artifact retains the frozen transport ABI, not a
+    // hidden playable product. parse_deck_name rejects every product config.
+    return {};
+#endif
 }
 
 ParsedConfig parse_config(const Json& object) {
@@ -1136,7 +1155,7 @@ scgs_v04_native_code write_json(
 
 struct GameEntry final {
     GameEntry(scgs::DeckList player0, scgs::DeckList player1, const scgs::GameConfig& config)
-        : game(scgs::make_v04_catalog(), std::move(player0), std::move(player1), config) {}
+        : game(session_catalog(), std::move(player0), std::move(player1), config) {}
 
     scgs::Game game;
 };

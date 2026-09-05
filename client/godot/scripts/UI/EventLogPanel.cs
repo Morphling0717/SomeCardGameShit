@@ -2,6 +2,7 @@
 using Godot;
 using Scgs.Client;
 using Scgs.GodotClient.Presentation;
+using V05 = Scgs.Client.V05;
 
 namespace Scgs.GodotClient.UI;
 
@@ -37,6 +38,26 @@ public sealed partial class EventLogPanel : PanelContainer
     {
         _entries.Clear();
         Append(viewer, events);
+    }
+
+    public void AppendProduct(V05.PlayerId viewer, IEnumerable<V05.GameEventView> events)
+    {
+        foreach (V05.GameEventView gameEvent in events)
+        {
+            _entries.Enqueue(ProductActionPresentation.FormatEvent(gameEvent, viewer));
+        }
+        while (_entries.Count > MaximumEntries)
+        {
+            _entries.Dequeue();
+        }
+        _log.Text = string.Join('\n', _entries);
+        _log.ScrollToLine(Math.Max(0, _entries.Count - 1));
+    }
+
+    public void ReplaceProduct(V05.PlayerId viewer, IEnumerable<V05.GameEventView> events)
+    {
+        _entries.Clear();
+        AppendProduct(viewer, events);
     }
 
     public void ClearSensitive()

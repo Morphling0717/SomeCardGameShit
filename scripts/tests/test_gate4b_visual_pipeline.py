@@ -24,8 +24,10 @@ from audit_visual_assets import (  # noqa: E402
     ANIME_V1_MANIFEST_RELATIVE_PATH,
     CARD_BODY_RASTER_PATHS,
     CARD_BODY_MANIFEST_RELATIVE_PATH,
+    EXPECTED_PRODUCT_CARD_ART_PATHS,
     EXPECTED_ANIME_V1_PATHS,
     EXPECTED_CARD_BODY_PATHS,
+    PRODUCT_CARD_ART_MANIFEST_RELATIVE_PATH,
     VisualAssetAuditError,
     _rgba_alpha_extrema,
     audit,
@@ -186,7 +188,22 @@ def _fixture_region(
 
 
 class VisualAssetAuditTests(unittest.TestCase):
-    def test_repo_keeps_r2_r3_frozen_and_audits_anime_v1_separately(self) -> None:
+    def test_retired_models_shaders_and_imports_are_rejected_even_without_images(self) -> None:
+        for relative in ("arena/retired.glb", "r3/retired.gdshader", "cards/art/retired.png.import"):
+            with self.subTest(relative=relative), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                for source_path in ("client/godot/assets/visual/ASSET_MANIFEST.json",
+                                    "client/godot/assets/visual/anime_v1/shared/fallback_front.svg"):
+                    target = root / source_path
+                    target.parent.mkdir(parents=True, exist_ok=True)
+                    target.write_bytes((SCRIPTS.parent / source_path).read_bytes())
+                retired = root / "client/godot/assets/visual" / relative
+                retired.parent.mkdir(parents=True, exist_ok=True)
+                retired.write_bytes(b"synthetic retired resource")
+                with self.assertRaisesRegex(VisualAssetAuditError, "Retired industrial product assets"):
+                    audit(root)
+
+    def test_repo_retires_industrial_art_and_audits_the_only_anime_product(self) -> None:
         root = SCRIPTS.parent
         result = audit(root)
         product_manifest = root / "client/godot/assets/visual/ASSET_MANIFEST.json"
@@ -195,16 +212,13 @@ class VisualAssetAuditTests(unittest.TestCase):
         )
         anime_manifest = root / ANIME_V1_MANIFEST_RELATIVE_PATH
         card_body_manifest = root / CARD_BODY_MANIFEST_RELATIVE_PATH
-        golden_metadata = json.loads((
-            root
-            / "client/godot/tests/visual_goldens/gate4b/windows-1600x900/GOLDEN_METADATA.json"
-        ).read_text(encoding="utf-8"))
-
-        self.assertEqual(72, result["asset_count"])
-        self.assertEqual(34, result["product_asset_count"])
-        self.assertEqual(1, result["candidate_asset_count"])
+        product_card_art_manifest = root / PRODUCT_CARD_ART_MANIFEST_RELATIVE_PATH
+        self.assertEqual(66, result["asset_count"])
+        self.assertEqual(1, result["product_asset_count"])
+        self.assertEqual(0, result["candidate_asset_count"])
         self.assertEqual(14, result["anime_asset_count"])
         self.assertEqual(23, result["card_body_asset_count"])
+        self.assertEqual(28, result["product_card_art_asset_count"])
         self.assertLessEqual(result["anime_asset_count"], 24)
         self.assertGreater(result["anime_estimated_vram_bytes"], 0)
         self.assertLessEqual(
@@ -216,18 +230,27 @@ class VisualAssetAuditTests(unittest.TestCase):
             result["anime_source_payload_bytes"],
             64 * 1024 * 1024,
         )
-        self.assertEqual(
-            "550cee89ccb1b384149d85aa45725474371b022a646fbef8de28d4c9bbae8eac",
-            hashlib.sha256(product_manifest.read_bytes()).hexdigest(),
+        self.assertGreater(result["product_card_art_estimated_vram_bytes"], 0)
+        self.assertLessEqual(
+            result["product_card_art_estimated_vram_bytes"],
+            64 * 1024 * 1024,
         )
+        self.assertGreater(result["product_card_art_source_payload_bytes"], 0)
+        self.assertLessEqual(
+            result["product_card_art_source_payload_bytes"],
+            96 * 1024 * 1024,
+        )
+        self.assertEqual(24, result["product_card_runtime_max_resident_textures"])
         self.assertEqual(
-            golden_metadata["asset_manifest_sha256"],
+            hashlib.sha256(product_manifest.read_bytes()).hexdigest(),
             result["product_manifest_sha256"],
         )
-        self.assertEqual(
-            hashlib.sha256(candidate_manifest.read_bytes()).hexdigest(),
-            result["candidate_manifest_sha256"],
-        )
+        self.assertFalse(candidate_manifest.exists())
+        self.assertIsNone(result["candidate_manifest_sha256"])
+        visual_root = root / "client/godot/assets/visual"
+        for retired in ("cards", "shared", "menu", "portraits", "arena", "r3"):
+            self.assertFalse(any(path.is_file() for path in (visual_root / retired).rglob("*")))
+        self.assertTrue(all("/anime_v1/" in path for path in result["paths"]))
         self.assertEqual(
             hashlib.sha256(anime_manifest.read_bytes()).hexdigest(),
             result["anime_manifest_sha256"],
@@ -236,8 +259,47 @@ class VisualAssetAuditTests(unittest.TestCase):
             hashlib.sha256(card_body_manifest.read_bytes()).hexdigest(),
             result["card_body_manifest_sha256"],
         )
+        self.assertEqual(
+            hashlib.sha256(product_card_art_manifest.read_bytes()).hexdigest(),
+            result["product_card_art_manifest_sha256"],
+        )
         self.assertTrue(EXPECTED_ANIME_V1_PATHS.issubset(result["paths"]))
         self.assertTrue(EXPECTED_CARD_BODY_PATHS.issubset(result["paths"]))
+        self.assertTrue(EXPECTED_PRODUCT_CARD_ART_PATHS.issubset(result["paths"]))
+
+    def test_product_card_batch_is_exact_unique_and_godot_imported(self) -> None:
+        root = SCRIPTS.parent
+        manifest_path = root / PRODUCT_CARD_ART_MANIFEST_RELATIVE_PATH
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        registered = {entry["path"] for entry in manifest["assets"]}
+
+        self.assertEqual(1, manifest["schema_version"])
+        self.assertEqual("5C-6C", manifest["gate"])
+        self.assertEqual(EXPECTED_PRODUCT_CARD_ART_PATHS, registered)
+        self.assertEqual(28, len(manifest["assets"]))
+        self.assertEqual(28, len({entry["sha256"] for entry in manifest["assets"]}))
+        self.assertEqual(
+            {
+                "source_payload_bytes_max": 96 * 1024 * 1024,
+                "estimated_vram_bytes_max": 64 * 1024 * 1024,
+                "runtime_resident_identity_texture_limit": 24,
+            },
+            manifest["budget"],
+        )
+
+        for entry in manifest["assets"]:
+            path = root / entry["path"]
+            self.assertEqual(
+                entry["sha256"],
+                hashlib.sha256(path.read_bytes()).hexdigest(),
+            )
+            sidecar = (root / f"{entry['path']}.import").read_text(encoding="utf-8")
+            self.assertIn('"vram_texture": true', sidecar)
+            self.assertIn("compress/mode=2", sidecar)
+            self.assertIn("compress/high_quality=true", sidecar)
+            self.assertIn("mipmaps/generate=true", sidecar)
+            expected_source = "res://" + entry["path"].removeprefix("client/godot/")
+            self.assertIn(f'source_file="{expected_source}"', sidecar)
 
     def test_card_body_candidate_is_exact_and_separate_from_frozen_anime_slice(self) -> None:
         root = SCRIPTS.parent
@@ -325,7 +387,7 @@ class VisualAssetAuditTests(unittest.TestCase):
             }
             manifest = {
                 "schema_version": 1,
-                "gate": "4B",
+                "gate": "5C-6C",
                 "assets": [entry],
             }
             manifest_path = visual / "ASSET_MANIFEST.json"
@@ -359,7 +421,7 @@ class VisualAssetAuditTests(unittest.TestCase):
             }
             manifest = {
                 "schema_version": 1,
-                "gate": "4B",
+                "gate": "5C-6C",
                 "assets": [
                     {**base, "path": first.relative_to(root).as_posix()},
                     {**base, "path": second.relative_to(root).as_posix()},
@@ -398,7 +460,7 @@ class VisualAssetAuditTests(unittest.TestCase):
 
             product_manifest = {
                 "schema_version": 1,
-                "gate": "4B",
+                "gate": "5C-6C",
                 "assets": [entry(product)],
             }
             candidate_manifest = {
@@ -420,6 +482,7 @@ class VisualAssetAuditTests(unittest.TestCase):
             self.assertEqual(1, result["candidate_asset_count"])
             self.assertEqual(0, result["anime_asset_count"])
             self.assertEqual(0, result["card_body_asset_count"])
+            self.assertEqual(0, result["product_card_art_asset_count"])
 
             rogue_manifest_path = visual / "ROGUE_ASSET_MANIFEST.json"
             rogue_manifest_path.write_text(
@@ -1144,151 +1207,52 @@ class VisualSuiteReportTests(unittest.TestCase):
             ):
                 self.assertEqual(1, validate_main())
 
-    def test_repo_registers_visual_pipeline_and_never_auto_updates_goldens(self) -> None:
+    def test_repo_registers_real_product_visuals_and_never_auto_updates_goldens(self) -> None:
         root = SCRIPTS.parent
-        attributes = (root / ".gitattributes").read_text(encoding="utf-8")
-        cmake = (root / "CMakeLists.txt").read_text(encoding="utf-8")
-        fast_workflow = (root / ".github/workflows/ci.yml").read_text(
-            encoding="utf-8"
-        )
-        heavy_workflow = (
-            root / ".github/workflows/windows-visual-heavy.yml"
-        ).read_text(encoding="utf-8")
-        workflow = fast_workflow + "\n" + heavy_workflow
-        bootstrap = (
-            root / "client/godot/scripts/Bootstrap/BootstrapController.cs"
-        ).read_text(encoding="utf-8")
-        runner = (
-            root / "client/godot/scripts/Ci/Gate3CFullMatchSmoke.cs"
-        ).read_text(encoding="utf-8")
-        match = (
-            root / "client/godot/scripts/Match/MatchScreen.cs"
-        ).read_text(encoding="utf-8")
-        producer = (
-            root / "client/godot/scripts/Ci/Gate4BVisualSuite.cs"
-        ).read_text(encoding="utf-8")
-        theme = (
-            root / "client/godot/assets/themes/default_theme.tres"
-        ).read_text(encoding="utf-8")
-        glass_material = (
-            root / "client/godot/assets/themes/glass_panel_material.tres"
-        ).read_text(encoding="utf-8")
-        glass_surface = (
-            root / "client/godot/scenes/components/GlassSurface.tscn"
-        ).read_text(encoding="utf-8")
-        match_scene = (
-            root / "client/godot/scenes/match/Match.tscn"
-        ).read_text(encoding="utf-8")
-        hud_presenter = (
-            root / "client/godot/scripts/UI/MatchHudPresenter.cs"
-        ).read_text(encoding="utf-8")
-        overlays = "\n".join(
-            (root / path).read_text(encoding="utf-8")
-            for path in (
-                "client/godot/scenes/panels/ActionPromptPanel.tscn",
-                "client/godot/scenes/panels/ConfirmationPanel.tscn",
-                "client/godot/scenes/panels/DirectActionPanel.tscn",
-                "client/godot/scenes/panels/EventLogPanel.tscn",
-                "client/godot/scenes/panels/MatchInteractionDock.tscn",
-                "client/godot/scenes/panels/MulliganPanel.tscn",
-                "client/godot/scenes/panels/ReactionPanel.tscn",
-                "client/godot/scenes/overlays/PassDeviceOverlay.tscn",
-                "client/godot/scenes/overlays/ResultOverlay.tscn",
-                "client/godot/scenes/overlays/ErrorOverlay.tscn",
-            )
-        )
-        self.assertIn("scgs_gate4b_visual_pipeline_contract", cmake)
-        self.assertIn("*.svg text eol=lf", attributes.splitlines())
+        read = lambda path: (root / path).read_text(encoding="utf-8")
+        workflow = read(".github/workflows/ci.yml") + read(".github/workflows/windows-visual-heavy.yml")
         self.assertIn("audit_visual_assets.py", workflow)
-        self.assertIn("validate_gate4b_visual_suite.py", workflow)
-        self.assertIn("--audio-driver Dummy", workflow)
-        self.assertIn("Gate 4B-R2 1600x900 visual and resource suite", workflow)
-        self.assertIn("--timeout 1200", workflow)
-        self.assertIn("--skip-performance-budget", workflow)
-        self.assertIn("compare_visual_golden.py", workflow)
-        self.assertIn("$goldenMetadata.states", workflow)
-        self.assertIn("exactly one capture for approved state", workflow)
-        self.assertIn("metadata references missing capture", workflow)
+        self.assertIn("run_product_smoke.py", workflow)
+        self.assertIn("--ci-product-capture", read("scripts/ci/run_product_smoke.py"))
+        self.assertIn("--performance", workflow)
         self.assertNotIn("update_gate4b_goldens.py", workflow)
-        self.assertIn("SomeCardGameShit-gate4b-r2-macos-arm64", workflow)
-        self.assertIn("SomeCardGameShit-nightly-windows-visual-evidence", workflow)
-        self.assertIn('"--ci-visual-suite="', bootstrap)
-        self.assertIn('"--ci-visual-viewport="', producer)
-        self.assertIn("DisplayServer.VSyncMode.Disabled", producer)
-        self.assertIn("warmupFrames = 300", producer)
-        self.assertIn("measuredFrames = 300", producer)
-        self.assertIn('public int SchemaVersion { get; init; } = 4;', producer)
-        self.assertIn('public string Gate { get; init; } = "4B-R2";', producer)
-        self.assertIn("StableFramePostDraws = 2", producer)
-        self.assertIn("ReadCompletedFrameAsync", producer)
-        self.assertIn("MeasurePixelEvidence", producer)
-        self.assertIn('"field-readability"', producer)
-        self.assertIn("AdapterName", producer)
-        self.assertIn("AdapterType", producer)
-        self.assertIn("TimingBudgetApplicable", producer)
-        self.assertIn("OpaqueFullHeightPanelCount", producer)
-        self.assertIn("HudRegionsOverlapFree", producer)
-        self.assertIn("BattlefieldWidthRatio", producer)
-        self.assertIn("CiOwnHandScreenRect", producer)
-        self.assertIn("projectedBoard.Intersection(safeBattlefieldRect)", producer)
-        self.assertIn("ContainsGpuPrivacySentinel", producer)
-        self.assertIn("private GPU sentinel (#ff00ff)", producer)
-        self.assertIn("VerifyGpuPrivacySentinelDetector", producer)
-        self.assertIn("VerifyLeaderPortraitContract", producer)
-        self.assertIn("MatchVisualIdentity.FromDecks", producer)
-        self.assertIn("match.CiPrivacySentinelVerified", runner)
-        card_actor = (
-            root / "client/godot/scripts/Battlefield/CardActor3D.cs"
-        ).read_text(encoding="utf-8")
-        self.assertIn("CiHasPrivacyTextureSentinel", card_actor)
-        self.assertIn("DisposeCiPrivacyResources", card_actor)
-        self.assertNotIn("ArtworkMaterials[key] = _ciPrivacyMaterial", card_actor)
-        for variation in (
-            "GlassPanel",
-            "GlassModal",
-            "GlassChip",
-            "GlassStatusPod",
-            "GlassDrawer",
-            "GlassActionChip",
-            "PhaseChip",
-        ):
-            with self.subTest(variation=variation):
-                self.assertIn(f'{variation}/base_type', theme)
-        self.assertIn('path="res://assets/shaders/glass_panel.gdshader"', glass_material)
-        self.assertIn("glass_panel_material.tres", glass_surface)
-        self.assertIn('[node name="GlassBackBuffer" type="BackBufferCopy"', match_scene)
-        self.assertIn('theme_type_variation = &"GlassModal"', overlays)
-        self.assertIn('theme_type_variation = &"GlassActionChip"', overlays)
-        self.assertIn('theme_type_variation = &"GlassPanel"', overlays)
-        self.assertGreaterEqual(overlays.count("GlassSurface.tscn"), 10)
-        self.assertIn('theme_type_variation = &"GlassStatusPod"', match_scene)
-        self.assertIn('unique_name_in_owner = true', match_scene)
-        self.assertNotIn('text = "GATE 4B"', match_scene + overlays)
-        self.assertIn("VerifyMaximumHudStateForCiAsync", match)
-        self.assertIn("MeasureMaximumStateForCi", hud_presenter)
-        self.assertIn("PP {currentPp}/{ppCapacity}  裂{cracks}  进{evolutionEnergy}", hud_presenter)
-        self.assertNotIn("FormatPpPips", match)
-        self.assertEqual(2, match_scene.count('text = "PP 10/10  裂99  进99"'))
-        self.assertIn("25/25, PP 10/10, double-digit crack/evolution", runner)
-        self.assertIn("SetLegacyBoardPanelsVisible(_legacy2dBoard);", match)
-        self.assertIn(
-            'GetNode<Control>("SafeMargin/Layout/HandPanel").Visible = showLegacyBoard;',
-            match,
-        )
-        self.assertIn("_dock.SetMulliganTray(true);", match)
-        self.assertIn("viewport.Y * 0.34f", (
-            root / "client/godot/scripts/UI/MatchInteractionDock.cs"
-        ).read_text(encoding="utf-8"))
-        portrait_catalog = (
-            root / "client/godot/scripts/Visuals/LeaderPortraitCatalog.cs"
-        ).read_text(encoding="utf-8")
-        self.assertIn("interface ILeaderPortraitCatalog", portrait_catalog)
-        self.assertIn("midrange_commander.png", portrait_catalog)
-        self.assertIn("advance_technarch.png", portrait_catalog)
-        self.assertIn("34", producer)
-        for state in EXPECTED_STATES:
-            with self.subTest(state=state):
-                self.assertIn(f'"{state}"', bootstrap + runner + match + producer)
+        self.assertNotIn("SCGS_R3_VISUAL_SLICE_READY", workflow)
+        self.assertNotIn("SomeCardGameShit-gate4b-r2", workflow)
+        producer = read("client/godot/scripts/Ci/ProductVisualCapture.cs")
+        for contract in ("FramePostDraw", "StableContent", "Engine.GetFramesDrawn",
+                         "WarmupFrames = 300", "p95 <= 33.3", "maximum < 100",
+                         "heavy_board_not_observed", "after.Resources <= before.Resources"):
+            self.assertIn(contract, producer)
+        for state in ("menu", "setup", "covered", "mulligan", "action", "choice",
+                      "reaction", "resolving", "finished"):
+            self.assertIn(f'"{state}"', producer)
+        match = read("client/godot/scripts/Match/ProductMatchScreen.cs")
+        self.assertIn("BattlefieldVisualProfile.AnimeV1", match)
+        self.assertIn("CiCaptureResolvingIfRequestedAsync", match)
+        bootstrap = read("client/godot/scripts/Bootstrap/BootstrapController.cs")
+        self.assertIn("new ProductVisualCapture", bootstrap)
+        self.assertIn("CaptureShellAsync", bootstrap)
+        catalog = read("client/godot/scripts/Visuals/CardVisualCatalog.cs")
+        self.assertIn("Array.Empty<CardVisualEntry>()", catalog)
+        self.assertIn("anime_v1/shared/fallback_front.svg", catalog)
+        self.assertIn("anime_v1/slice/shared/card-back.png", catalog)
+        self.assertNotIn("cards/art/", catalog)
+        self.assertNotIn("assets/visual/shared/", catalog)
+        portraits = read("client/godot/scripts/Visuals/LeaderPortraitCatalog.cs")
+        self.assertIn("new AtlasTexture", portraits)
+        self.assertIn("FilterClip = true", portraits)
+        self.assertIn("_textureCache[entry.DeckId]", portraits)
+        self.assertIn("aurelia-master.png", portraits)
+        self.assertIn("theraea-master.png", portraits)
+        self.assertNotIn("midrange_commander.png", portraits)
+        self.assertNotIn("advance_technarch.png", portraits)
+        product = read("client/godot/scripts/CardFaces/ProductCardVisualCatalog.cs")
+        self.assertIn("anime_v1/shared/fallback_front.svg", product)
+        self.assertNotIn("cards/shared/", product)
+        profile = read("client/godot/scripts/Battlefield/BattlefieldVisualProfile.cs")
+        self.assertIn("AnimeV1Arena.tscn", profile)
+        self.assertNotIn("R3ArenaCandidate.tscn", profile)
+        self.assertNotIn("ArenaVisualProfile Gate4BR2", profile)
 
 
 if __name__ == "__main__":

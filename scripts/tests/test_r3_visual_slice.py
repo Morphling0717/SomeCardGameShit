@@ -9,6 +9,9 @@ import tempfile
 import unittest
 import zlib
 from pathlib import Path
+from unittest.mock import patch
+
+import scripts.ci.validate_r3_visual_slice as r3_validator
 
 from scripts.ci.validate_r3_visual_slice import (
     R3VisualSliceError,
@@ -41,7 +44,7 @@ def _write_png(path: Path, color: tuple[int, int, int], width: int = 4, height: 
     )
 
 
-def _valid_fixture(directory: Path) -> tuple[Path, dict[str, object]]:
+def _valid_fixture(directory: Path, source_root: Path) -> tuple[Path, dict[str, object]]:
     colors = ((32, 40, 48), (72, 81, 93), (114, 92, 61))
     captures: list[dict[str, object]] = []
     for state, color in zip(STATES, colors, strict=True):
@@ -64,16 +67,16 @@ def _valid_fixture(directory: Path) -> tuple[Path, dict[str, object]]:
         )
     _write_png(directory / "privacy-resolving.png", (26, 33, 41))
     _write_png(directory / "privacy-covered.png", (18, 24, 31))
-    commit, commit_source, dirty = _expected_build_identity()
+    commit, commit_source, dirty = r3_validator._expected_build_identity()
     assert dirty is not None
-    product_manifest = ROOT / "client/godot/assets/visual/ASSET_MANIFEST.json"
+    product_manifest = source_root / "client/godot/assets/visual/ASSET_MANIFEST.json"
     candidate_manifest = (
-        ROOT / "client/godot/assets/visual/arena/R3_ASSET_MANIFEST.json"
+        source_root / "client/godot/assets/visual/arena/R3_ASSET_MANIFEST.json"
     )
-    floor = ROOT / "client/godot/assets/visual/arena/r3_industrial_floor_albedo.png"
-    glb = ROOT / "client/godot/assets/visual/arena/r3_arena_machinery.glb"
-    shader = ROOT / "client/godot/assets/visual/r3/r3_industrial_floor.gdshader"
-    launcher = ROOT / "scripts/ci/PLAY_R3_VISUAL_SLICE.cmd"
+    floor = source_root / "client/godot/assets/visual/arena/r3_industrial_floor_albedo.png"
+    glb = source_root / "client/godot/assets/visual/arena/r3_arena_machinery.glb"
+    shader = source_root / "client/godot/assets/visual/r3/r3_industrial_floor.gdshader"
+    launcher = source_root / "scripts/ci/PLAY_R3_VISUAL_SLICE.cmd"
     report: dict[str, object] = {
         "schema_version": 1,
         "gate": "R3",
@@ -193,80 +196,69 @@ def _valid_fixture(directory: Path) -> tuple[Path, dict[str, object]]:
 
 
 class R3VisualSliceTests(unittest.TestCase):
-    def test_candidate_arena_is_open_original_and_not_the_product_default(self) -> None:
-        scene_path = ROOT / "client/godot/scenes/battlefield/R3ArenaCandidate.tscn"
-        scene = scene_path.read_text(encoding="utf-8")
-        profile = (
-            ROOT / "client/godot/scripts/Battlefield/BattlefieldVisualProfile.cs"
-        ).read_text(encoding="utf-8")
-        match = (ROOT / "client/godot/scripts/Match/MatchScreen.cs").read_text(
-            encoding="utf-8"
+    def setUp(self) -> None:
+        # Legacy report parsing is retained against independent synthetic source
+        # fixtures, never by retaining industrial assets in the player project.
+        self.sources = tempfile.TemporaryDirectory()
+        self.addCleanup(self.sources.cleanup)
+        self.source_root = Path(self.sources.name)
+        files = {
+            "client/godot/assets/visual/ASSET_MANIFEST.json":
+                json.dumps({"assets": [{"fixture": index} for index in range(34)]}).encode(),
+            "client/godot/assets/visual/arena/R3_ASSET_MANIFEST.json":
+                json.dumps({"schema_version": 1, "gate": "4B-R3.1", "assets": [{
+                    "path": "client/godot/assets/visual/arena/r3_industrial_floor_albedo.png",
+                    "sha256": hashlib.sha256(b"fixture-floor").hexdigest(),
+                }]}).encode(),
+            "client/godot/assets/visual/arena/r3_industrial_floor_albedo.png": b"fixture-floor",
+            "client/godot/assets/visual/arena/r3_arena_machinery.glb": b"fixture-model",
+            "client/godot/assets/visual/r3/r3_industrial_floor.gdshader": b"fixture-shader",
+            "scripts/ci/PLAY_R3_VISUAL_SLICE.cmd": b"fixture-launcher",
+        }
+        for relative, contents in files.items():
+            destination = self.source_root / relative
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            destination.write_bytes(contents)
+        root_patch = patch.object(r3_validator, "REPOSITORY_ROOT", self.source_root)
+        root_patch.start()
+        self.addCleanup(root_patch.stop)
+        identity_patch = patch.object(
+            r3_validator, "_expected_build_identity", return_value=("a" * 40, "git", False)
         )
-        self.assertEqual(1, scene.count('[node name="AuthoredArena" type="Node3D"]'))
-        self.assertIn("size = Vector2(80, 60)", scene)
-        self.assertIn("r3_arena_machinery.glb", scene)
-        for forbidden in (
-            "TableBase",
-            "Territory",
-            "ZoneBay",
-            "ArenaRim",
-            "Perimeter",
-            'type="Camera3D"',
-            'type="CollisionShape3D"',
-        ):
-            with self.subTest(forbidden=forbidden):
-                self.assertNotIn(forbidden, scene)
-        self.assertIn("R3CandidateScenePath", profile)
-        self.assertIn("UsesOpenArena: true", profile)
-        self.assertIn(
-            "private BattlefieldVisualProfile _visualProfile = BattlefieldVisualProfile.Gate4BR2;",
-            match,
-        )
+        identity_patch.start()
+        self.addCleanup(identity_patch.stop)
 
-        arena = ROOT / "client/godot/assets/visual/arena"
-        glb = arena / "r3_arena_machinery.glb"
-        generator = arena / "source/generate_r3_arena_machinery.py"
-        self.assertEqual(
-            "4ce416e3828dbcdbdf94b407c7f800144497af5afb5f2801bd08b35b267c9108",
-            hashlib.sha256(glb.read_bytes()).hexdigest(),
-        )
-        self.assertEqual(
-            "927b099463c0a0c634a25bd75fe40c780f3b83ffadfd91be61291a34038395f3",
-            hashlib.sha256(generator.read_bytes()).hexdigest(),
-        )
+    def test_industrial_scene_is_retired_and_only_anime_profile_can_resolve(self) -> None:
+        self.assertFalse((ROOT / "client/godot/scenes/battlefield/R3ArenaCandidate.tscn").exists())
+        profile = (ROOT / "client/godot/scripts/Battlefield/BattlefieldVisualProfile.cs").read_text(encoding="utf-8")
+        self.assertIn("AnimeV1Arena.tscn", profile)
+        self.assertIn("BattlefieldVisualProfile.AnimeV1 => AnimeV1", profile)
+        self.assertIn("_ => throw new ArgumentOutOfRangeException", profile)
+        self.assertNotIn("R3CandidateScenePath", profile)
+        self.assertNotIn("r3_arena_machinery", profile)
+        for relative in ("client/godot/assets/visual/arena", "client/godot/assets/visual/r3"):
+            self.assertFalse(any(path.is_file() for path in (ROOT / relative).rglob("*")))
 
-    def test_candidate_floor_is_isolated_from_approved_product_manifest(self) -> None:
+    def test_shared_manifest_contains_no_retired_industrial_identity(self) -> None:
         product_path = ROOT / "client/godot/assets/visual/ASSET_MANIFEST.json"
-        candidate_path = (
-            ROOT / "client/godot/assets/visual/arena/R3_ASSET_MANIFEST.json"
-        )
         product = json.loads(product_path.read_text(encoding="utf-8"))
-        candidate_manifest = json.loads(candidate_path.read_text(encoding="utf-8"))
-        self.assertEqual(34, len(product["assets"]))
-        self.assertNotIn(
-            "client/godot/assets/visual/arena/r3_industrial_floor_albedo.png",
+        self.assertEqual("5C-6C", product["gate"])
+        self.assertEqual(
+            {"client/godot/assets/visual/anime_v1/shared/fallback_front.svg"},
             {entry["path"] for entry in product["assets"]},
         )
-        self.assertEqual(1, candidate_manifest["schema_version"])
-        self.assertEqual("4B-R3.1", candidate_manifest["gate"])
-        self.assertEqual(1, len(candidate_manifest["assets"]))
-        candidate = candidate_manifest["assets"][0]
-        floor = ROOT / candidate["path"]
-        self.assertEqual(
-            candidate["sha256"],
-            hashlib.sha256(floor.read_bytes()).hexdigest(),
-        )
+        self.assertFalse((ROOT / "client/godot/assets/visual/arena/R3_ASSET_MANIFEST.json").exists())
 
     def test_accepts_real_session_candidate_contract(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            report_path, _ = _valid_fixture(Path(temporary))
+            report_path, _ = _valid_fixture(Path(temporary), self.source_root)
             report = validate_report(report_path, expected_width=4, expected_height=3)
             self.assertEqual("pending_user_approval", report["approval_status"])
 
     def test_rejects_duplicate_state_pngs_even_when_hash_metadata_matches(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            report_path, report = _valid_fixture(directory)
+            report_path, report = _valid_fixture(directory, self.source_root)
             duplicate = (directory / "action-idle.png").read_bytes()
             (directory / "hand-hover.png").write_bytes(duplicate)
             captures = report["captures"]
@@ -278,7 +270,7 @@ class R3VisualSliceTests(unittest.TestCase):
 
     def test_rejects_unstable_frame_pair(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            report_path, report = _valid_fixture(Path(temporary))
+            report_path, report = _valid_fixture(Path(temporary), self.source_root)
             captures = report["captures"]
             assert isinstance(captures, list)
             captures[2]["frame_pair_mae"] = 0.010001
@@ -289,7 +281,7 @@ class R3VisualSliceTests(unittest.TestCase):
     def test_rejects_gpu_privacy_sentinel_even_if_report_claims_absent(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            report_path, report = _valid_fixture(directory)
+            report_path, report = _valid_fixture(directory, self.source_root)
             path = directory / "source-selected.png"
             _write_png(path, (255, 0, 255))
             captures = report["captures"]
@@ -301,7 +293,7 @@ class R3VisualSliceTests(unittest.TestCase):
 
     def test_rejects_missing_real_injection_even_when_detector_self_test_passes(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            report_path, report = _valid_fixture(Path(temporary))
+            report_path, report = _valid_fixture(Path(temporary), self.source_root)
             privacy = report["privacy_evidence"]
             assert isinstance(privacy, dict)
             privacy["injected_sentinel_exercised"] = False
@@ -312,7 +304,7 @@ class R3VisualSliceTests(unittest.TestCase):
     def test_rejects_injected_sentinel_in_resolving_gpu_frame(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            report_path, report = _valid_fixture(directory)
+            report_path, report = _valid_fixture(directory, self.source_root)
             path = directory / "privacy-resolving.png"
             _write_png(path, (255, 0, 255))
             privacy = report["privacy_evidence"]
@@ -332,7 +324,7 @@ class R3VisualSliceTests(unittest.TestCase):
             for state in ("resolving", "covered"):
                 for metric in ("snapshot_requests", "viewer_reads"):
                     with self.subTest(state=state, metric=metric):
-                        report_path, report = _valid_fixture(directory)
+                        report_path, report = _valid_fixture(directory, self.source_root)
                         privacy = report["privacy_evidence"]
                         assert isinstance(privacy, dict)
                         transition = privacy["injected_transition"]
@@ -354,7 +346,7 @@ class R3VisualSliceTests(unittest.TestCase):
                 (("provenance", "candidate_shader_sha256"), "candidate_shader_sha256"),
             ):
                 with self.subTest(field=mutation[-1]):
-                    report_path, report = _valid_fixture(directory)
+                    report_path, report = _valid_fixture(directory, self.source_root)
                     if len(mutation) == 1:
                         report[mutation[0]] = 3
                     else:
@@ -368,7 +360,7 @@ class R3VisualSliceTests(unittest.TestCase):
     def test_rejects_black_finite_arena_edge(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
-            report_path, report = _valid_fixture(directory)
+            report_path, report = _valid_fixture(directory, self.source_root)
             path = directory / "action-idle.png"
             _write_png(path, (0, 0, 0))
             captures = report["captures"]
@@ -387,7 +379,7 @@ class R3VisualSliceTests(unittest.TestCase):
                 (("session_evidence", "successful_mulligan_submissions", 1), "successful_mulligan"),
             ):
                 with self.subTest(field=mutation[1]):
-                    report_path, original = _valid_fixture(directory)
+                    report_path, original = _valid_fixture(directory, self.source_root)
                     report = copy.deepcopy(original)
                     section = report[mutation[0]]
                     assert isinstance(section, dict)
@@ -398,7 +390,7 @@ class R3VisualSliceTests(unittest.TestCase):
 
     def test_rejects_approval_or_profile_promotion(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
-            report_path, original = _valid_fixture(Path(temporary))
+            report_path, original = _valid_fixture(Path(temporary), self.source_root)
             for field, value, message in (
                 ("approval_status", "approved", "pending_user_approval"),
                 ("arena_profile", "gate4b-r2", "r3-candidate"),
@@ -410,82 +402,21 @@ class R3VisualSliceTests(unittest.TestCase):
                     with self.assertRaisesRegex(R3VisualSliceError, message):
                         validate_report(report_path)
 
-    def test_wiring_is_separate_from_gate4b_schema_and_goldens(self) -> None:
-        bootstrap = (ROOT / "client/godot/scripts/Bootstrap/BootstrapController.cs").read_text(
-            encoding="utf-8"
-        )
-        collector = (ROOT / "client/godot/scripts/Ci/GateR3VisualSlice.cs").read_text(
-            encoding="utf-8"
-        )
-        match_screen = (ROOT / "client/godot/scripts/Match/MatchScreen.cs").read_text(
-            encoding="utf-8"
-        )
-        fast_workflow = (ROOT / ".github/workflows/ci.yml").read_text(
-            encoding="utf-8"
-        )
-        heavy_workflow = (
-            ROOT / ".github/workflows/windows-visual-heavy.yml"
-        ).read_text(encoding="utf-8")
-        workflow = fast_workflow + "\n" + heavy_workflow
-        finalizer = (ROOT / "scripts/ci/finalize_godot_export.py").read_text(
-            encoding="utf-8"
-        )
-        launcher = (ROOT / "scripts/ci/PLAY_R3_VISUAL_SLICE.cmd").read_text(
-            encoding="utf-8"
-        )
-        self.assertIn("--r3-visual-slice", bootstrap)
-        self.assertIn("IScgsGameSession", collector)
-        self.assertIn("HotseatUiState.LegalActions", collector)
-        self.assertIn("pending_user_approval", collector)
-        self.assertIn("ArmResolvingPrivacySentinelForCi", collector)
-        self.assertIn("privacy-resolving.png", collector)
-        self.assertIn("privacy-covered.png", collector)
-        self.assertIn("InjectedSentinelRuntimeScrubVerified", collector)
-        self.assertIn("ViewerReadRequestCount", collector)
-        self.assertIn("ViewerReadRequestCount", match_screen)
-        self.assertIn("WindowGetVsyncMode", collector)
-        self.assertIn("WindowSetVsyncMode(previousVsyncMode)", collector)
-        self.assertIn("DisplayServer.WindowSetSize(requestedViewport)", collector)
-        self.assertIn("--ci-visual-viewport=1600x900", collector)
-        self.assertIn("_r3VisualSliceCaptureComplete", bootstrap)
-        self.assertNotIn("TacticalHudTheme.RestoreGate4BR2(this)", match_screen)
-        self.assertIn("ExpectedFinalRevision = 2", collector)
-        self.assertIn("R3_ASSET_MANIFEST.json", collector)
-        self.assertIn("CandidateShaderSha256", collector)
-        self.assertIn("LauncherSha256", collector)
-        self.assertIn("WaitForSafeFxToSettleAsync", collector)
-        self.assertIn("SetNearHandHoverForR3", collector)
-        self.assertIn("NearHandActorsMatchTargetPoses", collector)
-        self.assertIn("TransformsApproximatelyEqual", collector)
-        self.assertIn("consecutiveCompletedDraws == 2", collector)
-        self.assertIn("actor.Transform, pose.Transform", collector)
-        self.assertNotIn("Task.Delay", collector)
-        self.assertIn("OnBattlefieldSurfaceHovered", match_screen)
-        self.assertIn("ShowsKnownCardForSmoke", match_screen)
-        self.assertIn("validate_gate4b_visual_suite.py", workflow)
-        self.assertIn("tests/visual_goldens/gate4b/windows-1600x900", workflow)
-        self.assertIn("validate_r3_visual_slice.py", workflow)
-        self.assertIn("SomeCardGameShit-nightly-windows-visual-evidence", workflow)
-        self.assertIn(
-            "SomeCardGameShit-nightly-visual-compatibility-windows-x86_64.zip",
-            workflow,
-        )
-        self.assertNotIn("Copy-Item -LiteralPath $r2Package -Destination $r3Package", workflow)
-        self.assertEqual(
-            2,
-            workflow.count("--expect-output SCGS_R3_VISUAL_SLICE_READY"),
-        )
-        self.assertIn("artifacts/r3-packaged-visual-slice/windows-1600x900", workflow)
-        self.assertIn("$packagedLauncherHash -ne $expectedLauncherHash", workflow)
-        packaged_launch = heavy_workflow.split(
-            "- name: Round-trip launch packaged Windows migration launchers", 1
-        )[1].split("- name: Check patch whitespace", 1)[0]
-        self.assertNotIn("--native-library", packaged_launch)
-        self.assertIn("SCGS_R3_LAUNCHER_CI", packaged_launch)
-        self.assertIn('--resolution "1600x900"', launcher)
-        self.assertIn("--r3-visual-slice-exit", launcher)
-        self.assertIn("PLAY_R3_VISUAL_SLICE.cmd", finalizer)
-        self.assertIn('"--r3-visual-slice=%SCGS_R3_OUTPUT%"', launcher)
+    def test_retired_collector_fails_closed_and_is_absent_from_product_workflows(self) -> None:
+        collector = (ROOT / "client/godot/scripts/Ci/GateR3VisualSlice.cs").read_text(encoding="utf-8")
+        self.assertIn("throw new NotSupportedException", collector)
+        for forbidden in ("ResourceLoader", "GD.Load", "GetView", "CreateSession", "FileAccess.Open"):
+            self.assertNotIn(forbidden, collector)
+        bootstrap = (ROOT / "client/godot/scripts/Bootstrap/BootstrapController.cs").read_text(encoding="utf-8")
+        self.assertIn('StartsWith("--r3-visual"', bootstrap)
+        self.assertIn("Retired preview/legacy modes are not product launch modes", bootstrap)
+        self.assertNotIn("new GateR3VisualSlice", bootstrap)
+        workflow = "\n".join((ROOT / relative).read_text(encoding="utf-8") for relative in (
+            ".github/workflows/ci.yml", ".github/workflows/windows-visual-heavy.yml"))
+        self.assertIn("run_product_smoke.py", workflow)
+        self.assertNotIn("SCGS_R3_VISUAL_SLICE_READY", workflow)
+        self.assertNotIn("validate_r3_visual_slice.py", workflow)
+        self.assertNotIn("update_gate4b_goldens.py", workflow)
 
 
 if __name__ == "__main__":

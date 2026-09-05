@@ -11,6 +11,7 @@ import tempfile
 import unittest
 import zipfile
 from pathlib import Path
+from unittest import mock
 
 
 SCRIPTS = Path(__file__).resolve().parents[1]
@@ -23,14 +24,21 @@ from audit_godot_export import (  # noqa: E402
     LICENSE_MARKERS,
     MACOS_ANIME_LAUNCHER,
     MACOS_CARD_BODY_LAUNCHER,
+    NATIVE_LAYOUTS,
     WINDOWS_ANIME_LAUNCHER,
     WINDOWS_CARD_BODY_LAUNCHER,
     _audit_anime_card_body_launcher,
     _audit_anime_slice_launcher,
     _audit_licenses,
     _audit_macos_bundle_architectures,
+    _audit_native_layout,
+    _audit_product_card_export_policy,
+    _audit_product_pck,
 )
-from finalize_godot_export import LICENSES as FINALIZED_LICENSES  # noqa: E402
+from finalize_godot_export import (  # noqa: E402
+    LICENSES as FINALIZED_LICENSES,
+    _native_destinations,
+)
 from prepare_godot_macos_template import (  # noqa: E402
     ARM64_ENTRY,
     UNIVERSAL_ENTRY,
@@ -38,6 +46,7 @@ from prepare_godot_macos_template import (  # noqa: E402
     prepare_template,
 )
 from run_managed_gate3 import GODOT_BUILD_CONFIGURATIONS  # noqa: E402
+from stage_godot_native import TARGETS as STAGING_TARGETS, stage_pair, main as stage_main  # noqa: E402
 
 
 def _thin_mach_o(cpu: int) -> bytes:
@@ -70,11 +79,14 @@ def _write_packaged_notices(directory: Path, *, commit: str = "local") -> None:
             shutil.copy2(EXACT_PACKAGED_SOURCE_FILES[filename], destination)
         elif filename == "BUILD_INFO.txt":
             destination.write_text(
-                "SomeCardGameShit Gate 4B-R2\n"
+                "SomeCardGameShit Product Playable v1\n"
                 f"commit={commit}\n"
                 "godot=4.7.2.stable.mono\n"
                 "dotnet_sdk=10.0.400\n"
-                "dotnet_runtime=8.0.30\n",
+                "dotnet_runtime=8.0.30\n"
+                "api=scgs_v05\n"
+                "schema=2\n"
+                "visual=AnimeV1\n",
                 encoding="utf-8",
             )
         else:
@@ -82,7 +94,108 @@ def _write_packaged_notices(directory: Path, *, commit: str = "local") -> None:
 
 
 class GodotExportAuditTests(unittest.TestCase):
-    def test_finalize_and_audit_lock_gate4b_build_info(self) -> None:
+    def test_native_editor_and_fixture_payloads_cannot_hide_inside_pck(self) -> None:
+        from scripts.tests.test_check_godot_mcp_export import pack, settings
+        with tempfile.TemporaryDirectory() as temporary:
+            pck = Path(temporary) / "product.pck"
+            for name in ("native/windows-x86_64/scgs_v04.dll", "other/scgs_v04_fixture.dll",
+                         "other/libscgs_v04.1.dylib", "other/scgs_v05.dll",
+                         "native/macos-arm64/godot_template.zip"):
+                with self.subTest(name=name):
+                    pck.write_bytes(pack({"project.binary": settings(), name: b"not a player resource"}))
+                    with self.assertRaisesRegex(ExportAuditError, "payload in product PCK"):
+                        _audit_product_pck(pck)
+            pck.write_bytes(pack({"project.binary": settings(), "assets/visual/anime_v1/card.ctex": b"art"}))
+            _audit_product_pck(pck)
+
+    def test_product_editor_stages_only_explicit_v05_library(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "source-product.dll"
+            source.write_bytes(b"v05 payload")
+            destination = root / "native"
+            arguments = ["stage_godot_native.py", "--v05-library", str(source),
+                         "--destination-root", str(destination), "--target", "windows-x86_64"]
+            with mock.patch("stage_godot_native.audit") as audit_mock, mock.patch("sys.argv", arguments):
+                self.assertEqual(0, stage_main())
+            audit_mock.assert_called_once_with(source.resolve(), "x86_64", "v05")
+            self.assertEqual(["scgs_v05.dll"], [path.name for path in destination.rglob("*.dll")])
+            self.assertEqual(b"v05 payload", (destination / "windows-x86_64/scgs_v05.dll").read_bytes())
+
+    def test_editor_staging_audits_and_copies_both_native_api_versions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            source = directory / "source"
+            destination = directory / "editor"
+            source.mkdir()
+            v04 = source / "frozen.dll"
+            v05 = source / "product.dll"
+            v04.write_bytes(b"v04 payload")
+            v05.write_bytes(b"v05 payload")
+
+            with mock.patch("stage_godot_native.audit") as native_audit:
+                staged_v04, staged_v05 = stage_pair(
+                    v04,
+                    v05,
+                    destination,
+                    "windows-x86_64",
+                )
+
+            self.assertEqual(
+                destination.resolve() / "windows-x86_64/scgs_v04.dll",
+                staged_v04,
+            )
+            self.assertEqual(
+                destination.resolve() / "windows-x86_64/scgs_v05.dll",
+                staged_v05,
+            )
+            self.assertEqual(b"v04 payload", staged_v04.read_bytes())
+            self.assertEqual(b"v05 payload", staged_v05.read_bytes())
+            self.assertEqual(
+                [
+                    mock.call(v04.resolve(), "x86_64", "v04"),
+                    mock.call(v05.resolve(), "x86_64", "v05"),
+                ],
+                native_audit.call_args_list,
+            )
+            self.assertEqual(
+                "libscgs_v05.dylib",
+                STAGING_TARGETS["macos-arm64"][1]["v05"],
+            )
+
+    def test_export_native_layout_requires_only_v05_and_rejects_duplicates(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            native = root / "scgs_v05.dll"
+            native.write_bytes(b"product")
+            with mock.patch("audit_godot_export.audit") as native_audit:
+                _audit_native_layout(root, "windows-x86_64")
+            native_audit.assert_called_once_with(native, "x86_64", "v05")
+            duplicate = root / "nested/scgs_v05.dll"
+            duplicate.parent.mkdir()
+            duplicate.write_bytes(b"duplicate")
+            with mock.patch("audit_godot_export.audit"), self.assertRaisesRegex(ExportAuditError, "v05 native layout"):
+                _audit_native_layout(root, "windows-x86_64")
+
+    def test_player_export_rejects_retired_fixture_and_preview_launchers(self) -> None:
+        for filename in ("scgs_v04.dll", "scgs_v04_fixture.dll", "libscgs_v04.1.dylib",
+                         "libscgs_v04_fixture.so", "PLAY_R3_VISUAL_SLICE.cmd",
+                         "PLAY_ANIME_CARD_BODY_SLICE.command"):
+            with self.subTest(filename=filename), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                (root / "scgs_v05.dll").write_bytes(b"product")
+                (root / filename).write_bytes(b"retired")
+                with mock.patch("audit_godot_export.audit"), self.assertRaisesRegex(ExportAuditError, "retired"):
+                    _audit_native_layout(root, "windows-x86_64")
+
+    def test_finalizer_places_only_v05_in_fixed_platform_locations(self) -> None:
+        self.assertEqual({"v05": Path("C:/package/scgs_v05.dll")},
+                         _native_destinations(Path("C:/package/SomeCardGameShit.exe"), "windows-x86_64"))
+        self.assertEqual({"v05": Path("/package/SomeCardGameShit.app/Contents/Frameworks/libscgs_v05.dylib")},
+                         _native_destinations(Path("/package/SomeCardGameShit.app"), "macos-arm64"))
+        self.assertEqual({"v05"}, set(NATIVE_LAYOUTS["windows-x86_64"]["libraries"]))
+
+    def test_finalize_and_audit_lock_product_build_info(self) -> None:
         root = SCRIPTS.parent
         finalize = (root / "scripts/ci/finalize_godot_export.py").read_text(
             encoding="utf-8"
@@ -92,287 +205,24 @@ class GodotExportAuditTests(unittest.TestCase):
         )
         for source in (finalize, audit_source):
             with self.subTest(source=source.splitlines()[1]):
-                self.assertIn("SomeCardGameShit Gate 4B-R2", source)
+                self.assertIn("SomeCardGameShit Product Playable v1", source)
                 self.assertNotIn("SomeCardGameShit Gate 3C", source)
 
-    def test_packaged_r3_launcher_has_distinct_human_and_ci_modes(self) -> None:
-        root = SCRIPTS.parent
-        launcher_path = root / "scripts/ci/PLAY_R3_VISUAL_SLICE.cmd"
-        launcher = launcher_path.read_text(encoding="utf-8")
-        finalize = (root / "scripts/ci/finalize_godot_export.py").read_text(
-            encoding="utf-8"
-        )
-        workflow = (root / ".github/workflows/windows-visual-heavy.yml").read_text(
-            encoding="utf-8"
-        )
-
-        self.assertIn('if /I "%SCGS_R3_LAUNCHER_CI%"=="1" goto ci_mode', launcher)
-        self.assertIn(
-            'set "SCGS_R3_OUTPUT=%~dp0r3-visual-slice-output"', launcher
-        )
-        self.assertEqual(1, launcher.count("--r3-visual-slice-exit"))
-        self.assertIn("if not defined SCGS_R3_LAUNCHER_OUTPUT", launcher)
-        self.assertIn(
-            'set "SCGS_R3_OUTPUT=%SCGS_R3_LAUNCHER_OUTPUT%"', launcher
-        )
-        self.assertIn('"--r3-visual-slice=%SCGS_R3_OUTPUT%"', launcher)
-        self.assertIn("DisableDelayedExpansion", launcher)
-        self.assertIn("WINDOWS_R3_LAUNCHER", finalize)
-        self.assertIn('export.parent / "PLAY_R3_VISUAL_SLICE.cmd"', finalize)
-
-        packaged_step = workflow.split(
-            "- name: Round-trip launch packaged Windows migration launchers", 1
-        )[1].split(
-            "- name: Check patch whitespace",
-            1,
-        )[0]
-        self.assertIn('$env:SCGS_R3_LAUNCHER_CI = "1"', packaged_step)
-        self.assertIn('$env:SCGS_R3_LAUNCHER_OUTPUT = $r3Slice', packaged_step)
-        self.assertIn('-- "$env:ComSpec" /d /c call "$r3Launcher"', packaged_step)
-        self.assertNotIn('-- "$export" --windowed', packaged_step)
-        self.assertIn("--expect-output-count 1", packaged_step)
-        self.assertIn("validate_r3_visual_slice.py", packaged_step)
-
-    def test_packaged_anime_launchers_are_safe_and_round_tripped_on_both_platforms(
-        self,
-    ) -> None:
-        root = SCRIPTS.parent
-        windows_launcher = WINDOWS_ANIME_LAUNCHER.read_text(encoding="utf-8")
-        macos_launcher = MACOS_ANIME_LAUNCHER.read_text(encoding="utf-8")
-        finalize = (root / "scripts/ci/finalize_godot_export.py").read_text(
-            encoding="utf-8"
-        )
-        fast_workflow = (root / ".github/workflows/ci.yml").read_text(
-            encoding="utf-8"
-        )
-        heavy_workflow = (
-            root / ".github/workflows/windows-visual-heavy.yml"
-        ).read_text(encoding="utf-8")
-        attributes = (root / ".gitattributes").read_text(encoding="utf-8")
-
-        self.assertIn("DisableDelayedExpansion", windows_launcher)
-        self.assertIn('"%SCGS_ANIME_APP%" --windowed', windows_launcher)
-        self.assertEqual(1, windows_launcher.count("--anime-style-slice-exit"))
-        self.assertIn("SCGS_ANIME_LAUNCHER_OUTPUT", windows_launcher)
-        self.assertNotIn("%*", windows_launcher)
-
-        self.assertTrue(macos_launcher.startswith("#!/bin/sh\nset -eu\n"))
-        self.assertIn('application="$launcher_directory/SomeCardGameShit.app"', macos_launcher)
-        self.assertEqual(1, macos_launcher.count("--anime-style-slice-exit"))
-        self.assertIn("SCGS_ANIME_LAUNCHER_OUTPUT", macos_launcher)
-        self.assertIn("--ci-visual-viewport=1024x684", macos_launcher)
-        self.assertIn("--ci-anime-runner-viewport", macos_launcher)
-        self.assertNotIn('"$@"', macos_launcher)
-        self.assertIn(
-            "scripts/ci/PLAY_ANIME_STYLE_SLICE.command text eol=lf",
-            attributes,
-        )
-
-        self.assertIn("WINDOWS_ANIME_LAUNCHER", finalize)
-        self.assertIn("MACOS_ANIME_LAUNCHER", finalize)
-        self.assertIn("macos_launcher.chmod(0o755)", finalize)
-        self.assertIn("ANIME_V1_ASSET_MANIFEST.json", finalize)
-        self.assertIn("ANIME_V1_PROVENANCE.md", finalize)
-        self.assertIn("ANIME_V1_SLICE_README.md", finalize)
-
-        self.assertIn(
-            "SomeCardGameShit-anime-card-body-r1-windows-x86_64.zip",
-            fast_workflow,
-        )
-        self.assertIn(
-            "SomeCardGameShit-anime-card-body-r1-macos-arm64.zip",
-            fast_workflow,
-        )
-        self.assertIn("--require-anime-slice-launcher", fast_workflow)
-        self.assertIn("--require-anime-slice-launcher", heavy_workflow)
-        self.assertIn("SCGS_ANIME_LAUNCHER_CI", heavy_workflow)
-        self.assertIn("SCGS_ANIME_LAUNCHER_OUTPUT", heavy_workflow)
-
-    def test_packaged_card_body_launchers_and_audit_flags_are_cross_platform(self) -> None:
-        root = SCRIPTS.parent
-        windows_launcher = WINDOWS_CARD_BODY_LAUNCHER.read_text(encoding="utf-8")
-        macos_launcher = MACOS_CARD_BODY_LAUNCHER.read_text(encoding="utf-8")
-        finalize = (root / "scripts/ci/finalize_godot_export.py").read_text(
-            encoding="utf-8"
-        )
-        fast_workflow = (root / ".github/workflows/ci.yml").read_text(
-            encoding="utf-8"
-        )
-        heavy_workflow = (
-            root / ".github/workflows/windows-visual-heavy.yml"
-        ).read_text(encoding="utf-8")
-        attributes = (root / ".gitattributes").read_text(encoding="utf-8")
-
-        self.assertIn("DisableDelayedExpansion", windows_launcher)
-        self.assertIn(
-            'if /I "%SCGS_CARD_BODY_LAUNCHER_CI%"=="1"', windows_launcher
-        )
-        self.assertIn("SCGS_CARD_BODY_LAUNCHER_OUTPUT", windows_launcher)
-        self.assertEqual(1, windows_launcher.count("--anime-card-body-slice-exit"))
-        self.assertIn("--ci-visual-viewport=1600x900", windows_launcher)
-        self.assertNotIn("%*", windows_launcher)
-
-        self.assertTrue(macos_launcher.startswith("#!/bin/sh\nset -eu\n"))
-        self.assertIn(
-            'executable="$launcher_directory/SomeCardGameShit.app/', macos_launcher
-        )
-        self.assertIn("SCGS_CARD_BODY_LAUNCHER_OUTPUT", macos_launcher)
-        self.assertEqual(1, macos_launcher.count("--anime-card-body-slice-exit"))
-        self.assertIn("--ci-visual-viewport=1024x684", macos_launcher)
-        self.assertIn("--ci-anime-runner-viewport", macos_launcher)
-        self.assertNotIn('"$@"', macos_launcher)
-        for launcher in (
-            "scripts/ci/PLAY_ANIME_CARD_BODY_SLICE.cmd text eol=lf",
-            "scripts/ci/PLAY_ANIME_CARD_BODY_SLICE.command text eol=lf",
-        ):
-            self.assertIn(launcher, attributes)
-
-        self.assertIn("WINDOWS_CARD_BODY_LAUNCHER", finalize)
-        self.assertIn("MACOS_CARD_BODY_LAUNCHER", finalize)
-        self.assertIn("card_body_launcher.chmod(0o755)", finalize)
-        for packaged_document in (
-            "ANIME_V1_CARD_BODY_ASSET_MANIFEST.json",
-            "ANIME_V1_CARD_BODY_PROVENANCE.md",
-            "ANIME_V1_CARD_BODY_README.md",
-        ):
-            self.assertIn(packaged_document, finalize)
-
-        self.assertIn("--require-anime-card-body-launcher", fast_workflow)
-        self.assertIn("--require-anime-card-body-launcher", heavy_workflow)
-        self.assertIn(
-            "SomeCardGameShit-anime-card-body-r1-windows-x86_64.zip",
-            fast_workflow,
-        )
-        self.assertIn(
-            "SomeCardGameShit-anime-card-body-r1-macos-arm64.zip",
-            fast_workflow,
-        )
-        self.assertIn("PLAY_ANIME_CARD_BODY_SLICE.command", fast_workflow)
-
-    def test_anime_launcher_audit_requires_exact_bytes_and_macos_execute_bit(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
-            windows_export = directory / "SomeCardGameShit.exe"
-            windows_export.write_bytes(b"placeholder")
-            shutil.copy2(WINDOWS_ANIME_LAUNCHER, directory / WINDOWS_ANIME_LAUNCHER.name)
-            _audit_anime_slice_launcher(windows_export, "windows-x86_64")
-            (directory / WINDOWS_ANIME_LAUNCHER.name).write_bytes(b"tampered")
-            with self.assertRaisesRegex(ExportAuditError, "differs"):
-                _audit_anime_slice_launcher(windows_export, "windows-x86_64")
-
-        if os.name != "nt":
-            with tempfile.TemporaryDirectory() as temporary:
-                directory = Path(temporary)
-                app = directory / "SomeCardGameShit.app"
-                app.mkdir()
-                packaged = directory / MACOS_ANIME_LAUNCHER.name
-                shutil.copy2(MACOS_ANIME_LAUNCHER, packaged)
-                packaged.chmod(0o755)
-                _audit_anime_slice_launcher(app, "macos-arm64")
-                packaged.chmod(0o644)
-                with self.assertRaisesRegex(ExportAuditError, "not executable"):
-                    _audit_anime_slice_launcher(app, "macos-arm64")
-
-    def test_card_body_launcher_audit_requires_exact_bytes_and_macos_execute_bit(self) -> None:
-        with tempfile.TemporaryDirectory() as temporary:
-            directory = Path(temporary)
-            windows_export = directory / "SomeCardGameShit.exe"
-            windows_export.write_bytes(b"placeholder")
-            shutil.copy2(
-                WINDOWS_CARD_BODY_LAUNCHER,
-                directory / WINDOWS_CARD_BODY_LAUNCHER.name,
-            )
-            _audit_anime_card_body_launcher(windows_export, "windows-x86_64")
-            (directory / WINDOWS_CARD_BODY_LAUNCHER.name).write_bytes(b"tampered")
-            with self.assertRaisesRegex(ExportAuditError, "differs"):
-                _audit_anime_card_body_launcher(windows_export, "windows-x86_64")
-
-        if os.name != "nt":
-            with tempfile.TemporaryDirectory() as temporary:
-                directory = Path(temporary)
-                app = directory / "SomeCardGameShit.app"
-                app.mkdir()
-                packaged = directory / MACOS_CARD_BODY_LAUNCHER.name
-                shutil.copy2(MACOS_CARD_BODY_LAUNCHER, packaged)
-                packaged.chmod(0o755)
-                _audit_anime_card_body_launcher(app, "macos-arm64")
-                packaged.chmod(0o644)
-                with self.assertRaisesRegex(ExportAuditError, "not executable"):
-                    _audit_anime_card_body_launcher(app, "macos-arm64")
-
-    def test_ci_waits_for_cold_import_and_uses_official_macos_template_shape(
-        self,
-    ) -> None:
-        root = SCRIPTS.parent
-        workflow = (root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
-        heavy_workflow = (
-            root / ".github/workflows/windows-visual-heavy.yml"
-        ).read_text(encoding="utf-8")
-        preset = (root / "client/godot/export_presets.cfg").read_text(
-            encoding="utf-8"
-        )
-        project = (root / "client/godot/project.godot").read_text(
-            encoding="utf-8"
-        )
-        bootstrap = (
-            root / "client/godot/scenes/bootstrap/Bootstrap.tscn"
-        ).read_text(encoding="utf-8")
-        windows_workflow = workflow.split("  windows-msvc:", 1)[1].split(
-            "  macos-arm64:", 1
-        )[0]
-        macos_workflow = workflow.split("  macos-arm64:", 1)[1]
-
+    def test_product_pipeline_preserves_build_once_and_package_roundtrip(self) -> None:
+        workflow = (SCRIPTS.parent / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         self.assertEqual(2, workflow.count("--path client/godot --import"))
-        self.assertEqual(1, heavy_workflow.count("--path client/godot --import"))
-        self.assertNotIn("--quit-after 2", workflow)
-        self.assertIn('binary_format/architecture="arm64"', preset)
-        self.assertNotIn('binary_format/architecture="universal"', preset)
-        self.assertIn(
-            'custom_template/release="res://native/macos-arm64/'
-            'godot_macos_release.arm64.zip"',
-            preset,
-        )
-        self.assertIn("texture_format/etc2_astc=true", preset)
-        self.assertEqual(
-            2,
-            preset.count("tests/visual_goldens/gate4b/windows-1600x900/*"),
-        )
-        self.assertIn(
-            "textures/vram_compression/import_etc2_astc=true", project
-        )
-        self.assertNotIn('theme/custom="', project)
-        self.assertIn(
-            'path="res://assets/themes/default_theme.tres"', bootstrap
-        )
-        self.assertIn('theme = ExtResource("2_theme")', bootstrap)
-        self.assertIn("prepare_godot_macos_template.py", workflow)
+        self.assertEqual(2, workflow.count("--export-release"))
+        self.assertEqual(4, workflow.count("scripts/dev/check_godot_mcp_export.py"))
+        self.assertNotIn("--ci-smoke", workflow)
+        self.assertNotIn("validate_gate4a_report.py", workflow)
+        self.assertNotIn("PLAY_R3", workflow)
+        self.assertIn("run_product_smoke.py", workflow)
+        self.assertIn("--coverage full-ui", workflow)
+        self.assertIn("--coverage natural-ui", workflow)
+        self.assertIn("scgs_v04_fixture", workflow)
+        self.assertIn("--sequesterRsrc --keepParent", workflow)
         self.assertEqual(("Debug", "Release"), GODOT_BUILD_CONFIGURATIONS)
-        for platform_workflow in (windows_workflow, macos_workflow):
-            self.assertIn("Godot headless import", platform_workflow)
-            self.assertIn("Godot default 3D current-project native smoke", platform_workflow)
-            self.assertIn("Audit and launch exported", platform_workflow)
-            self.assertIn("Round-trip audit and launch packaged", platform_workflow)
-            self.assertIn("validate_gate4a_report.py", platform_workflow)
-            self.assertIn("--expect-output-count 1", platform_workflow)
-            self.assertIn("Unhandled exception", platform_workflow)
-            self.assertIn("Godot AnimeV1 integrated card-body real-actor slice", platform_workflow)
-            self.assertIn("SCGS_ANIME_CARD_BODY_SLICE_OK", platform_workflow)
-            self.assertIn("validate_anime_card_body_slice.py", platform_workflow)
-            self.assertIn("--require-anime-card-body-launcher", platform_workflow)
-        self.assertNotIn("--legacy-2d-board", windows_workflow)
-        self.assertIn("--legacy-2d-board", macos_workflow)
-        self.assertEqual(1, heavy_workflow.count("--presentation legacy-2d"))
-        self.assertEqual(1, heavy_workflow.count("--legacy-2d-board"))
-        self.assertEqual(
-            4,
-            workflow.count("-DSCGS_ENABLE_LEGACY_YGO2_TESTS=ON"),
-        )
-        self.assertNotIn("validate_gate3b_report.py", workflow)
-        self.assertNotIn("validate_gate3c_report.py", workflow)
-        self.assertNotIn("SomeCardGameShit-gate3b-", workflow)
-        self.assertNotIn("SomeCardGameShit-gate3c-", workflow)
-        self.assertIn("SomeCardGameShit-anime-card-body-r1-windows-x86_64", workflow)
-        self.assertIn("SomeCardGameShit-gate4b-r2-macos-arm64", workflow)
+        self.assertIn("SomeCardGameShit-product-playable-v1", workflow)
 
     def test_prepare_template_adds_executable_arm64_release(self) -> None:
         with tempfile.TemporaryDirectory() as temporary:
@@ -523,27 +373,34 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertIn("Dotnet-Runtime-LICENSE.txt", LICENSE_MARKERS)
         self.assertIn("Dotnet-Runtime-THIRD-PARTY-NOTICES.txt", LICENSE_MARKERS)
         self.assertIn("ASSET_NOTICES.md", LICENSE_MARKERS)
-        self.assertIn("ASSET_MANIFEST.json", LICENSE_MARKERS)
-        self.assertIn("R3_ASSET_MANIFEST.json", LICENSE_MARKERS)
+        self.assertNotIn("ASSET_MANIFEST.json", LICENSE_MARKERS)
+        self.assertNotIn("R3_ASSET_MANIFEST.json", LICENSE_MARKERS)
         self.assertIn("ANIME_V1_ASSET_MANIFEST.json", LICENSE_MARKERS)
         self.assertIn("ANIME_V1_PROVENANCE.md", LICENSE_MARKERS)
         self.assertIn("ANIME_V1_SLICE_README.md", LICENSE_MARKERS)
         self.assertIn("ANIME_V1_CARD_BODY_ASSET_MANIFEST.json", LICENSE_MARKERS)
         self.assertIn("ANIME_V1_CARD_BODY_PROVENANCE.md", LICENSE_MARKERS)
         self.assertIn("ANIME_V1_CARD_BODY_README.md", LICENSE_MARKERS)
+        self.assertIn("ANIME_V1_PRODUCT_CARD_ART_ASSET_MANIFEST.json", LICENSE_MARKERS)
+        self.assertIn("ANIME_V1_PRODUCT_CARD_ART_PROVENANCE.md", LICENSE_MARKERS)
         self.assertEqual(
             {
+                "ANIME_V1_SHARED_ASSET_MANIFEST.json",
                 "ANIME_V1_ASSET_MANIFEST.json",
                 "ANIME_V1_PROVENANCE.md",
                 "ANIME_V1_SLICE_README.md",
                 "ANIME_V1_CARD_BODY_ASSET_MANIFEST.json",
                 "ANIME_V1_CARD_BODY_PROVENANCE.md",
                 "ANIME_V1_CARD_BODY_README.md",
+                "ANIME_V1_PRODUCT_CARD_ART_ASSET_MANIFEST.json",
+                "ANIME_V1_PRODUCT_CARD_ART_PROVENANCE.md",
             },
             set(EXACT_PACKAGED_SOURCE_FILES),
         )
         for filename, source in EXACT_PACKAGED_SOURCE_FILES.items():
             self.assertEqual(filename, FINALIZED_LICENSES[source])
+
+        _audit_product_card_export_policy()
 
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)
@@ -584,22 +441,28 @@ class GodotExportAuditTests(unittest.TestCase):
             ):
                 with self.subTest(field=old):
                     valid = (
-                        "SomeCardGameShit Gate 4B-R2\n"
+                        "SomeCardGameShit Product Playable v1\n"
                         "commit=local\n"
                         "godot=4.7.2.stable.mono\n"
                         "dotnet_sdk=10.0.400\n"
                         "dotnet_runtime=8.0.30\n"
+                "api=scgs_v05\n"
+                "schema=2\n"
+                "visual=AnimeV1\n"
                     )
                     build_info.write_text(valid.replace(old, new), encoding="utf-8")
                     with self.assertRaisesRegex(ExportAuditError, message):
                         _audit_licenses(directory)
 
             valid = (
-                "SomeCardGameShit Gate 4B-R2\n"
+                "SomeCardGameShit Product Playable v1\n"
                 "commit=0123456789abcdef0123456789abcdef01234567\n"
                 "godot=4.7.2.stable.mono\n"
                 "dotnet_sdk=10.0.400\n"
                 "dotnet_runtime=8.0.30\n"
+                "api=scgs_v05\n"
+                "schema=2\n"
+                "visual=AnimeV1\n"
             )
             build_info.write_text(valid, encoding="utf-8")
             with self.assertRaisesRegex(ExportAuditError, "GitHub checkout"):

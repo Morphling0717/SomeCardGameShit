@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using Godot;
 using Scgs.Client;
+using V05 = Scgs.Client.V05;
 
 namespace Scgs.GodotClient.UI;
 
@@ -41,6 +42,19 @@ public sealed partial class MulliganPanel : PanelContainer
     }
 
     public void PresentReview(IReadOnlyList<CardView> replacementHand)
+    {
+        Visible = true;
+        _summary.Text = "调度已完成。确认自己的新手牌后再交接设备。";
+        _review.Text = replacementHand.Count == 0
+            ? "当前没有手牌。"
+            : $"当前手牌：{string.Join("、", replacementHand.Select(card => card.Name))}";
+        _confirmButton.Visible = false;
+        _acknowledgeButton.Visible = true;
+        _acknowledgeButton.Disabled = false;
+        _acknowledgeButton.GrabFocus();
+    }
+
+    public void PresentProductReview(IReadOnlyList<V05.CardView> replacementHand)
     {
         Visible = true;
         _summary.Text = "调度已完成。确认自己的新手牌后再交接设备。";

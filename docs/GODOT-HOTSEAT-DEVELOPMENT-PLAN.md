@@ -1,5 +1,30 @@
 # SomeCardGameShit 产品运行时与 Godot 客户端开发计划
 
+## 当前执行阶段：Product Playable v1 收尾（2026-09-05）
+
+当前基底为 `codex/product-playable-v1@6e0204e` 加工作区实现。原 Gate 5B/6A 底座/样片已进入真正产品集成：两副新牌、v05 ProductGame、托管热座、AnimeV1 唯一产品入口均已接线；不可继续照旧文字恢复 v04 对局或审批样片路径。
+
+### 已实现的工作包
+
+1. 通用 ProductGame 执行34可构筑定义＋1衍生物，查询/支付/效果共享验证；精确能力覆盖与实际结果见 [原生证据](product-playable-v1-engine-evidence.md)。
+2. 产品菜单只提供誓卫/契术固定牌组；v05 安全会话、模式/额外代价/私密选择/排序、两帧公共结算、换人遮挡、终局/重开接入。
+3. AnimeV1 覆盖当前产品卡体、菜单、竞技场、HUD与弹层；旧科幻资产和旧preview/legacy入口退役。
+4. v04 ABI/schema/wire冻结，不保留旧产品startup语义；独立synthetic fixture维持成功协议回归，绝不进入玩家包。
+
+### 接下来的验收顺序
+
+1. 保留工作区，核对当前源码与生成目录一致；不要把合成能力矩阵冒充真实牌效/真人局。
+2. 在真实 Godot 产品路径验证菜单、调度、14类动作、选择/响应、Covered/Resolving、终局/重开与无效拖放；四尺寸截图和GPU隐私证据独立记录。
+3. 完整native/managed/Python、产品源码/导出/ZIP实启及插件隔离审计；历史validator迁移为独立fixture，不能通过恢复旧入口来消除失败。
+4. 先取得当前实现CI证据，再更新最终报告并复验；实际进度只看 [TEST_REPORT](../TEST_REPORT.md)，本文不宣布CI已绿。
+5. 提供Windows x64/macOS ARM64测试包，收集两名真人及物理目标机反馈；其后才进入Gate 5D平衡、精细演出和声音工作。
+
+保持 Godot 4.7.2 .NET、SDK 10.0.400、Windows/macOS桌面、固定2.5D直操。保留原生唯一规则真值、失败无副作用、私密选择和揭示门；不新增联机、牌组编辑或声音，不创建PR/合并/标签。旧 `--ci-smoke`、`--legacy-2d-board`、`--r3-visual*`、`--ci-visual-suite*`、`--anime-*` 不是现行运行方式；使用默认菜单或 `--ci-product-smoke`。
+
+## 历史开发计划（以下按当时 Gate 解释，不是当前执行指令）
+
+> **Historical：下文“当前分支”“仍不切换”“旧默认可玩”“样片启动”的旧描述已由上节替代；保留为规划演变记录，不授权恢复退役内容。**
+
 **计划代号：** M1-G / Godot Hotseat Alpha  
 **代码基线：** `main@cfdf695d70eeabcc6de9b094c94041364fb1335f`
 **Gate 0+1 实现分支：** `codex/godot-hotseat-gate1`

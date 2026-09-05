@@ -89,7 +89,7 @@ jobs:
         run: python scripts/audit_native_artifact.py --library build/stage-gcc/lib/libscgs_v04.so --architecture x86_64
       - name: Audit v05 native artifact
         run: python scripts/audit_native_artifact.py --library build/stage-gcc/lib/libscgs_v05.so --architecture x86_64 --api-version v05
-      - name: Audit Gate 4B generated visual inventory
+      - name: Audit AnimeV1 product visual inventory
         run: python scripts/audit_visual_assets.py
       - name: Check patch whitespace
         run: git diff --check
@@ -205,7 +205,9 @@ jobs:
         shell: pwsh
         run: |
           cmake -S scripts/native-package-smoke -B build/package-smoke-msvc -A x64 -DCMAKE_PREFIX_PATH="${{ github.workspace }}/build/stage-msvc"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           cmake --build build/package-smoke-msvc --config Release --parallel 2
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:PATH = "${{ github.workspace }}\build\stage-msvc\bin;$env:PATH"
           & "build/package-smoke-msvc/Release/scgs_native_v04_package_smoke.exe"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -235,208 +237,91 @@ jobs:
         id: godot
         shell: pwsh
         run: ./scripts/ci/install_godot_windows.ps1 -GithubOutput $env:GITHUB_OUTPUT
-      - name: Stage current-commit native library for Godot
+      - name: Stage same-commit product v05 library for Godot
         run: >-
           python scripts/stage_godot_native.py
-          --library build/stage-msvc/bin/scgs_v04.dll
+          --v05-library build/stage-msvc/bin/scgs_v05.dll
           --destination-root client/godot/native
           --target windows-x86_64
       - name: Locked managed restore, build, and tests
         env:
-          SCGS_NATIVE_LIBRARY: ${{ github.workspace }}/build/stage-msvc/bin/scgs_v04.dll
-          SCGS_V04_NATIVE_PATH: ${{ github.workspace }}/build/stage-msvc/bin/scgs_v04.dll
+          SCGS_NATIVE_LIBRARY: ${{ github.workspace }}/build/ci-msvc/Release/scgs_v04_fixture.dll
+          SCGS_V04_NATIVE_PATH: ${{ github.workspace }}/build/ci-msvc/Release/scgs_v04_fixture.dll
           SCGS_NATIVE_V05_LIBRARY: ${{ github.workspace }}/build/stage-msvc/bin/scgs_v05.dll
         run: python scripts/ci/run_managed_gate3.py
-      - name: AnimeV1 visual slice structural contracts
-        run: python -m unittest scripts.tests.test_anime_visual_slice
+      - name: Product v05 UI report contracts
+        run: python -m unittest scripts.tests.test_run_product_smoke scripts.tests.test_validate_product_smoke_report scripts.tests.test_validate_product_visual_report scripts.tests.test_validate_product_privacy_report scripts.tests.test_audit_godot_export
       - name: Godot headless import
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
         shell: pwsh
         run: >-
-          python scripts/ci/run_with_timeout.py
-          --timeout 600
-          --forbid-output "SCRIPT ERROR:"
-          --forbid-output "ERROR:"
-          -- "$env:GODOT4" --headless
-          --path client/godot --import
-      - name: Godot AnimeV1 display-backed structural screenshot matrix
-        env:
-          GODOT4: ${{ steps.godot.outputs.godot }}
-        shell: pwsh
-        run: >-
-          ./scripts/ci/capture_anime_visual_slice.ps1
-          -GodotPath $env:GODOT4
-          -OutputRoot "${{ github.workspace }}/artifacts/anime-visual-slice/windows"
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: SomeCardGameShit-gate6a-anime-slice-windows
-          path: artifacts/anime-visual-slice/windows
-          if-no-files-found: error
-      - name: Godot AnimeV1 integrated card-body real-actor slice
+          python scripts/ci/run_with_timeout.py --timeout 600
+          --forbid-output "SCRIPT ERROR:" --forbid-output "ERROR:"
+          -- "$env:GODOT4" --headless --path client/godot --import
+      - name: Product v05 current-project full UI and minimum-size smoke
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
         shell: pwsh
         run: |
-          $slice = Join-Path "${{ github.workspace }}" "artifacts/anime-card-body/windows-1600x900"
-          New-Item -ItemType Directory -Path $slice -Force | Out-Null
-          python scripts/ci/run_with_timeout.py `
-            --timeout 300 `
-            --expect-output SCGS_ANIME_CARD_BODY_SLICE_OK `
-            --expect-output-count 1 `
-            --forbid-output "SCRIPT ERROR:" `
-            --forbid-output "ERROR:" `
-            --forbid-output "Unhandled exception" `
-            -- "$env:GODOT4" --path client/godot --windowed --audio-driver Dummy `
-            --resolution "1600x900" -- `
-            "--anime-card-body-slice=$slice" --anime-card-body-slice-exit `
-            --ci-visual-viewport=1600x900
+          python scripts/ci/run_product_smoke.py --executable "$env:GODOT4" --project client/godot --native-library build/stage-msvc/bin/scgs_v05.dll --artifact source --coverage full-ui --viewport 1600x900 --display --output artifacts/product-ui/windows/source-1600
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/ci/validate_anime_card_body_slice.py `
-            (Join-Path $slice "anime-card-body-slice.json") `
-            --expected-viewport 1600x900
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: SomeCardGameShit-gate6a-r1-card-body-windows
-          path: artifacts/anime-card-body/windows-1600x900
-          if-no-files-found: error
-      - name: Godot default 3D current-project native smoke
+          python scripts/ci/run_product_smoke.py --executable "$env:GODOT4" --project client/godot --native-library build/stage-msvc/bin/scgs_v05.dll --artifact source --coverage natural-ui --viewport 1280x720 --display --output artifacts/product-ui/windows/source-1280
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Export and finalize v05-only Windows client
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
         shell: pwsh
         run: |
-          $native = (Resolve-Path "build/stage-msvc/bin/scgs_v04.dll").Path
-          $report = Join-Path $env:RUNNER_TEMP "gate4a-current-project-3d-windows.json"
-          python scripts/ci/run_with_timeout.py `
-            --timeout 180 `
-            --expect-output SCGS_GODOT_CI_SMOKE_OK `
-            --expect-output-count 1 `
-            --forbid-output "SCRIPT ERROR:" `
-            --forbid-output "ERROR:" `
-            --forbid-output "Unhandled exception" `
-            -- "$env:GODOT4" --headless --path client/godot -- `
-            --ci-smoke "--native-library=$native" "--ci-report=$report"
+          $directory = Join-Path "${{ github.workspace }}" "artifacts/godot/windows-x86_64"
+          $export = Join-Path $directory "SomeCardGameShit.exe"
+          New-Item -ItemType Directory -Path $directory -Force | Out-Null
+          python scripts/ci/run_with_timeout.py --timeout 600 --forbid-output "SCRIPT ERROR:" --forbid-output "ERROR:" -- "$env:GODOT4" --headless --path client/godot --export-release "Windows x86-64" "$export"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/ci/validate_gate4a_report.py --report "$report" --scenario full-match --presentation 3d
+          python scripts/ci/finalize_godot_export.py --platform windows-x86_64 --export "$export" --product-native-library build/stage-msvc/bin/scgs_v05.dll
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Export and finalize Windows client
-        env:
-          GODOT4: ${{ steps.godot.outputs.godot }}
+      - name: Audit and launch exported v05 Windows client
         shell: pwsh
         run: |
-          $exportDirectory = Join-Path "${{ github.workspace }}" "artifacts/godot/windows-x86_64"
-          $export = Join-Path $exportDirectory "SomeCardGameShit.exe"
-          New-Item -ItemType Directory -Path $exportDirectory -Force | Out-Null
-          python scripts/ci/run_with_timeout.py `
-            --timeout 600 `
-            --forbid-output "SCRIPT ERROR:" `
-            --forbid-output "ERROR:" `
-            -- "$env:GODOT4" --headless --path client/godot `
-            --export-release "Windows x86-64" "$export"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/ci/finalize_godot_export.py `
-            --platform windows-x86_64 `
-            --export "$export" `
-            --native-library build/stage-msvc/bin/scgs_v04.dll
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Audit and launch exported Windows default 3D client
-        shell: pwsh
-        run: |
-          $exportDirectory = Join-Path "${{ github.workspace }}" "artifacts/godot/windows-x86_64"
-          $export = Join-Path $exportDirectory "SomeCardGameShit.exe"
-          $report = Join-Path $env:RUNNER_TEMP "gate4a-export-3d-windows.json"
+          $export = Join-Path "${{ github.workspace }}" "artifacts/godot/windows-x86_64/SomeCardGameShit.exe"
           python scripts/audit_godot_export.py --platform windows-x86_64 --export "$export"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/ci/run_with_timeout.py `
-            --timeout 180 `
-            --cwd "$exportDirectory" `
-            --expect-output SCGS_GODOT_CI_SMOKE_OK `
-            --expect-output-count 1 `
-            --forbid-output "SCRIPT ERROR:" `
-            --forbid-output "ERROR:" `
-            --forbid-output "Unhandled exception" `
-            -- "$export" --headless -- --ci-smoke "--ci-report=$report"
+          python scripts/dev/check_godot_mcp_export.py --export "$export"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/ci/validate_gate4a_report.py --report "$report" --scenario full-match --presentation 3d
+          python scripts/ci/run_product_smoke.py --executable "$export" --artifact export --coverage natural-ui --viewport 1600x900 --output artifacts/product-ui/windows/export
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-      - name: Package Windows client
+      - name: Package Windows product client
         shell: pwsh
         run: |
-          $packageDirectory = Join-Path "${{ github.workspace }}" "artifacts/packages"
-          $package = Join-Path $packageDirectory "SomeCardGameShit-anime-card-body-r1-windows-x86_64.zip"
-          New-Item -ItemType Directory -Path $packageDirectory -Force | Out-Null
-          Compress-Archive `
-            -Path "artifacts/godot/windows-x86_64/*" `
-            -DestinationPath $package `
-            -CompressionLevel Optimal
-      - name: Round-trip audit and launch packaged Windows default 3D client
+          New-Item -ItemType Directory -Path artifacts/packages -Force | Out-Null
+          Compress-Archive -Path "artifacts/godot/windows-x86_64/*" -DestinationPath artifacts/packages/SomeCardGameShit-product-playable-v1-windows-x86_64.zip -CompressionLevel Optimal
+      - name: Round-trip audit and launch packaged v05 Windows client
         shell: pwsh
         run: |
-          $package = Join-Path "${{ github.workspace }}" "artifacts/packages/SomeCardGameShit-anime-card-body-r1-windows-x86_64.zip"
+          $package = Join-Path "${{ github.workspace }}" "artifacts/packages/SomeCardGameShit-product-playable-v1-windows-x86_64.zip"
           $roundTrip = Join-Path "${{ github.workspace }}" "artifacts/roundtrip/windows-x86_64"
-          New-Item -ItemType Directory -Path $roundTrip -Force | Out-Null
-          Expand-Archive -LiteralPath $package -DestinationPath $roundTrip -Force
+          Expand-Archive -LiteralPath $package -DestinationPath $roundTrip
           $export = Join-Path $roundTrip "SomeCardGameShit.exe"
-          $report = Join-Path $env:RUNNER_TEMP "gate4a-roundtrip-3d-windows.json"
-          python scripts/audit_godot_export.py `
-            --platform windows-x86_64 --export "$export" `
-            --require-anime-slice-launcher `
-            --require-anime-card-body-launcher
+          python scripts/audit_godot_export.py --platform windows-x86_64 --export "$export"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/ci/run_with_timeout.py `
-            --timeout 180 `
-            --cwd "$roundTrip" `
-            --expect-output SCGS_GODOT_CI_SMOKE_OK `
-            --expect-output-count 1 `
-            --forbid-output "SCRIPT ERROR:" `
-            --forbid-output "ERROR:" `
-            --forbid-output "Unhandled exception" `
-            -- "$export" --headless -- --ci-smoke "--ci-report=$report"
+          python scripts/dev/check_godot_mcp_export.py --export "$export"
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          python scripts/ci/validate_gate4a_report.py --report "$report" --scenario full-match --presentation 3d
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-
-          $cardBodyLauncher = Join-Path $roundTrip "PLAY_ANIME_CARD_BODY_SLICE.cmd"
-          $cardBodySlice = Join-Path "${{ github.workspace }}" "artifacts/anime-card-body/packaged-windows-1600x900"
-          New-Item -ItemType Directory -Path $cardBodySlice -Force | Out-Null
-          $env:SCGS_CARD_BODY_LAUNCHER_CI = "1"
-          $env:SCGS_CARD_BODY_LAUNCHER_OUTPUT = $cardBodySlice
-          try {
-            python scripts/ci/run_with_timeout.py `
-              --timeout 300 `
-              --cwd "$roundTrip" `
-              --expect-output SCGS_ANIME_CARD_BODY_SLICE_OK `
-              --expect-output-count 1 `
-              --forbid-output "SCRIPT ERROR:" `
-              --forbid-output "ERROR:" `
-              --forbid-output "Unhandled exception" `
-              -- "$env:ComSpec" /d /c call "$cardBodyLauncher"
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          }
-          finally {
-            Remove-Item Env:SCGS_CARD_BODY_LAUNCHER_CI -ErrorAction SilentlyContinue
-            Remove-Item Env:SCGS_CARD_BODY_LAUNCHER_OUTPUT -ErrorAction SilentlyContinue
-          }
-          python scripts/ci/validate_anime_card_body_slice.py `
-            (Join-Path $cardBodySlice "anime-card-body-slice.json") `
-            --expected-viewport 1600x900
+          python scripts/ci/run_product_smoke.py --executable "$export" --artifact zip --coverage natural-ui --viewport 1600x900 --output artifacts/product-ui/windows/zip
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           (Get-FileHash -LiteralPath $package -Algorithm SHA256).Hash.ToLowerInvariant() | ForEach-Object { "package_sha256=$_" }
       - name: Check patch whitespace
         run: git diff --check
       - uses: actions/upload-artifact@v7
         with:
-          name: SomeCardGameShit-anime-card-body-r1-windows-x86_64
-          path: artifacts/packages/SomeCardGameShit-anime-card-body-r1-windows-x86_64.zip
+          name: SomeCardGameShit-product-playable-v1-windows-x86_64
+          path: artifacts/packages/SomeCardGameShit-product-playable-v1-windows-x86_64.zip
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: SomeCardGameShit-gate6a-r1-card-body-packaged-windows
-          path: artifacts/anime-card-body/packaged-windows-1600x900
-          if-no-files-found: error
+          name: product-v05-windows-evidence
+          path: artifacts/product-ui/windows
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v7
         with:
           name: scgs-native-v04-windows-x86_64-msvc
@@ -494,7 +379,7 @@ jobs:
         run: python scripts/audit_native_artifact.py --library build/stage-macos/lib/libscgs_v04.dylib --architecture arm64
       - name: Audit v05 native artifact
         run: python scripts/audit_native_artifact.py --library build/stage-macos/lib/libscgs_v05.dylib --architecture arm64 --api-version v05
-      - name: Audit Gate 4B generated visual inventory
+      - name: Audit AnimeV1 product visual inventory
         run: python scripts/audit_visual_assets.py
       - uses: actions/setup-dotnet@v5
         with:
@@ -520,270 +405,83 @@ jobs:
           python scripts/ci/prepare_godot_macos_template.py
           --source "$HOME/Library/Application Support/Godot/export_templates/4.7.2.stable.mono/macos.zip"
           --output client/godot/native/macos-arm64/godot_macos_release.arm64.zip
-      - name: Stage current-commit native library for Godot
+      - name: Stage same-commit product v05 library for Godot
         run: >-
           python scripts/stage_godot_native.py
-          --library build/stage-macos/lib/libscgs_v04.dylib
+          --v05-library build/stage-macos/lib/libscgs_v05.dylib
           --destination-root client/godot/native
           --target macos-arm64
       - name: Locked managed restore, build, and tests
         env:
-          SCGS_NATIVE_LIBRARY: ${{ github.workspace }}/build/stage-macos/lib/libscgs_v04.dylib
-          SCGS_V04_NATIVE_PATH: ${{ github.workspace }}/build/stage-macos/lib/libscgs_v04.dylib
+          SCGS_NATIVE_LIBRARY: ${{ github.workspace }}/build/ci-macos/libscgs_v04_fixture.dylib
+          SCGS_V04_NATIVE_PATH: ${{ github.workspace }}/build/ci-macos/libscgs_v04_fixture.dylib
           SCGS_NATIVE_V05_LIBRARY: ${{ github.workspace }}/build/stage-macos/lib/libscgs_v05.dylib
         run: python scripts/ci/run_managed_gate3.py
-      - name: AnimeV1 visual slice structural contracts
-        run: python -m unittest scripts.tests.test_anime_visual_slice
+      - name: Product v05 UI report contracts
+        run: python -m unittest scripts.tests.test_run_product_smoke scripts.tests.test_validate_product_smoke_report scripts.tests.test_validate_product_visual_report scripts.tests.test_validate_product_privacy_report scripts.tests.test_audit_godot_export
       - name: Godot headless import
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
         run: >-
-          python scripts/ci/run_with_timeout.py
-          --timeout 600
-          --forbid-output "SCRIPT ERROR:"
-          --forbid-output "ERROR:"
-          -- "$GODOT4" --headless
-          --path client/godot --import
-      - name: Godot AnimeV1 display-backed structural screenshot matrix
+          python scripts/ci/run_with_timeout.py --timeout 600
+          --forbid-output "SCRIPT ERROR:" --forbid-output "ERROR:"
+          -- "$GODOT4" --headless --path client/godot --import
+      - name: Product v05 current-project full UI smoke
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
-        shell: pwsh
         run: >-
-          ./scripts/ci/capture_anime_visual_slice.ps1
-          -GodotPath $env:GODOT4
-          -OutputRoot "${{ github.workspace }}/artifacts/anime-visual-slice/macos"
-          -Viewports "1024x684"
-          -AllowCiRunnerViewport
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: SomeCardGameShit-gate6a-anime-slice-macos-arm64
-          path: artifacts/anime-visual-slice/macos
-          if-no-files-found: error
-      - name: Godot AnimeV1 integrated card-body real-actor slice
+          python scripts/ci/run_product_smoke.py --executable "$GODOT4"
+          --project client/godot --native-library build/stage-macos/lib/libscgs_v05.dylib
+          --artifact source --coverage full-ui --viewport 1600x900
+          --output artifacts/product-ui/macos/source
+      - name: Export, finalize, and sign v05-only macOS client
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
         run: |
-          slice="${GITHUB_WORKSPACE}/artifacts/anime-card-body/macos-runner-1024x684"
-          mkdir -p "$slice"
-          python scripts/ci/run_with_timeout.py \
-            --timeout 300 \
-            --expect-output SCGS_ANIME_CARD_BODY_SLICE_OK \
-            --expect-output-count 1 \
-            --forbid-output 'SCRIPT ERROR:' \
-            --forbid-output 'ERROR:' \
-            --forbid-output 'Unhandled exception' \
-            -- "$GODOT4" --path client/godot --windowed --audio-driver Dummy \
-            --resolution 1024x684 -- \
-            "--anime-card-body-slice=$slice" --anime-card-body-slice-exit \
-            --ci-visual-viewport=1024x684 --ci-anime-runner-viewport
-          python scripts/ci/validate_anime_card_body_slice.py \
-            "$slice/anime-card-body-slice.json" \
-            --expected-viewport 1024x684
-      - uses: actions/upload-artifact@v7
-        if: always()
-        with:
-          name: SomeCardGameShit-gate6a-r1-card-body-macos-arm64
-          path: artifacts/anime-card-body/macos-runner-1024x684
-          if-no-files-found: error
-      - name: Godot default 3D current-project native smoke
-        env:
-          GODOT4: ${{ steps.godot.outputs.godot }}
+          directory="${GITHUB_WORKSPACE}/artifacts/godot/macos-arm64"
+          mkdir -p "$directory"
+          app="$directory/SomeCardGameShit.app"
+          python scripts/ci/run_with_timeout.py --timeout 600 --forbid-output "SCRIPT ERROR:" --forbid-output "ERROR:" -- "$GODOT4" --headless --path client/godot --export-release "macOS Apple Silicon" "$app"
+          python scripts/ci/finalize_godot_export.py --platform macos-arm64 --export "$app" --product-native-library build/stage-macos/lib/libscgs_v05.dylib
+          /usr/bin/codesign --force --sign - "$app/Contents/Frameworks/libscgs_v05.dylib"
+          /usr/bin/codesign --force --deep --sign - "$app"
+      - name: Audit and launch exported v05 macOS client
         run: |
-          native="$(cd build/stage-macos/lib && pwd)/libscgs_v04.dylib"
-          report="${RUNNER_TEMP}/gate4a-current-project-3d-macos.json"
-          python scripts/ci/run_with_timeout.py \
-            --timeout 180 \
-            --expect-output SCGS_GODOT_CI_SMOKE_OK \
-            --expect-output-count 1 \
-            --forbid-output 'SCRIPT ERROR:' \
-            --forbid-output 'ERROR:' \
-            --forbid-output 'Unhandled exception' \
-            -- "$GODOT4" --headless --path client/godot -- \
-            --ci-smoke "--native-library=${native}" "--ci-report=${report}"
-          python scripts/ci/validate_gate4a_report.py --report "$report" --scenario full-match --presentation 3d
-      - name: Godot legacy 2D source regression smoke
-        env:
-          GODOT4: ${{ steps.godot.outputs.godot }}
-        run: |
-          native="$(cd build/stage-macos/lib && pwd)/libscgs_v04.dylib"
-          report="${RUNNER_TEMP}/gate4a-current-project-legacy-2d-macos.json"
-          python scripts/ci/run_with_timeout.py \
-            --timeout 180 \
-            --expect-output SCGS_GODOT_CI_SMOKE_OK \
-            --expect-output-count 1 \
-            --forbid-output 'SCRIPT ERROR:' \
-            --forbid-output 'ERROR:' \
-            --forbid-output 'Unhandled exception' \
-            -- "$GODOT4" --headless --path client/godot -- \
-            --ci-smoke --legacy-2d-board "--native-library=${native}" "--ci-report=${report}"
-          python scripts/ci/validate_gate4a_report.py --report "$report" --scenario full-match --presentation legacy-2d
-      - name: Export, finalize, and sign macOS client
-        env:
-          GODOT4: ${{ steps.godot.outputs.godot }}
-        run: |
-          export_directory="${GITHUB_WORKSPACE}/artifacts/godot/macos-arm64"
-          app="${export_directory}/SomeCardGameShit.app"
-          mkdir -p "$export_directory"
-          python scripts/ci/run_with_timeout.py \
-            --timeout 600 \
-            --forbid-output "SCRIPT ERROR:" \
-            --forbid-output "ERROR:" \
-            -- "$GODOT4" --headless --path client/godot \
-            --export-release "macOS Apple Silicon" "$app"
-          python scripts/ci/finalize_godot_export.py \
-            --platform macos-arm64 \
-            --export "$app" \
-            --native-library build/stage-macos/lib/libscgs_v04.dylib
-          codesign --force --sign - "$app/Contents/Frameworks/libscgs_v04.dylib"
-          codesign --force --deep --sign - "$app"
-      - name: Audit and launch exported macOS default 3D client
-        run: |
-          export_directory="${GITHUB_WORKSPACE}/artifacts/godot/macos-arm64"
-          app="${export_directory}/SomeCardGameShit.app"
-          executable="$app/Contents/MacOS/SomeCardGameShit"
-          report="${RUNNER_TEMP}/gate4a-export-3d-macos.json"
+          app="${GITHUB_WORKSPACE}/artifacts/godot/macos-arm64/SomeCardGameShit.app"
+          executable="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Contents/Info.plist")"
           python scripts/audit_godot_export.py --platform macos-arm64 --export "$app"
-          python scripts/ci/run_with_timeout.py \
-            --timeout 180 \
-            --cwd "$export_directory" \
-            --expect-output SCGS_GODOT_CI_SMOKE_OK \
-            --expect-output-count 1 \
-            --forbid-output 'SCRIPT ERROR:' \
-            --forbid-output 'ERROR:' \
-            --forbid-output 'Unhandled exception' \
-            -- "$executable" --headless -- --ci-smoke "--ci-report=${report}"
-          python scripts/ci/validate_gate4a_report.py --report "$report" --scenario full-match --presentation 3d
-      - name: Launch exported macOS AnimeV1 visual slice
+          python scripts/dev/check_godot_mcp_export.py --export "$app"
+          python scripts/ci/run_product_smoke.py --executable "$executable" --artifact export --coverage natural-ui --viewport 1600x900 --output artifacts/product-ui/macos/export
+      - name: Package macOS product preserving execution permissions
         run: |
-          export_directory="${GITHUB_WORKSPACE}/artifacts/godot/macos-arm64"
-          launcher="${export_directory}/PLAY_ANIME_STYLE_SLICE.command"
-          slice="${GITHUB_WORKSPACE}/artifacts/anime-exported-visual-slice/macos-runner-1024x684"
-          mkdir -p "$slice"
-          export SCGS_ANIME_LAUNCHER_CI=1
-          export SCGS_ANIME_LAUNCHER_OUTPUT="$slice"
-          python scripts/ci/run_with_timeout.py \
-            --timeout 300 \
-            --cwd "$export_directory" \
-            --expect-output SCGS_ANIME_VISUAL_SLICE_READY \
-            --expect-output-count 1 \
-            --forbid-output 'SCRIPT ERROR:' \
-            --forbid-output 'ERROR:' \
-            --forbid-output 'Unhandled exception' \
-            -- "$launcher"
-          unset SCGS_ANIME_LAUNCHER_CI SCGS_ANIME_LAUNCHER_OUTPUT
-          python scripts/ci/validate_anime_visual_slice.py \
-            "$slice/anime-visual-slice.json" \
-            --expected-viewport 1024x684 \
-            --allow-ci-runner-viewport
-      - name: Package macOS client
+          mkdir -p artifacts/packages
+          /usr/bin/ditto -c -k --sequesterRsrc --keepParent artifacts/godot/macos-arm64/SomeCardGameShit.app artifacts/packages/SomeCardGameShit-product-playable-v1-macos-arm64.app.zip
+      - name: Round-trip audit and launch packaged v05 macOS client
         run: |
-          export_directory="${GITHUB_WORKSPACE}/artifacts/godot/macos-arm64"
-          package_directory="${GITHUB_WORKSPACE}/artifacts/packages"
-          r2_package="${package_directory}/SomeCardGameShit-gate4b-r2-macos-arm64.app.zip"
-          anime_package="${package_directory}/SomeCardGameShit-anime-card-body-r1-macos-arm64.zip"
-          mkdir -p "$package_directory"
-          ditto -c -k --sequesterRsrc --keepParent \
-            artifacts/godot/macos-arm64/SomeCardGameShit.app \
-            "$r2_package"
-          cp "$r2_package" "$anime_package"
-          (
-            cd "$export_directory"
-            /usr/bin/zip -q "$anime_package" \
-              PLAY_ANIME_STYLE_SLICE.command \
-              PLAY_ANIME_CARD_BODY_SLICE.command
-          )
-      - name: Round-trip launch packaged AnimeV1 visual slice
-        run: |
-          package="${GITHUB_WORKSPACE}/artifacts/packages/SomeCardGameShit-anime-card-body-r1-macos-arm64.zip"
-          round_trip="${GITHUB_WORKSPACE}/artifacts/roundtrip/anime-visual-slice-macos-arm64"
-          slice="${GITHUB_WORKSPACE}/artifacts/anime-packaged-visual-slice/macos-runner-1024x684"
-          card_body_slice="${GITHUB_WORKSPACE}/artifacts/anime-card-body/packaged-macos-runner-1024x684"
-          mkdir -p "$round_trip" "$slice" "$card_body_slice"
-          ditto -x -k "$package" "$round_trip"
-          app="$round_trip/SomeCardGameShit.app"
-          launcher="$round_trip/PLAY_ANIME_STYLE_SLICE.command"
-          test -x "$launcher"
-          python scripts/audit_godot_export.py \
-            --platform macos-arm64 --export "$app" \
-            --require-anime-slice-launcher \
-            --require-anime-card-body-launcher
-          export SCGS_ANIME_LAUNCHER_CI=1
-          export SCGS_ANIME_LAUNCHER_OUTPUT="$slice"
-          python scripts/ci/run_with_timeout.py \
-            --timeout 300 \
-            --cwd "$round_trip" \
-            --expect-output SCGS_ANIME_VISUAL_SLICE_READY \
-            --expect-output-count 1 \
-            --forbid-output 'SCRIPT ERROR:' \
-            --forbid-output 'ERROR:' \
-            --forbid-output 'Unhandled exception' \
-            -- "$launcher"
-          unset SCGS_ANIME_LAUNCHER_CI SCGS_ANIME_LAUNCHER_OUTPUT
-          python scripts/ci/validate_anime_visual_slice.py \
-            "$slice/anime-visual-slice.json" \
-            --expected-viewport 1024x684 \
-            --allow-ci-runner-viewport
-
-          card_body_launcher="$round_trip/PLAY_ANIME_CARD_BODY_SLICE.command"
-          test -x "$card_body_launcher"
-          export SCGS_CARD_BODY_LAUNCHER_CI=1
-          export SCGS_CARD_BODY_LAUNCHER_OUTPUT="$card_body_slice"
-          python scripts/ci/run_with_timeout.py \
-            --timeout 300 \
-            --cwd "$round_trip" \
-            --expect-output SCGS_ANIME_CARD_BODY_SLICE_OK \
-            --expect-output-count 1 \
-            --forbid-output 'SCRIPT ERROR:' \
-            --forbid-output 'ERROR:' \
-            --forbid-output 'Unhandled exception' \
-            -- "$card_body_launcher"
-          unset SCGS_CARD_BODY_LAUNCHER_CI SCGS_CARD_BODY_LAUNCHER_OUTPUT
-          python scripts/ci/validate_anime_card_body_slice.py \
-            "$card_body_slice/anime-card-body-slice.json" \
-            --expected-viewport 1024x684
-      - name: Round-trip audit and launch packaged macOS default 3D client
-        run: |
-          package="${GITHUB_WORKSPACE}/artifacts/packages/SomeCardGameShit-gate4b-r2-macos-arm64.app.zip"
-          round_trip="${GITHUB_WORKSPACE}/artifacts/roundtrip/macos-arm64"
-          mkdir -p "$round_trip"
-          ditto -x -k "$package" "$round_trip"
-          app="$round_trip/SomeCardGameShit.app"
-          executable="$app/Contents/MacOS/SomeCardGameShit"
-          report="${RUNNER_TEMP}/gate4a-roundtrip-3d-macos.json"
+          package="${GITHUB_WORKSPACE}/artifacts/packages/SomeCardGameShit-product-playable-v1-macos-arm64.app.zip"
+          roundtrip="${GITHUB_WORKSPACE}/artifacts/roundtrip/macos-arm64"
+          mkdir -p "$roundtrip"
+          /usr/bin/ditto -x -k "$package" "$roundtrip"
+          app="$roundtrip/SomeCardGameShit.app"
+          executable="$app/Contents/MacOS/$(/usr/libexec/PlistBuddy -c 'Print CFBundleExecutable' "$app/Contents/Info.plist")"
+          test -x "$executable"
           python scripts/audit_godot_export.py --platform macos-arm64 --export "$app"
-          python scripts/ci/run_with_timeout.py \
-            --timeout 180 \
-            --cwd "$round_trip" \
-            --expect-output SCGS_GODOT_CI_SMOKE_OK \
-            --expect-output-count 1 \
-            --forbid-output 'SCRIPT ERROR:' \
-            --forbid-output 'ERROR:' \
-            --forbid-output 'Unhandled exception' \
-            -- "$executable" --headless -- --ci-smoke "--ci-report=${report}"
-          python scripts/ci/validate_gate4a_report.py --report "$report" --scenario full-match --presentation 3d
-          shasum -a 256 "$package" | awk '{print "package_sha256=" $1}'
+          python scripts/dev/check_godot_mcp_export.py --export "$app"
+          python scripts/ci/run_product_smoke.py --executable "$executable" --artifact zip --coverage natural-ui --viewport 1600x900 --output artifacts/product-ui/macos/zip
+          shasum -a 256 "$package"
       - name: Check patch whitespace
         run: git diff --check
       - uses: actions/upload-artifact@v7
         with:
-          name: SomeCardGameShit-gate4b-r2-macos-arm64
-          path: artifacts/packages/SomeCardGameShit-gate4b-r2-macos-arm64.app.zip
-          if-no-files-found: error
-      - uses: actions/upload-artifact@v7
-        with:
-          name: SomeCardGameShit-anime-card-body-r1-macos-arm64
-          path: artifacts/packages/SomeCardGameShit-anime-card-body-r1-macos-arm64.zip
+          name: SomeCardGameShit-product-playable-v1-macos-arm64
+          path: artifacts/packages/SomeCardGameShit-product-playable-v1-macos-arm64.app.zip
           if-no-files-found: error
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: SomeCardGameShit-product-runtime-foundation-anime-slice-macos-evidence
-          path: |
-            artifacts/anime-exported-visual-slice
-            artifacts/anime-packaged-visual-slice
-            artifacts/anime-card-body
-          if-no-files-found: error
+          name: product-v05-macos-evidence
+          path: artifacts/product-ui/macos
+          if-no-files-found: warn
       - uses: actions/upload-artifact@v7
         with:
           name: scgs-native-v04-macos-arm64-appleclang

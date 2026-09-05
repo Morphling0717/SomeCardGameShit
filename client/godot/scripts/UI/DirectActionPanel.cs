@@ -18,6 +18,7 @@ public sealed partial class DirectActionPanel : PanelContainer
     private MarginContainer _margin = null!;
     private VBoxContainer _layout = null!;
     private bool _tacticalCandidate;
+    private bool _anime;
 
     public event Action<string>? ChoiceRequested;
 
@@ -44,7 +45,8 @@ public sealed partial class DirectActionPanel : PanelContainer
 
     internal void ConfigureVisualProfile(BattlefieldVisualProfile profile)
     {
-        _tacticalCandidate = profile == BattlefieldVisualProfile.R3Candidate;
+        _tacticalCandidate = profile != BattlefieldVisualProfile.Gate4BR2;
+        _anime = profile == BattlefieldVisualProfile.AnimeV1;
         SetCompactMode(compact: false);
     }
 
@@ -77,7 +79,7 @@ public sealed partial class DirectActionPanel : PanelContainer
             chip.Pressed += handler;
             if (_tacticalCandidate)
             {
-                TacticalHudTheme.R3Candidate.ApplyActionButton(chip);
+                (_anime ? TacticalHudTheme.AnimeV1 : TacticalHudTheme.R3Candidate).ApplyActionButton(chip);
             }
             _chips.AddChild(chip);
         }

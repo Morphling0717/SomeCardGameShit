@@ -93,8 +93,8 @@ public sealed partial class MatchScreen : Control
     private MatchHudPresenter _hudPresenter = null!;
     private BattlefieldVisualProfile _visualProfile = BattlefieldVisualProfile.Gate4BR2;
     private MatchVisualIdentity _visualIdentity = MatchVisualIdentity.FromDecks(
-        MatchSetup.Defaults.Player0Deck,
-        MatchSetup.Defaults.Player1Deck);
+        MatchSetup.LegacyDefaults.Player0Deck,
+        MatchSetup.LegacyDefaults.Player1Deck);
 
     private CardDetailPanel ActiveCardDetails =>
         _legacy2dBoard ? _dock.CardDetails : _battlefieldDetails;

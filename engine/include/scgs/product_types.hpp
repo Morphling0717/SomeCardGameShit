@@ -40,11 +40,10 @@ enum class CardAvailability : std::uint8_t {
     Token,
 };
 
-// Product definitions are generated before their complete effect programs are
-// compiled.  Keeping that state on every definition prevents identity-only
-// catalog rows from accidentally becoming payable actions.  SyntheticFixture
-// is reserved for the rule-kernel tests; ExecutableProduct is the future Gate
-// 5C state for a fully compiled product card.
+// Keeping implementation state on every definition prevents identity-only
+// catalog rows from accidentally becoming payable actions. SyntheticFixture
+// is reserved for rule-kernel tests; ExecutableProduct identifies a definition
+// whose generated, strongly typed effect program is ready for ProductGame.
 enum class CardImplementationStatus : std::uint8_t {
     LockedNotImplemented,
     SyntheticFixture,
@@ -153,6 +152,8 @@ enum class EffectTrigger : std::uint8_t {
     OnRepairToZero,
     OnFutureUsed,
     OnCombatKillSurvived,
+    OnAttackDeclared,
+    OnActualRepair,
 };
 
 enum class EffectKind : std::uint8_t {
@@ -168,6 +169,7 @@ enum class EffectKind : std::uint8_t {
     PutOnDeckBottom,
     Discard,
     DestroyPermanent,
+    CancelAttack,
 };
 
 enum class ConditionKind : std::uint8_t {
@@ -206,6 +208,18 @@ struct PermanentSelectorSpec {
     std::string series_id;
     bool include_main_board = true;
     bool include_field = true;
+    bool exclude_source = false;
+};
+
+// Search/hand effects select cards from non-permanent zones, so their filter
+// is deliberately separate from PermanentSelectorSpec.  An empty
+// allowed_kinds vector means every printed card kind is accepted.
+struct CardSelectorSpec {
+    std::vector<CardKind> allowed_kinds;
+    std::vector<CardKind> excluded_kinds;
+    std::string profession_id;
+    std::string series_id;
+    std::optional<bool> neutral;
 };
 
 struct ConditionSpec {
@@ -217,6 +231,60 @@ struct ConditionSpec {
     PermanentSelectorSpec permanent_filter;
 };
 
+// A compact disjunctive-normal expression that is sufficient for the locked
+// product cards without embedding card identity in the interpreter.  Every
+// entry in `all` must pass. When `any` is non-empty, at least one entry must
+// also pass. Individual predicates remain the same strongly typed conditions
+// used by standby validation.
+struct ConditionExpr {
+    std::vector<ConditionSpec> all;
+    std::vector<ConditionSpec> any;
+};
+
+enum class AmountSource : std::uint8_t {
+    Fixed,
+    ActualRepair,
+    Cracks,
+};
+
+struct ValueSpec {
+    AmountSource source = AmountSource::Fixed;
+    int fixed = 0;
+    int multiplier = 1;
+    int cap = 0;
+};
+
+enum class EffectDuration : std::uint8_t {
+    Immediate,
+    OwnerTurn,
+    Permanent,
+};
+
+enum class OnceScope : std::uint8_t {
+    None,
+    OwnerTurn,
+    Match,
+    SourceOwnerTurn,
+    SourceTurn,
+};
+
+enum class EffectDependency : std::uint8_t {
+    None,
+    PreviousEffectSucceeded,
+    PreviousDrawEnteredHand,
+};
+
+enum class TriggerPlayerRelation : std::uint8_t {
+    Any,
+    SourceController,
+    OpponentOfSourceController,
+};
+
+enum class OnceConsumption : std::uint8_t {
+    OnResolution,
+    OnTrigger,
+};
+
 struct EffectSpec {
     EffectTrigger trigger = EffectTrigger::OnPlay;
     EffectKind kind = EffectKind::Draw;
@@ -224,6 +292,38 @@ struct EffectSpec {
     TargetSpec target = TargetSpec::None;
     std::optional<ConditionSpec> condition;
     std::string parameter;
+    // Gate 5C program metadata is appended after the frozen Gate 5B fields so
+    // existing synthetic aggregate initialization remains source compatible.
+    std::string effect_id;
+    ConditionExpr conditions;
+    ValueSpec value;
+    bool uses_value_spec = false;
+    int secondary_amount = 0;
+    EffectDuration duration = EffectDuration::Immediate;
+    OnceScope once_scope = OnceScope::None;
+    std::string once_key;
+    bool optional = false;
+    EffectDependency dependency = EffectDependency::None;
+    std::string depends_on_effect_id;
+    PermanentSelectorSpec target_filter;
+    CardSelectorSpec card_filter;
+    Keyword granted_keyword = Keyword::None;
+    std::size_t reveal_count = 0;
+    std::size_t selection_minimum = 0;
+    std::size_t selection_maximum = 0;
+    bool randomize_remainder = false;
+    bool preserve_source_slot = false;
+    // Reuse the target selected by an earlier successful effect in the same
+    // sequential program (for example, buff then grant Barrier to that card).
+    std::string target_from_effect_id;
+    // Distinguishes an explicitly printed +X/+0 from the legacy symmetric
+    // `amount` form where secondary_amount was omitted.
+    bool uses_secondary_amount = false;
+    TriggerPlayerRelation trigger_player_relation = TriggerPlayerRelation::Any;
+    OnceConsumption once_consumption = OnceConsumption::OnResolution;
+    // Independent from once-per-cycle history: printed "on your turn" effects
+    // are ineligible on the opponent's turn, while profession charging is not.
+    bool trigger_owner_turn_only = false;
 };
 
 struct ModeSpec {
@@ -272,6 +372,16 @@ struct CardDefinition {
         return implementation_status != CardImplementationStatus::LockedNotImplemented &&
             effects_compiled;
     }
+};
+
+struct ProductDeckDefinition {
+    std::string deck_id;
+    std::string name;
+    std::string profession_id;
+    std::string series_id;
+    std::string leader_id;
+    std::vector<DesignId> main_deck;
+    std::vector<DesignId> standby;
 };
 
 class CardCatalog {

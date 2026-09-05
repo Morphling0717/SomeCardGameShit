@@ -1,0 +1,58 @@
+[gd_scene load_steps=9 format=3]
+
+[ext_resource type="Texture2D" path="res://assets/visual/anime_v1/slice/arena/open-fantasy-arena.png" id="1_background"]
+[ext_resource type="Shader" path="res://assets/themes/anime_arena_runes.gdshader" id="2_shader"]
+[ext_resource type="Script" path="res://scripts/Battlefield/AnimeArenaBackdrop.cs" id="3_backdrop"]
+
+[sub_resource type="Environment" id="Environment_anime"]
+background_mode = 1
+background_color = Color(0.08, 0.055, 0.14, 1)
+ambient_light_source = 3
+ambient_light_color = Color(0.78, 0.75, 0.86, 1)
+ambient_light_energy = 0.8
+reflected_light_source = 1
+
+[sub_resource type="ShaderMaterial" id="Material_runes"]
+shader = ExtResource("2_shader")
+
+[sub_resource type="PlaneMesh" id="Mesh_runes"]
+size = Vector2(34, 30)
+
+[sub_resource type="QuadMesh" id="Mesh_vista"]
+size = Vector2(2, 2)
+
+[sub_resource type="StandardMaterial3D" id="Material_vista"]
+shading_mode = 0
+albedo_texture = ExtResource("1_background")
+albedo_color = Color(0.80, 0.78, 0.88, 1)
+texture_filter = 2
+
+[node name="AuthoredArena" type="Node3D"]
+
+[node name="Environment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_anime")
+
+[node name="PaintedVista" type="MeshInstance3D" parent="."]
+mesh = SubResource("Mesh_vista")
+material_override = SubResource("Material_vista")
+cast_shadow = 0
+extra_cull_margin = 100.0
+script = ExtResource("3_backdrop")
+
+[node name="TerritoryRunes" type="MeshInstance3D" parent="."]
+position = Vector3(0, 0.012, 0)
+mesh = SubResource("Mesh_runes")
+material_override = SubResource("Material_runes")
+cast_shadow = 0
+
+[node name="SunKey" type="DirectionalLight3D" parent="."]
+rotation_degrees = Vector3(-58, -24, 0)
+light_color = Color(1, 0.92, 0.80, 1)
+light_energy = 1.2
+shadow_enabled = false
+
+[node name="MoonFill" type="OmniLight3D" parent="."]
+position = Vector3(0, 8, -4)
+light_color = Color(0.66, 0.58, 0.9, 1)
+light_energy = 1.2
+omni_range = 28.0

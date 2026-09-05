@@ -93,6 +93,21 @@ public static class BattlefieldPerspective
         return CreateFlatTransform(player, viewer, new Vector3(x, 0.26f, z));
     }
 
+    /// <summary>
+    /// Product-v05's independent field slot lives between the public standby
+    /// pile and leader dais. It deliberately does not consume one of the five
+    /// mixed main-board positions.
+    /// </summary>
+    public static Transform3D ProductFieldTransform(PlayerId player, PlayerId viewer)
+    {
+        float side = IsNear(player, viewer) ? 1.0f : -1.0f;
+        return CreateFlatTransform(
+            player,
+            viewer,
+            new Vector3(-SideZoneX * side, 0.24f, 3.42f * side),
+            0.76f);
+    }
+
     public static Transform3D HandTransform(
         PlayerId player,
         PlayerId viewer,

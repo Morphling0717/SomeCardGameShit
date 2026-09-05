@@ -121,6 +121,7 @@ void test_generated_locked_product_catalog(TestContext& context) {
     std::size_t main_count = 0;
     std::size_t standby_count = 0;
     std::size_t token_count = 0;
+    std::size_t effect_count = 0;
     std::array<std::size_t, 5> kind_counts{};
     for (const auto& [design_id, card] : catalog.definitions()) {
         EXPECT(context, design_id == card.identity.design_id);
@@ -129,13 +130,14 @@ void test_generated_locked_product_catalog(TestContext& context) {
         EXPECT(context, card.identity.neutral ||
             (!card.identity.profession_id.empty() && !card.identity.series_id.empty()));
         EXPECT(context,
-            card.implementation_status == product::CardImplementationStatus::LockedNotImplemented);
-        EXPECT(context, !card.effects_compiled);
-        EXPECT(context, !card.is_executable());
-        EXPECT(context, card.effects.empty());
-        EXPECT(context, std::all_of(card.modes.begin(), card.modes.end(), [](const product::ModeSpec& mode) {
-            return mode.effects.empty();
-        }));
+            card.implementation_status == product::CardImplementationStatus::ExecutableProduct);
+        EXPECT(context, card.effects_compiled);
+        EXPECT(context, card.is_executable());
+        effect_count += card.effects.size();
+        for (const product::ModeSpec& mode : card.modes) {
+            EXPECT(context, !mode.effects.empty());
+            effect_count += mode.effects.size();
+        }
         ++kind_counts[static_cast<std::size_t>(card.kind)];
         switch (card.availability) {
             case product::CardAvailability::MainDeck:
@@ -163,6 +165,7 @@ void test_generated_locked_product_catalog(TestContext& context) {
     EXPECT(context, standby_count == 8);
     EXPECT(context, main_count + standby_count == 34);
     EXPECT(context, token_count == 1);
+    EXPECT(context, effect_count == 56);
     EXPECT(context, kind_counts[static_cast<std::size_t>(product::CardKind::Follower)] == 25);
     EXPECT(context, kind_counts[static_cast<std::size_t>(product::CardKind::Spell)] == 4);
     EXPECT(context, kind_counts[static_cast<std::size_t>(product::CardKind::Amulet)] == 3);
@@ -278,23 +281,25 @@ void test_locked_runtime_shape_and_execution_gate(TestContext& context) {
     EXPECT(context, !abaddon_filter.matches(catalog.at("LO-04")));
     EXPECT(context, !abaddon_filter.matches(catalog.at("AP-05")));
 
-    EXPECT(context, board.list_payable_definitions(product::CardAvailability::MainDeck).empty());
-    EXPECT(context, board.list_payable_definitions(product::CardAvailability::Standby).empty());
+    EXPECT(context,
+        board.list_payable_definitions(product::CardAvailability::MainDeck).size() == 26U);
+    EXPECT(context,
+        board.list_payable_definitions(product::CardAvailability::Standby).size() == 8U);
     EXPECT_CODE(
         context,
         board.validate_payable("AP-08", product::CardAvailability::MainDeck),
-        product::ErrorCode::InvalidCard);
+        product::ErrorCode::Ok);
     EXPECT_CODE(
         context,
         board.validate_mode("AP-08", std::string_view("repair")),
-        product::ErrorCode::InvalidCard);
+        product::ErrorCode::Ok);
     product::ConditionEvaluationContext eligible;
     eligible.cracks = 9;
     eligible.controlled_series.push_back("abyssal_pact");
     EXPECT_CODE(
         context,
         board.validate_standby("AP-S04", eligible),
-        product::ErrorCode::InvalidCard);
+        product::ErrorCode::Ok);
     expect_valid(context, board);
 }
 
@@ -444,6 +449,46 @@ void test_explicit_move_reasons(TestContext& context) {
         product::ErrorCode::InvalidZone);
     EXPECT(context, board.instance(mismatch).zone == product::Zone::Hand);
     expect_valid(context, board);
+}
+
+void test_every_locked_standby_exit_preserves_reason_and_archives(TestContext& context) {
+    const auto catalog = product::make_locked_product_catalog();
+    std::size_t cards = 0;
+    for (const auto& [id, definition] : catalog.definitions()) {
+        if (definition.availability != product::CardAvailability::Standby) {
+            continue;
+        }
+        ++cards;
+        for (int method = 0; method < 4; ++method) {
+            product::ProductBoard board(catalog);
+            const auto card = board.create_instance(id, PlayerId::Player0, product::Zone::Standby);
+            EXPECT(context, board.place_main(PlayerId::Player0, card, 3U));
+            if (method == 0) {
+                EXPECT(context, board.destroy_permanent(card));
+            } else if (method == 1) {
+                (void)board.damage_follower(card, 100);
+                if (board.instance(card).zone == product::Zone::MainBoard) {
+                    (void)board.damage_follower(card, 100); // printed barrier absorbs the first hit.
+                }
+            } else if (method == 2) {
+                EXPECT(context, board.move_to_archive(card, product::MoveReason::AdditionalCost));
+            } else {
+                EXPECT(context, board.move_to_graveyard(card, product::MoveReason::TerminalCleanup, false));
+            }
+            EXPECT(context, board.instance(card).zone == product::Zone::Archive);
+            EXPECT(context, board.player(PlayerId::Player0).graveyard.empty());
+            EXPECT(context, !board.player(PlayerId::Player0).main_board[3]);
+            const auto& move = board.moves().back();
+            EXPECT(context, move.card == card);
+            EXPECT(context, move.from == product::Zone::MainBoard);
+            EXPECT(context, move.to == product::Zone::Archive);
+            EXPECT(context, move.destroyed == (method < 2));
+            EXPECT(context, move.reason == (method < 2 ? product::MoveReason::Destroyed :
+                method == 2 ? product::MoveReason::AdditionalCost : product::MoveReason::TerminalCleanup));
+            expect_valid(context, board);
+        }
+    }
+    EXPECT(context, cards == 8U);
 }
 
 void test_layered_keywords_and_product_combat(TestContext& context) {
@@ -1288,6 +1333,8 @@ int main() {
         {"independent_field_replacement", test_independent_field_replacement},
         {"countdown_reserves_original_token_slot", test_countdown_reserves_original_token_slot},
         {"explicit_move_reasons", test_explicit_move_reasons},
+        {"every_locked_standby_exit_preserves_reason_and_archives",
+            test_every_locked_standby_exit_preserves_reason_and_archives},
         {"layered_keywords_and_product_combat", test_layered_keywords_and_product_combat},
         {"definition_and_deck_operation_capabilities", test_definition_and_deck_operation_capabilities},
         {"product_attack_keyword_semantics", test_product_attack_keyword_semantics},

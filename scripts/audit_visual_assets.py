@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Strictly audit the Gate 4B generated-visual asset inventory."""
+"""Strictly audit the AnimeV1 product inventory and reject retired product art."""
 
 # SPDX-License-Identifier: GPL-3.0-or-later
 from __future__ import annotations
@@ -26,26 +26,17 @@ ANIME_V1_MANIFEST_RELATIVE_PATH = Path(
 CARD_BODY_MANIFEST_RELATIVE_PATH = Path(
     "client/godot/assets/visual/anime_v1/card_body/CARD_BODY_ASSET_MANIFEST.json"
 )
+PRODUCT_CARD_ART_MANIFEST_RELATIVE_PATH = Path(
+    "client/godot/assets/visual/anime_v1/cards/PRODUCT_CARD_ART_ASSET_MANIFEST.json"
+)
 VISUAL_ROOT = Path("client/godot/assets/visual")
 ANIME_V1_ROOT = VISUAL_ROOT / "anime_v1/slice"
 CARD_BODY_ROOT = VISUAL_ROOT / "anime_v1/card_body"
+PRODUCT_CARD_ART_ROOT = VISUAL_ROOT / "anime_v1/cards"
 MEDIA_SUFFIXES = {".png", ".webp", ".svg"}
-CARD_ART_ROOT = VISUAL_ROOT / "cards/art"
-EXPECTED_CARD_ART_NAMES = {
-    *(f"{identifier}.png" for identifier in (
-        1001, 1002, 1003, 1004, 1005, 1006, 1007, 1009,
-        1010, 1011, 1012, 1013, 1014, 3001, 3002,
-        2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008,
-        2009, 2010, 2011, 2012, 3011, 3012,
-    ))
-}
-REQUIRED_SINGLETONS = {
-    (VISUAL_ROOT / "shared/card_back.png").as_posix(),
-    (VISUAL_ROOT / "menu/gate4b-menu-background.png").as_posix(),
-    (VISUAL_ROOT / "portraits/midrange_commander.png").as_posix(),
-    (VISUAL_ROOT / "portraits/advance_technarch.png").as_posix(),
-}
-PRODUCT_FALLBACK = (VISUAL_ROOT / "cards/shared/fallback_front.svg").as_posix()
+RETIRED_PRODUCT_ROOTS = tuple((VISUAL_ROOT / suffix).as_posix() + "/"
+    for suffix in ("cards/art", "cards/shared", "shared", "menu", "portraits", "arena", "r3"))
+PRODUCT_FALLBACK = (VISUAL_ROOT / "anime_v1/shared/fallback_front.svg").as_posix()
 R3_CANDIDATE_FLOOR = (
     VISUAL_ROOT / "arena/r3_industrial_floor_albedo.png"
 ).as_posix()
@@ -57,6 +48,15 @@ ANIME_V1_CARD_NAMES = {
     "LO-03.png",
     "LO-07.png",
     "LO-11-evolved.png",
+    "LO-11.png",
+    "NT-04.png",
+}
+ANIME_V1_BASE_CARD_NAMES = {
+    "AP-03.png",
+    "AP-05.png",
+    "AP-11.png",
+    "LO-03.png",
+    "LO-07.png",
     "LO-11.png",
     "NT-04.png",
 }
@@ -102,10 +102,54 @@ CARD_BODY_RASTER_PATHS = {
     (CARD_BODY_ROOT / "materials" / name).as_posix()
     for name in ("engraved-metal-v1.png", "legendary-foil-v1.png")
 }
+PRODUCT_CARD_ART_NAMES = {
+    "AP-01.png",
+    "AP-02.png",
+    "AP-04.png",
+    "AP-06.png",
+    "AP-07.png",
+    "AP-08.png",
+    "AP-09.png",
+    "AP-10.png",
+    "AP-S01.png",
+    "AP-S02.png",
+    "AP-S03.png",
+    "AP-S04.png",
+    "LO-01.png",
+    "LO-02.png",
+    "LO-04.png",
+    "LO-05.png",
+    "LO-06.png",
+    "LO-08.png",
+    "LO-09.png",
+    "LO-10.png",
+    "LO-S01.png",
+    "LO-S02.png",
+    "LO-S03.png",
+    "LO-S04.png",
+    "LO-T01.png",
+    "NT-01.png",
+    "NT-02.png",
+    "NT-03.png",
+}
+EXPECTED_PRODUCT_CARD_ART_PATHS = {
+    (PRODUCT_CARD_ART_ROOT / name).as_posix()
+    for name in PRODUCT_CARD_ART_NAMES
+}
+EXPECTED_PRODUCT_BASE_CARD_NAMES = PRODUCT_CARD_ART_NAMES | ANIME_V1_BASE_CARD_NAMES
 ANIME_V1_MAX_RESIDENT_TEXTURES = 24
 ANIME_V1_MAX_ESTIMATED_VRAM_BYTES = 96 * 1024 * 1024
 ANIME_V1_MAX_SOURCE_PAYLOAD_BYTES = 64 * 1024 * 1024
+PRODUCT_CARD_ART_MAX_SOURCE_PAYLOAD_BYTES = 96 * 1024 * 1024
+PRODUCT_CARD_ART_MAX_ESTIMATED_VRAM_BYTES = 64 * 1024 * 1024
+PRODUCT_CARD_RUNTIME_MAX_RESIDENT_TEXTURES = 24
 EXPECTED_TOP_LEVEL_FIELDS = {"schema_version", "gate", "assets"}
+EXPECTED_PRODUCT_CARD_TOP_LEVEL_FIELDS = EXPECTED_TOP_LEVEL_FIELDS | {"budget"}
+EXPECTED_PRODUCT_CARD_BUDGET_FIELDS = {
+    "source_payload_bytes_max",
+    "estimated_vram_bytes_max",
+    "runtime_resident_identity_texture_limit",
+}
 EXPECTED_ASSET_FIELDS = {
     "path",
     "sha256",
@@ -294,6 +338,11 @@ def audit(
     ).resolve()
     if not explicit_manifest and card_body_manifest_path.is_file():
         manifest_paths.append(card_body_manifest_path)
+    product_card_art_manifest_path = (
+        repo_root / PRODUCT_CARD_ART_MANIFEST_RELATIVE_PATH
+    ).resolve()
+    if not explicit_manifest and product_card_art_manifest_path.is_file():
+        manifest_paths.append(product_card_art_manifest_path)
     if not explicit_manifest:
         discovered_manifest_paths = {
             path.resolve()
@@ -304,7 +353,7 @@ def audit(
         if discovered_manifest_paths != expected_manifest_paths:
             raise VisualAssetAuditError(
                 "visual manifest set differs from the frozen product manifests plus "
-                "the isolated R3, AnimeV1 and card-body candidate manifests; "
+                "the isolated R3, AnimeV1, card-body and product-card manifests; "
                 "missing="
                 f"{sorted(str(path) for path in expected_manifest_paths - discovered_manifest_paths)}, "
                 "unexpected="
@@ -323,26 +372,57 @@ def audit(
     hashes: set[str] = set()
     registered_by_manifest: dict[Path, set[str]] = {}
     manifest_hashes: dict[Path, str] = {}
+    product_card_art_budget: dict[str, int] | None = None
     entry_count = 0
     for manifest_index, current_manifest_path in enumerate(manifest_paths):
         manifest = _load_json(current_manifest_path)
-        if not isinstance(manifest, dict) or set(manifest) != EXPECTED_TOP_LEVEL_FIELDS:
+        expected_top_level_fields = (
+            EXPECTED_PRODUCT_CARD_TOP_LEVEL_FIELDS
+            if current_manifest_path == product_card_art_manifest_path
+            else EXPECTED_TOP_LEVEL_FIELDS
+        )
+        if not isinstance(manifest, dict) or set(manifest) != expected_top_level_fields:
             raise VisualAssetAuditError(
-                f"manifest fields must be exactly {sorted(EXPECTED_TOP_LEVEL_FIELDS)}"
+                f"manifest fields must be exactly {sorted(expected_top_level_fields)}"
             )
         expected_gate = (
             "4B-R3.1"
             if current_manifest_path == candidate_manifest_path
             else "6A-R1"
             if current_manifest_path == card_body_manifest_path
+            else "5C-6C"
+            if current_manifest_path == product_card_art_manifest_path
             else "6A"
             if current_manifest_path == anime_manifest_path
-            else "4B"
+            else "5C-6C"
         )
         if manifest["schema_version"] != 1 or manifest["gate"] != expected_gate:
             raise VisualAssetAuditError(
                 f"asset manifest must identify {expected_gate} schema 1"
             )
+        if current_manifest_path == product_card_art_manifest_path:
+            raw_budget = manifest["budget"]
+            if (
+                not isinstance(raw_budget, dict)
+                or set(raw_budget) != EXPECTED_PRODUCT_CARD_BUDGET_FIELDS
+            ):
+                raise VisualAssetAuditError(
+                    "product-card budget fields must be exactly "
+                    f"{sorted(EXPECTED_PRODUCT_CARD_BUDGET_FIELDS)}"
+                )
+            expected_budget = {
+                "source_payload_bytes_max": PRODUCT_CARD_ART_MAX_SOURCE_PAYLOAD_BYTES,
+                "estimated_vram_bytes_max": PRODUCT_CARD_ART_MAX_ESTIMATED_VRAM_BYTES,
+                "runtime_resident_identity_texture_limit": (
+                    PRODUCT_CARD_RUNTIME_MAX_RESIDENT_TEXTURES
+                ),
+            }
+            if raw_budget != expected_budget:
+                raise VisualAssetAuditError(
+                    "product-card budget does not match the locked package and "
+                    f"runtime contract: expected={expected_budget}, got={raw_budget}"
+                )
+            product_card_art_budget = raw_budget
         entries = manifest["assets"]
         if not isinstance(entries, list) or not entries:
             raise VisualAssetAuditError("asset manifest must contain at least one asset")
@@ -419,6 +499,9 @@ def audit(
     card_body_registered = registered_by_manifest.get(
         card_body_manifest_path, set()
     )
+    product_card_art_registered = registered_by_manifest.get(
+        product_card_art_manifest_path, set()
+    )
 
     actual = {
         path.relative_to(repo_root).as_posix()
@@ -432,38 +515,25 @@ def audit(
             f"visual inventory mismatch; unregistered={missing}, missing={stale}"
         )
 
-    card_art = {
+    # Reject retired model/shader/import resources too, not just registered images.
+    retired = sorted(
         path.relative_to(repo_root).as_posix()
-        for path in (repo_root / CARD_ART_ROOT).glob("*.png")
-        if path.is_file()
-    }
-    card_art_names = {Path(relative).name for relative in card_art}
-    if enforce_product_set and card_art_names != EXPECTED_CARD_ART_NAMES:
-        raise VisualAssetAuditError(
-            "Gate 4B card illustration set differs; "
-            f"missing={sorted(EXPECTED_CARD_ART_NAMES - card_art_names)}, "
-            f"unexpected={sorted(card_art_names - EXPECTED_CARD_ART_NAMES)}"
-        )
-    absent_singletons = (
-        sorted(REQUIRED_SINGLETONS - product_registered)
-        if enforce_product_set
-        else []
+        for path in (repo_root / VISUAL_ROOT).rglob("*")
+        if path.is_file() and path.relative_to(repo_root).as_posix().startswith(RETIRED_PRODUCT_ROOTS)
     )
-    if absent_singletons:
+    if enforce_product_set and retired:
         raise VisualAssetAuditError(
-            "Gate 4B is missing a required generated card back, menu background, "
-            f"or leader portrait: {absent_singletons}"
+            f"Retired industrial product assets must not remain: {retired}"
         )
     anime_estimated_vram_bytes = 0
     anime_source_payload_bytes = 0
+    product_card_art_estimated_vram_bytes = 0
+    product_card_art_source_payload_bytes = 0
     if enforce_product_set:
-        expected_product_paths = {
-            (VISUAL_ROOT / "cards/art" / name).as_posix()
-            for name in EXPECTED_CARD_ART_NAMES
-        } | REQUIRED_SINGLETONS | {PRODUCT_FALLBACK}
+        expected_product_paths = {PRODUCT_FALLBACK}
         if product_registered != expected_product_paths:
             raise VisualAssetAuditError(
-                "Gate 4B-R2 product manifest must remain the frozen 34-asset set; "
+                "Product shared manifest must contain only the identity-free AnimeV1 fallback; "
                 f"missing={sorted(expected_product_paths - product_registered)}, "
                 f"unexpected={sorted(product_registered - expected_product_paths)}"
             )
@@ -484,6 +554,18 @@ def audit(
                 "approval asset set; "
                 f"missing={sorted(EXPECTED_CARD_BODY_PATHS - card_body_registered)}, "
                 f"unexpected={sorted(card_body_registered - EXPECTED_CARD_BODY_PATHS)}"
+            )
+        if product_card_art_registered != EXPECTED_PRODUCT_CARD_ART_PATHS:
+            raise VisualAssetAuditError(
+                "Gate 5C-6C product-card manifest must contain the exact 28-item "
+                "illustration batch; "
+                f"missing={sorted(EXPECTED_PRODUCT_CARD_ART_PATHS - product_card_art_registered)}, "
+                f"unexpected={sorted(product_card_art_registered - EXPECTED_PRODUCT_CARD_ART_PATHS)}"
+            )
+        if len(EXPECTED_PRODUCT_BASE_CARD_NAMES) != 35:
+            raise VisualAssetAuditError(
+                "product art inventory must provide exactly 34 constructible base "
+                "illustrations and one derived-token illustration"
             )
         for relative in sorted(CARD_BODY_RASTER_PATHS):
             import_path = repo_root / f"{relative}.import"
@@ -510,26 +592,6 @@ def audit(
                 raise VisualAssetAuditError(
                     "Gate 6A-R1 card-frame materials must use desktop VRAM "
                     f"compression and mipmaps for {relative}; missing={missing_settings}"
-                )
-        for relative in sorted(card_art | {(VISUAL_ROOT / "shared/card_back.png").as_posix()}):
-            width, height = _png_dimensions(repo_root / relative)
-            if width * 3 != height * 2:
-                raise VisualAssetAuditError(
-                    f"card illustration/back must use an exact 2:3 canvas: {relative} is {width}x{height}"
-                )
-        menu_relative = (VISUAL_ROOT / "menu/gate4b-menu-background.png").as_posix()
-        menu_width, menu_height = _png_dimensions(repo_root / menu_relative)
-        if abs(menu_width / menu_height - 16 / 9) > 0.01:
-            raise VisualAssetAuditError(
-                f"menu background must use a 16:9 canvas: {menu_width}x{menu_height}"
-            )
-        for portrait_name in ("midrange_commander.png", "advance_technarch.png"):
-            portrait_relative = (VISUAL_ROOT / "portraits" / portrait_name).as_posix()
-            portrait_width, portrait_height = _png_dimensions(repo_root / portrait_relative)
-            if portrait_width != portrait_height:
-                raise VisualAssetAuditError(
-                    "leader portrait must use a square canvas: "
-                    f"{portrait_relative} is {portrait_width}x{portrait_height}"
                 )
         for relative in sorted(ANIME_V1_CARD_PATHS | {ANIME_V1_CARD_BACK}):
             width, height = _png_dimensions(repo_root / relative)
@@ -589,6 +651,42 @@ def audit(
                     "AnimeV1 Godot import must use desktop VRAM compression and "
                     f"mipmaps for {relative}; missing={missing_settings}"
                 )
+        for relative in sorted(EXPECTED_PRODUCT_CARD_ART_PATHS):
+            width, height = _png_dimensions(repo_root / relative)
+            if (width, height) != (1024, 1536):
+                raise VisualAssetAuditError(
+                    "product-card illustration must use the locked 1024x1536 "
+                    f"2:3 canvas: {relative} is {width}x{height}"
+                )
+            product_card_art_estimated_vram_bytes += _estimated_desktop_vram_bytes(
+                width, height
+            )
+            product_card_art_source_payload_bytes += (repo_root / relative).stat().st_size
+            import_path = repo_root / f"{relative}.import"
+            try:
+                import_text = import_path.read_text(encoding="utf-8")
+            except (FileNotFoundError, UnicodeDecodeError) as error:
+                raise VisualAssetAuditError(
+                    f"product-card art is missing a valid Godot import sidecar: {relative}"
+                ) from error
+            expected_source = "res://" + relative.removeprefix("client/godot/")
+            required_import_settings = {
+                '"vram_texture": true',
+                "compress/mode=2",
+                "compress/high_quality=true",
+                "mipmaps/generate=true",
+                f'source_file="{expected_source}"',
+            }
+            missing_settings = sorted(
+                setting
+                for setting in required_import_settings
+                if setting not in import_text
+            )
+            if missing_settings:
+                raise VisualAssetAuditError(
+                    "product-card Godot import must use desktop VRAM compression "
+                    f"and mipmaps for {relative}; missing={missing_settings}"
+                )
         if len(anime_registered) > ANIME_V1_MAX_RESIDENT_TEXTURES:
             raise VisualAssetAuditError(
                 "Gate 6A AnimeV1 identity texture count exceeds the 24-texture "
@@ -604,6 +702,24 @@ def audit(
                 "Gate 6A AnimeV1 source payload exceeds the 64 MiB package ceiling: "
                 f"{anime_source_payload_bytes} bytes"
             )
+        if product_card_art_budget is None:
+            raise VisualAssetAuditError("product-card budget contract is missing")
+        if (
+            product_card_art_estimated_vram_bytes
+            > product_card_art_budget["estimated_vram_bytes_max"]
+        ):
+            raise VisualAssetAuditError(
+                "Gate 5C-6C product-card conservative desktop VRAM estimate exceeds "
+                f"its 64 MiB batch ceiling: {product_card_art_estimated_vram_bytes} bytes"
+            )
+        if (
+            product_card_art_source_payload_bytes
+            > product_card_art_budget["source_payload_bytes_max"]
+        ):
+            raise VisualAssetAuditError(
+                "Gate 5C-6C product-card source payload exceeds its 96 MiB batch "
+                f"ceiling: {product_card_art_source_payload_bytes} bytes"
+            )
 
     return {
         "asset_count": entry_count,
@@ -611,13 +727,28 @@ def audit(
         "candidate_asset_count": len(candidate_registered),
         "anime_asset_count": len(anime_registered),
         "card_body_asset_count": len(card_body_registered),
+        "product_card_art_asset_count": len(product_card_art_registered),
         "anime_estimated_vram_bytes": anime_estimated_vram_bytes,
         "anime_source_payload_bytes": anime_source_payload_bytes,
+        "product_card_art_estimated_vram_bytes": (
+            product_card_art_estimated_vram_bytes
+        ),
+        "product_card_art_source_payload_bytes": product_card_art_source_payload_bytes,
+        "product_card_runtime_max_resident_textures": (
+            product_card_art_budget[
+                "runtime_resident_identity_texture_limit"
+            ]
+            if product_card_art_budget is not None
+            else 0
+        ),
         "manifest_sha256": manifest_hashes[product_manifest_path],
         "product_manifest_sha256": manifest_hashes[product_manifest_path],
         "candidate_manifest_sha256": manifest_hashes.get(candidate_manifest_path),
         "anime_manifest_sha256": manifest_hashes.get(anime_manifest_path),
         "card_body_manifest_sha256": manifest_hashes.get(card_body_manifest_path),
+        "product_card_art_manifest_sha256": manifest_hashes.get(
+            product_card_art_manifest_path
+        ),
         "paths": sorted(registered),
     }
 
@@ -633,17 +764,26 @@ def main() -> int:
         print(f"visual asset audit failed: {error}", file=sys.stderr)
         return 1
     print(
-        f"audited {result['product_asset_count']} Gate 4B-R2 product assets and "
+        f"audited {result['product_asset_count']} AnimeV1 shared assets and "
         f"{result['candidate_asset_count']} R3 candidate assets and "
         f"{result['anime_asset_count']} Gate 6A AnimeV1 assets; "
         f"{result['card_body_asset_count']} Gate 6A-R1 card-body assets; "
+        f"{result['product_card_art_asset_count']} Gate 5C-6C product-card assets; "
         f"anime_estimated_vram_bytes={result['anime_estimated_vram_bytes']}; "
         f"anime_source_payload_bytes={result['anime_source_payload_bytes']}; "
+        "product_card_art_estimated_vram_bytes="
+        f"{result['product_card_art_estimated_vram_bytes']}; "
+        "product_card_art_source_payload_bytes="
+        f"{result['product_card_art_source_payload_bytes']}; "
+        "product_card_runtime_max_resident_textures="
+        f"{result['product_card_runtime_max_resident_textures']}; "
         f"product_manifest_sha256={result['product_manifest_sha256']}; "
         f"candidate_manifest_sha256={result['candidate_manifest_sha256'] or 'none'}; "
         f"anime_manifest_sha256={result['anime_manifest_sha256'] or 'none'}"
         f"; card_body_manifest_sha256="
         f"{result['card_body_manifest_sha256'] or 'none'}"
+        f"; product_card_art_manifest_sha256="
+        f"{result['product_card_art_manifest_sha256'] or 'none'}"
     )
     return 0
 

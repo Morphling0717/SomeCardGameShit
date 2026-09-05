@@ -3,6 +3,8 @@ using Godot;
 using Scgs.Client;
 using Scgs.GodotClient.Presentation;
 using Scgs.GodotClient.Visuals;
+using Scgs.GodotClient.CardFaces;
+using V05 = Scgs.Client.V05;
 
 namespace Scgs.GodotClient.UI;
 
@@ -53,6 +55,28 @@ public sealed partial class CardDetailPanel : PanelContainer
         _artwork.Texture = card.DefinitionId.HasValue
             ? _visualCatalog.LoadArtwork(card.DefinitionId.Value)
             : _visualCatalog.FallbackFront;
+    }
+
+    internal void ShowProductCard(V05.CardView card, string heading = "卡牌详情")
+    {
+        ArgumentNullException.ThrowIfNull(card);
+        if (!ProductCardPresentation.HasKnownIdentity(card) ||
+            string.IsNullOrWhiteSpace(card.DesignId))
+        {
+            ShowHiddenCard();
+            return;
+        }
+
+        SetCompact(false);
+        _title.Text = heading;
+        _rules.Text = ProductCardPresentation.FormatRules(card);
+        ProductCardVisualEntry visual = ProductCardVisualCatalog.Shared.Resolve(card.DesignId);
+        string artPath = ProductCardVisualCatalog.Shared.ResolveArtPath(
+            visual,
+            card.Evolved ? CardFrameVariant.Evolved : CardFrameVariant.Normal);
+        _artwork.Texture = ResourceLoader.Exists(artPath, "Texture2D")
+            ? GD.Load<Texture2D>(artPath)
+            : null;
     }
 
     public void ShowHiddenCard()

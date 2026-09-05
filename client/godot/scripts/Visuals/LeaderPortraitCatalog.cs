@@ -6,7 +6,8 @@ namespace Scgs.GodotClient.Visuals;
 public sealed record LeaderPortraitEntry(
     string DeckId,
     CardVisualFaction Faction,
-    string PortraitPath);
+    string PortraitPath,
+    Rect2? PortraitRegion = null);
 
 public interface ILeaderPortraitCatalog
 {
@@ -26,6 +27,8 @@ public sealed class LeaderPortraitCatalog : ILeaderPortraitCatalog
 {
     public const string MidrangeDeckId = "midrange";
     public const string AdvanceDeckId = "advance";
+    public const string OathguardDeckId = "oathguard_luminous_oath_v1";
+    public const string PactmageDeckId = "pactmage_abyssal_pact_v1";
 
     private static readonly LeaderPortraitEntry NeutralFallback = new(
         "unknown",
@@ -35,14 +38,16 @@ public sealed class LeaderPortraitCatalog : ILeaderPortraitCatalog
     private readonly Dictionary<string, LeaderPortraitEntry> _entries =
         new(StringComparer.Ordinal)
         {
-            [MidrangeDeckId] = new(
-                MidrangeDeckId,
+            [OathguardDeckId] = new(
+                OathguardDeckId,
                 CardVisualFaction.Midrange,
-                "res://assets/visual/portraits/midrange_commander.png"),
-            [AdvanceDeckId] = new(
-                AdvanceDeckId,
+                "res://assets/visual/anime_v1/slice/leaders/aurelia-master.png",
+                new Rect2(390, 74, 300, 300)),
+            [PactmageDeckId] = new(
+                PactmageDeckId,
                 CardVisualFaction.Advance,
-                "res://assets/visual/portraits/advance_technarch.png"),
+                "res://assets/visual/anime_v1/slice/leaders/theraea-master.png",
+                new Rect2(368, 14, 312, 312)),
         };
 
     private readonly Dictionary<string, Texture2D> _textureCache =
@@ -73,9 +78,20 @@ public sealed class LeaderPortraitCatalog : ILeaderPortraitCatalog
             return cached;
         }
 
-        Texture2D texture = ResourceLoader.Exists(entry.PortraitPath)
-            ? GD.Load<Texture2D>(entry.PortraitPath)
-            : _fallbackTexture ??= CreateFallbackTexture();
+        Texture2D texture;
+        if (ResourceLoader.Exists(entry.PortraitPath))
+        {
+            Texture2D master = GD.Load<Texture2D>(entry.PortraitPath);
+            // Keep the original transparent master intact for future cut-ins.
+            // HUD and 3D leaders share this cached public head-and-shoulders view.
+            texture = entry.PortraitRegion is Rect2 region
+                ? new AtlasTexture { Atlas = master, Region = region, FilterClip = true }
+                : master;
+        }
+        else
+        {
+            texture = _fallbackTexture ??= CreateFallbackTexture();
+        }
         _textureCache[entry.DeckId] = texture;
         return texture;
     }
@@ -83,9 +99,9 @@ public sealed class LeaderPortraitCatalog : ILeaderPortraitCatalog
     private static Texture2D CreateFallbackTexture()
     {
         const int size = 128;
-        var image = Image.CreateEmpty(size, size, false, Image.Format.Rgba8);
-        Color background = new("172634");
-        Color accent = new("5a8194");
+        using var image = Image.CreateEmpty(size, size, false, Image.Format.Rgba8);
+        Color background = new("211832");
+        Color accent = new("d4c3a1");
         image.Fill(background);
 
         Vector2 center = new(size / 2.0f, size / 2.0f);
@@ -96,8 +112,7 @@ public sealed class LeaderPortraitCatalog : ILeaderPortraitCatalog
                 float radius = new Vector2(x, y).DistanceTo(center);
                 bool ring = radius is > 43.0f and < 48.0f;
                 bool core = radius < 17.0f;
-                bool circuit = (x + y) % 29 == 0 && radius < 55.0f;
-                if (ring || core || circuit)
+                if (ring || core)
                 {
                     image.SetPixel(x, y, accent);
                 }

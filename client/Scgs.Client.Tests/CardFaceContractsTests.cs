@@ -76,7 +76,35 @@ public sealed class CardFaceContractsTests
         ProductCardVisualEntry token = catalog.Resolve("LO-T01");
         Assert.AreEqual(ProductCardFaction.Oathguard, token.Faction);
         Assert.AreEqual(ProductCardKind.Follower, token.Kind);
-        Assert.AreEqual(ProductCardVisualCatalog.FallbackArt, token.BaseArtPath);
+        Assert.AreEqual(
+            ProductCardVisualCatalog.ProductArtRoot + "/LO-T01.png",
+            token.BaseArtPath);
+    }
+
+    [TestMethod]
+    public void EveryLockedProductIdentityUsesUniqueExistingRealBaseArt()
+    {
+        string repo = FindRepositoryRoot();
+        ProductCardVisualEntry[] entries = ProductCardVisualCatalog.Shared.Entries
+            .OrderBy(entry => entry.DesignId, StringComparer.Ordinal)
+            .ToArray();
+        string[] baseArtPaths = entries.Select(entry => entry.BaseArtPath).ToArray();
+
+        Assert.HasCount(35, entries);
+        Assert.AreEqual(35, baseArtPaths.Distinct(StringComparer.Ordinal).Count());
+        Assert.IsFalse(baseArtPaths.Contains(
+            ProductCardVisualCatalog.FallbackArt,
+            StringComparer.Ordinal));
+
+        foreach (string resourcePath in baseArtPaths)
+        {
+            Assert.IsTrue(resourcePath.EndsWith(".png", StringComparison.Ordinal));
+            string relative = resourcePath.Replace(
+                "res://",
+                "client/godot/",
+                StringComparison.Ordinal);
+            Assert.IsTrue(File.Exists(Path.Combine(repo, relative)), resourcePath);
+        }
     }
 
     [TestMethod]
@@ -110,7 +138,7 @@ public sealed class CardFaceContractsTests
             "/LO-11-evolved.png",
             catalog.ResolveArtPath(catalog.Resolve("LO-11"), CardFrameVariant.Evolved));
         Assert.AreEqual(
-            ProductCardVisualCatalog.FallbackArt,
+            ProductCardVisualCatalog.ProductArtRoot + "/LO-01.png",
             catalog.ResolveArtPath(catalog.Resolve("LO-01"), CardFrameVariant.Evolved));
     }
 

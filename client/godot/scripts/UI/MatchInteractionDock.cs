@@ -5,6 +5,7 @@ namespace Scgs.GodotClient.UI;
 
 public sealed partial class MatchInteractionDock : PanelContainer
 {
+    private static readonly StyleBoxEmpty TransparentShell = new();
     private Button _collapseButton = null!;
     private Control _glassSurface = null!;
     private MarginContainer _margin = null!;
@@ -110,6 +111,7 @@ public sealed partial class MatchInteractionDock : PanelContainer
             // drawer's glass and padding so the two panels do not stack into a
             // dark double frame.
             ThemeTypeVariation = "HudCluster";
+            AddThemeStyleboxOverride("panel", TransparentShell);
             _glassSurface.Visible = false;
             SetOuterMargin(0);
             return;
@@ -121,6 +123,7 @@ public sealed partial class MatchInteractionDock : PanelContainer
         }
 
         _mulliganTrayActive = false;
+        RemoveThemeStyleboxOverride("panel");
         _dockedLayout.Restore(this);
         _glassSurface.Visible = true;
         SetOuterMargin(8);

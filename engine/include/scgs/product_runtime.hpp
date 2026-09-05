@@ -39,9 +39,10 @@ inline constexpr std::string_view kStandbyFollower = "SYN-STANDBY";
 } // namespace synthetic
 
 [[nodiscard]] CardCatalog make_synthetic_product_catalog();
-// Generated from design/product-decks-v1/card-pool.lock.json. This catalog is
-// authoritative for identity/base metadata only; effects remain Gate 5C work.
+// Generated from the locked product design and executable-effect manifests.
 [[nodiscard]] CardCatalog make_locked_product_catalog();
+// Exact expanded 30-card main and four-card standby lists for both products.
+[[nodiscard]] std::vector<ProductDeckDefinition> make_locked_product_decks();
 // Generated from every Gate 5A capability whose default status is `fix` or
 // `new`. Tests compare their executable evidence registry against this exact
 // list, so a manifest addition cannot silently escape product-rule coverage.
@@ -134,8 +135,16 @@ public:
         PlayerId player,
         std::size_t count,
         const CardFilter& filter) const;
+    [[nodiscard]] std::vector<InstanceId> reveal_top(PlayerId player, std::size_t count) const;
     [[nodiscard]] DrawResult draw_one(PlayerId player);
+    [[nodiscard]] Status exchange_mulligan(
+        PlayerId player,
+        std::span<const InstanceId> selected_cards,
+        bool shuffle,
+        std::uint64_t seed,
+        std::vector<DrawResult>& replacements);
     [[nodiscard]] DrawThenBottomResult draw_then_prepare_bottom(PlayerId player);
+    [[nodiscard]] Status move_deck_card_to_hand(PlayerId player, InstanceId card);
 
     [[nodiscard]] std::vector<InstanceId> list_permanents(
         PlayerId controller,
@@ -205,10 +214,16 @@ public:
         std::optional<InstanceId> follower_target);
     [[nodiscard]] Status validate_evolve(PlayerId player, InstanceId card) const;
     [[nodiscard]] CombatResult resolve_follower_combat(InstanceId attacker, InstanceId defender);
+    // ProductGame accepts an attack before opening the response window. This
+    // resolves that already-accepted declaration without spending it twice.
+    [[nodiscard]] CombatResult resolve_accepted_follower_combat(
+        InstanceId attacker,
+        InstanceId defender);
     void clear_turn_keyword_grants(PlayerId player) noexcept;
     void ready_starting_turn_permanents(PlayerId player) noexcept;
 
     [[nodiscard]] const CardCatalog& catalog() const noexcept;
+    [[nodiscard]] bool contains_instance(InstanceId card) const noexcept;
     [[nodiscard]] const CardInstance& instance(InstanceId card) const;
     [[nodiscard]] CardInstance& instance(InstanceId card);
     [[nodiscard]] const PlayerState& player(PlayerId player) const;
@@ -253,16 +268,24 @@ struct FutureUseEvent {
 };
 
 struct ProductTurnHistory {
+    struct PermanentRecord {
+        CardKind kind = CardKind::Follower;
+        std::string profession_id;
+        std::string series_id;
+    };
     int actual_repaired = 0;
     int future_cracks_added = 0;
     int countdown_expired = 0;
     bool barrier_granted = false;
+    std::vector<PermanentRecord> barrier_sources;
+    std::vector<PermanentRecord> countdown_sources;
     std::unordered_set<std::string> consumed_once_keys;
 };
 
 struct ProductMatchHistory {
     int repair_to_zero_count = 0;
     int countdown_expired = 0;
+    std::vector<ProductTurnHistory::PermanentRecord> countdown_sources;
 };
 
 enum class EvolutionChargePolicy : std::uint8_t {
@@ -313,8 +336,8 @@ public:
     [[nodiscard]] int cracks_capped(PlayerId player, int cap = 5) const;
     [[nodiscard]] RepairResult repair(PlayerId player, int amount);
     [[nodiscard]] FutureUseEvent use_future(PlayerId player, int advance_cracks, int burn_cracks);
-    void record_barrier_granted(PlayerId player);
-    void record_countdown_expired(PlayerId player);
+    void record_barrier_granted(PlayerId player, const CardDefinition* source = nullptr);
+    void record_countdown_expired(PlayerId player, const CardDefinition* source = nullptr);
     void begin_owner_turn(PlayerId player);
     [[nodiscard]] bool consume_once_per_owner_turn(PlayerId player, std::string_view key);
 

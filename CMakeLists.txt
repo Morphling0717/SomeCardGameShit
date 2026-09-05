@@ -72,6 +72,7 @@ add_library(scgs_engine STATIC
     # Regeneration is an explicit verification task; normal builds need no Python.
     engine/src/generated/product_catalog_v2.generated.cpp
     engine/src/game.cpp
+    engine/src/product_game.cpp
     engine/src/product_runtime.cpp
     engine/src/protocol.cpp
 )
@@ -127,6 +128,27 @@ if(UNIX AND NOT APPLE)
 endif()
 scgs_apply_project_options(scgs_native_v04)
 
+# Successful v04 gameplay regression uses synthetic data in a separate test
+# artifact. This target is never installed or copied into a player package.
+add_library(scgs_native_v04_fixture SHARED engine/src/native_api_v04.cpp)
+target_include_directories(scgs_native_v04_fixture PUBLIC engine/include PRIVATE engine/tests)
+target_compile_features(scgs_native_v04_fixture PRIVATE cxx_std_20)
+target_compile_definitions(scgs_native_v04_fixture
+    PRIVATE SCGS_V04_BUILDING_LIBRARY=1 SCGS_V04_SYNTHETIC_FIXTURE=1
+    INTERFACE SCGS_V04_USING_LIBRARY=1)
+target_link_libraries(scgs_native_v04_fixture PRIVATE scgs::engine nlohmann_json::nlohmann_json)
+set_target_properties(scgs_native_v04_fixture PROPERTIES
+    OUTPUT_NAME scgs_v04_fixture
+    CXX_VISIBILITY_PRESET hidden
+    VISIBILITY_INLINES_HIDDEN YES)
+if(UNIX AND NOT APPLE)
+    target_link_options(scgs_native_v04_fixture PRIVATE
+        "-Wl,--version-script=${CMAKE_CURRENT_SOURCE_DIR}/cmake/scgs_v04.exports.map")
+    set_property(TARGET scgs_native_v04_fixture APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/cmake/scgs_v04.exports.map")
+endif()
+scgs_apply_project_options(scgs_native_v04_fixture)
+
 # Gate 5B transport boundary. This is deliberately parallel to v04: ABI 2.0
 # and schema 2 can evolve the product state shape without mutating the frozen
 # v04 library or legacy wire contract.
@@ -168,6 +190,7 @@ endif()
 scgs_apply_project_options(scgs_native_v05)
 
 add_executable(scgs_demo engine/apps/scgs_demo.cpp)
+target_include_directories(scgs_demo PRIVATE engine/tests)
 target_link_libraries(scgs_demo PRIVATE scgs::engine)
 scgs_apply_project_options(scgs_demo)
 
@@ -183,6 +206,10 @@ add_executable(scgs_product_runtime_tests engine/tests/test_product_runtime.cpp)
 target_link_libraries(scgs_product_runtime_tests PRIVATE scgs::engine)
 scgs_apply_project_options(scgs_product_runtime_tests)
 
+add_executable(scgs_product_game_tests engine/tests/test_product_game.cpp)
+target_link_libraries(scgs_product_game_tests PRIVATE scgs::engine)
+scgs_apply_project_options(scgs_product_game_tests)
+
 # Legacy v1 wire freeze regression (golden bytes + bridge projection).
 add_executable(scgs_wire_tests engine/tests/test_wire.cpp)
 target_link_libraries(scgs_wire_tests PRIVATE scgs::engine)
@@ -197,7 +224,7 @@ set_target_properties(scgs_native_api_c_tests PROPERTIES
     C_STANDARD_REQUIRED YES
     C_EXTENSIONS NO
 )
-target_link_libraries(scgs_native_api_c_tests PRIVATE scgs::native_v04)
+target_link_libraries(scgs_native_api_c_tests PRIVATE scgs_native_v04_fixture)
 if(SCGS_ENABLE_SANITIZERS)
     # The source remains C11, but Clang's C++ sanitizer runtime is required by
     # the C++ shared library when this executable is linked under ASan/UBSan.
@@ -210,7 +237,7 @@ target_compile_features(scgs_native_api_tests PRIVATE cxx_std_20)
 target_link_libraries(scgs_native_api_tests
     PRIVATE
         scgs::engine
-        scgs::native_v04
+        scgs_native_v04_fixture
         nlohmann_json::nlohmann_json
 )
 scgs_apply_project_options(scgs_native_api_tests)
@@ -219,7 +246,7 @@ add_executable(scgs_native_api_dynamic_tests engine/tests/test_native_api_v04_dy
 target_compile_features(scgs_native_api_dynamic_tests PRIVATE cxx_std_20)
 target_include_directories(scgs_native_api_dynamic_tests PRIVATE engine/include)
 target_link_libraries(scgs_native_api_dynamic_tests PRIVATE ${CMAKE_DL_LIBS})
-add_dependencies(scgs_native_api_dynamic_tests scgs_native_v04)
+add_dependencies(scgs_native_api_dynamic_tests scgs_native_v04 scgs_native_v04_fixture)
 scgs_apply_project_options(scgs_native_api_dynamic_tests)
 
 add_executable(scgs_native_api_v05_c_tests engine/tests/test_native_api_v05_c.c)
@@ -255,13 +282,18 @@ enable_testing()
 add_test(NAME scgs_unit_tests COMMAND scgs_tests)
 add_test(NAME scgs_client_api_contract COMMAND scgs_client_api_tests)
 add_test(NAME scgs_product_runtime_foundation COMMAND scgs_product_runtime_tests)
+add_test(NAME scgs_product_game_core COMMAND scgs_product_game_tests)
 add_test(NAME scgs_documented_scenario COMMAND scgs_demo --verify)
 add_test(NAME scgs_wire_frozen_golden COMMAND scgs_wire_tests)
 add_test(NAME scgs_native_api_c_contract COMMAND scgs_native_api_c_tests)
 add_test(NAME scgs_native_api_contract COMMAND scgs_native_api_tests)
 add_test(
     NAME scgs_native_api_dynamic_load
-    COMMAND scgs_native_api_dynamic_tests $<TARGET_FILE:scgs_native_v04>
+    COMMAND scgs_native_api_dynamic_tests $<TARGET_FILE:scgs_native_v04_fixture>
+)
+add_test(
+    NAME scgs_native_api_retired_product_contract
+    COMMAND scgs_native_api_dynamic_tests $<TARGET_FILE:scgs_native_v04> --retired
 )
 add_test(NAME scgs_native_api_v05_c_contract COMMAND scgs_native_api_v05_c_tests)
 add_test(NAME scgs_native_api_v05_schema_contract COMMAND scgs_native_api_v05_tests)

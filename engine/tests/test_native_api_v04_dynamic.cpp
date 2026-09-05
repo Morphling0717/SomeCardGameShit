@@ -73,9 +73,10 @@ int fail(const std::string& message) {
 } // namespace
 
 int main(const int argc, char** argv) {
-    if (argc != 2) {
+    if (argc != 2 && argc != 3) {
         return fail("expected the shared-library path as argv[1]");
     }
+    const bool retired = argc == 3 && std::string(argv[2]) == "--retired";
 
     const DynamicLibrary library(argv[1]);
     if (!library.loaded()) {
@@ -114,9 +115,34 @@ int main(const int argc, char** argv) {
         return fail("loaded library reports the wrong ABI version");
     }
 
+    // Both artifacts reject retired product names; the installed compatibility
+    // library also rejects all test fixture and schema-2 product deck names.
+    for (const std::string& deck : {std::string("midrange"), std::string("advance"),
+             std::string("synthetic_alpha"), std::string("synthetic_beta"),
+             std::string("oathguard"), std::string("pactmage")}) {
+        if (!retired && deck.starts_with("synthetic_")) {
+            continue;
+        }
+        const std::string rejected = "{\"schema_version\":1,\"player0_deck\":\"" + deck +
+            "\",\"player1_deck\":\"" + deck + "\"}";
+        scgs_v04_handle invalid = 99;
+        if (create(SCGS_V04_ABI_VERSION, rejected.data(), rejected.size(), &invalid) !=
+                SCGS_V04_SCHEMA_MISMATCH || invalid != 0) {
+            return fail("a retired/foreign deck unexpectedly created a v04 session");
+        }
+    }
+    if (retired) {
+        if (destroy(0) != SCGS_V04_OK) {
+            return fail("retired artifact lost zero-handle destruction contract");
+        }
+        std::cout << "native retired-product contract passed: " << expected_symbols.size()
+                  << " exports; retired/fixture/product configs rejected\n";
+        return 0;
+    }
+
     static constexpr char config[] =
-        "{\"schema_version\":1,\"player0_deck\":\"midrange\","
-        "\"player1_deck\":\"advance\",\"random_seed\":1364283729,"
+        "{\"schema_version\":1,\"player0_deck\":\"synthetic_alpha\","
+        "\"player1_deck\":\"synthetic_beta\",\"random_seed\":1364283729,"
         "\"first_player_mode\":1,\"shuffle_decks\":false}";
     scgs_v04_handle handle = 0;
     if (create(SCGS_V04_ABI_VERSION, config, sizeof(config) - 1U, &handle) != SCGS_V04_OK ||

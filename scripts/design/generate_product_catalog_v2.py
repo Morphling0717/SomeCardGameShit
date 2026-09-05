@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Generate the committed Gate 5B C++ base catalog from the Gate 5A lock.
+"""Generate the committed Gate 5C executable C++ catalog from the product locks.
 
 The ordinary CMake build compiles the committed generated source and never
 invokes Python. Use this tool explicitly to regenerate it, or pass ``--check``
-to verify that the checked-in source still matches the validated design lock.
+to verify that the checked-in source still matches the validated design,
+runtime-shape and executable-effect locks.
 """
 
 from __future__ import annotations
@@ -22,6 +23,8 @@ DEFAULT_SCHEMA = ROOT / "design/product-decks-v1/card-pool.schema.json"
 DEFAULT_OUTPUT = ROOT / "engine/src/generated/product_catalog_v2.generated.cpp"
 DEFAULT_RUNTIME_MANIFEST = ROOT / "design/product-decks-v1/runtime-foundation.lock.json"
 DEFAULT_RUNTIME_SCHEMA = ROOT / "design/product-decks-v1/runtime-foundation.schema.json"
+DEFAULT_EFFECTS_MANIFEST = ROOT / "design/product-decks-v1/product-effects.lock.json"
+DEFAULT_EFFECTS_SCHEMA = ROOT / "design/product-decks-v1/product-effects.schema.json"
 
 sys.path.insert(0, str(ROOT))
 from scripts.ci.validate_product_decks_v1 import (  # noqa: E402
@@ -60,8 +63,14 @@ TARGET = {
     "enemy_permanent": "TargetSpec::EnemyPermanent",
 }
 CONDITION = {
+    "always": "ConditionKind::Always",
     "cracks_at_least": "ConditionKind::CracksAtLeast",
     "cracks_at_most": "ConditionKind::CracksAtMost",
+    "advanced": "ConditionKind::Advanced",
+    "on_time": "ConditionKind::OnTime",
+    "actual_repair_at_least": "ConditionKind::ActualRepairAtLeast",
+    "repair_to_zero": "ConditionKind::RepairToZero",
+    "future_use_at_least": "ConditionKind::FutureUseAtLeast",
     "turn_repair_at_least": "ConditionKind::TurnRepairAtLeast",
     "turn_future_use_at_least": "ConditionKind::TurnFutureUseAtLeast",
     "turn_barrier_granted": "ConditionKind::TurnBarrierGranted",
@@ -70,7 +79,127 @@ CONDITION = {
     "match_countdown_expired_at_least": "ConditionKind::MatchCountdownExpiredAtLeast",
     "leader_health_at_most": "ConditionKind::LeaderHealthAtMost",
     "controls_series_permanent": "ConditionKind::ControlsSeriesPermanent",
+    "board_count_less_than_opponent": "ConditionKind::BoardCountLessThanOpponent",
+    "field_is": "ConditionKind::FieldIs",
 }
+TRIGGER = {
+    "on_play": "EffectTrigger::OnPlay",
+    "on_entry": "EffectTrigger::OnEntry",
+    "on_evolve": "EffectTrigger::OnEvolve",
+    "on_last_words": "EffectTrigger::OnLastWords",
+    "on_countdown_end": "EffectTrigger::OnCountdownEnd",
+    "on_repair_to_zero": "EffectTrigger::OnRepairToZero",
+    "on_future_used": "EffectTrigger::OnFutureUsed",
+    "on_combat_kill_survived": "EffectTrigger::OnCombatKillSurvived",
+    "on_attack_declared": "EffectTrigger::OnAttackDeclared",
+    "on_actual_repair": "EffectTrigger::OnActualRepair",
+}
+EFFECT = {
+    "draw": "EffectKind::Draw",
+    "heal_leader": "EffectKind::HealLeader",
+    "damage_follower": "EffectKind::DamageFollower",
+    "repair_cracks": "EffectKind::RepairCracks",
+    "modify_stats": "EffectKind::ModifyStats",
+    "grant_keyword": "EffectKind::GrantKeyword",
+    "change_countdown": "EffectKind::ChangeCountdown",
+    "summon_token": "EffectKind::SummonToken",
+    "search_top": "EffectKind::SearchTop",
+    "put_on_deck_bottom": "EffectKind::PutOnDeckBottom",
+    "discard": "EffectKind::Discard",
+    "destroy_permanent": "EffectKind::DestroyPermanent",
+    "cancel_attack": "EffectKind::CancelAttack",
+}
+AMOUNT_SOURCE = {
+    "fixed": "AmountSource::Fixed",
+    "actual_repair": "AmountSource::ActualRepair",
+    "cracks": "AmountSource::Cracks",
+}
+DURATION = {
+    "immediate": "EffectDuration::Immediate",
+    "owner_turn": "EffectDuration::OwnerTurn",
+    "permanent": "EffectDuration::Permanent",
+}
+ONCE_SCOPE = {
+    "owner_turn": "OnceScope::OwnerTurn",
+    "match": "OnceScope::Match",
+    "source_owner_turn": "OnceScope::SourceOwnerTurn",
+    "source_turn": "OnceScope::SourceTurn",
+}
+DEPENDENCY = {
+    "none": "EffectDependency::None",
+    "previous_effect_succeeded": "EffectDependency::PreviousEffectSucceeded",
+    "previous_draw_entered_hand": "EffectDependency::PreviousDrawEnteredHand",
+}
+TRIGGER_RELATION = {
+    "any": "TriggerPlayerRelation::Any",
+    "source_controller": "TriggerPlayerRelation::SourceController",
+    "opponent_of_source_controller": "TriggerPlayerRelation::OpponentOfSourceController",
+}
+ONCE_CONSUMPTION = {
+    "on_resolution": "OnceConsumption::OnResolution",
+    "on_trigger": "OnceConsumption::OnTrigger",
+}
+
+
+_TARGET_REQUIRED_EFFECTS = {
+    "damage_follower",
+    "modify_stats",
+    "grant_keyword",
+    "change_countdown",
+    "destroy_permanent",
+}
+
+
+def _require_effect_field(
+    effect: Mapping[str, object],
+    effect_id: str,
+    field: str,
+) -> object:
+    value = effect.get(field)
+    if value is None or (isinstance(value, str) and not value.strip()):
+        raise ManifestError(
+            f"effect {effect_id!r} of kind {effect['kind']!r} requires {field!r}"
+        )
+    return value
+
+
+def _validate_effect_shape(effect: Mapping[str, object], effect_id: str) -> None:
+    """Reject typed programs which the generic interpreter cannot execute.
+
+    JSON Schema owns the structural vocabulary. These cross-field checks own
+    the executable contract between an EffectKind and its operands, so a
+    future lock edit cannot silently compile an incomplete instruction.
+    """
+
+    kind = str(effect["kind"])
+    target = str(effect.get("target", "none"))
+    if kind in _TARGET_REQUIRED_EFFECTS and target == "none":
+        raise ManifestError(f"effect {effect_id!r} of kind {kind!r} requires a target")
+
+    if kind == "damage_follower" and target not in {"friendly_follower", "enemy_follower"}:
+        raise ManifestError(f"damage effect {effect_id!r} must target a follower")
+    if kind == "destroy_permanent":
+        if target not in {"friendly_permanent", "enemy_permanent"}:
+            raise ManifestError(f"destroy effect {effect_id!r} must target a permanent")
+        _require_effect_field(effect, effect_id, "target_filter")
+    if kind == "grant_keyword":
+        _require_effect_field(effect, effect_id, "keyword")
+    if kind == "summon_token":
+        _require_effect_field(effect, effect_id, "parameter")
+    if kind == "search_top":
+        _require_effect_field(effect, effect_id, "card_filter")
+        if int(effect.get("reveal_count", 0)) <= 0:
+            raise ManifestError(f"search effect {effect_id!r} must reveal at least one card")
+        if int(effect.get("selection_maximum", 0)) <= 0:
+            raise ManifestError(f"search effect {effect_id!r} must allow a selection")
+        if effect.get("randomize_remainder") is not True:
+            raise ManifestError(f"search effect {effect_id!r} must randomize its remainder")
+    if kind in {"put_on_deck_bottom", "discard"} and int(
+        effect.get("selection_maximum", 0)
+    ) <= 0:
+        raise ManifestError(f"effect {effect_id!r} of kind {kind!r} must select a card")
+    if kind == "cancel_attack" and effect["trigger"] != "on_attack_declared":
+        raise ManifestError(f"cancel-attack effect {effect_id!r} requires attack declaration")
 
 
 def _load_json(path: Path) -> object:
@@ -215,15 +344,288 @@ def _validate_runtime_foundation(
         raise ManifestError("AP-S04 additional cost must select one own abyssal-pact follower or amulet")
 
 
+def _iter_programs(definition: Mapping[str, object]) -> Sequence[Sequence[Mapping[str, object]]]:
+    programs: list[Sequence[Mapping[str, object]]] = []
+    effects = definition["effects"]
+    assert isinstance(effects, list)
+    programs.append(effects)
+    modes = definition["modes"]
+    assert isinstance(modes, list)
+    for mode in modes:
+        assert isinstance(mode, dict) and isinstance(mode["effects"], list)
+        programs.append(mode["effects"])
+    return programs
+
+
+def _validate_effect_programs(
+    design: Mapping[str, object],
+    runtime: Mapping[str, object],
+    programs: Mapping[str, object],
+) -> None:
+    cards = design["cards"]
+    tokens = design["tokens"]
+    definitions = programs["definitions"]
+    assert isinstance(cards, list) and isinstance(tokens, list) and isinstance(definitions, list)
+    expected_ids = {str(card["design_id"]) for card in [*cards, *tokens]}
+    actual_ids = [str(definition["design_id"]) for definition in definitions]
+    if len(actual_ids) != 35 or len(set(actual_ids)) != 35 or set(actual_ids) != expected_ids:
+        raise ManifestError("product effect lock must describe each of the 35 definitions exactly once")
+    defaults = programs["default_definition"]
+    if defaults != {"implementation_status": "executable_product", "effects_compiled": True}:
+        raise ManifestError("product effect lock must mark every definition executable and compiled")
+
+    runtime_modes = {
+        str(card["design_id"]): {str(mode["mode_id"]) for mode in card["modes"]}
+        for card in runtime["mode_cards"]
+    }
+    actual_modes = {
+        str(definition["design_id"]): {str(mode["mode_id"]) for mode in definition["modes"]}
+        for definition in definitions if definition["modes"]
+    }
+    if actual_modes != runtime_modes:
+        raise ManifestError("compiled modes must exactly match the frozen runtime mode contract")
+
+    all_effect_ids: set[str] = set()
+    effect_count = 0
+    for definition in definitions:
+        for program in _iter_programs(definition):
+            prior_ids: set[str] = set()
+            for effect in program:
+                effect_count += 1
+                effect_id = str(effect["effect_id"])
+                _validate_effect_shape(effect, effect_id)
+                if effect_id in all_effect_ids:
+                    raise ManifestError(f"duplicate product effect ID {effect_id!r}")
+                all_effect_ids.add(effect_id)
+                dependency = str(effect.get("dependency", "none"))
+                depends_on = effect.get("depends_on_effect_id")
+                if dependency == "none":
+                    if depends_on not in {None, ""}:
+                        raise ManifestError(f"independent effect {effect_id!r} names a dependency")
+                elif not isinstance(depends_on, str) or depends_on not in prior_ids:
+                    raise ManifestError(
+                        f"effect {effect_id!r} must depend on an earlier effect in the same program"
+                    )
+                target_from = effect.get("target_from_effect_id")
+                if target_from is not None and target_from not in prior_ids:
+                    raise ManifestError(
+                        f"effect {effect_id!r} must reuse a target from an earlier effect"
+                    )
+                minimum = int(effect.get("selection_minimum", 0))
+                maximum = int(effect.get("selection_maximum", 0))
+                if minimum > maximum:
+                    raise ManifestError(f"effect {effect_id!r} has an inverted selection range")
+                once = effect.get("once")
+                if once is not None and not str(once["key"]).strip():
+                    raise ManifestError(f"effect {effect_id!r} has an empty once key")
+                prior_ids.add(effect_id)
+    if effect_count != 56:
+        raise ManifestError(f"locked product effect program count changed: expected 56, got {effect_count}")
+    empty_program_ids = {
+        str(definition["design_id"])
+        for definition in definitions
+        if not definition["effects"] and not definition["modes"]
+    }
+    expected_empty_programs = {
+        "LO-S03", "LO-S04", "AP-S01", "AP-S02", "AP-S04", "NT-02", "LO-T01",
+    }
+    if empty_program_ids != expected_empty_programs:
+        raise ManifestError(
+            "only printed-keyword/base-stat definitions may have an empty effect program"
+        )
+
+
+def _condition_lines(
+    destination: str,
+    conditions: Sequence[Mapping[str, object]],
+    indent: str,
+) -> list[str]:
+    lines: list[str] = []
+    for condition in conditions:
+        lines.extend([
+            f"{indent}{{",
+            f"{indent}    ConditionSpec condition;",
+            f"{indent}    condition.kind = {CONDITION[str(condition['kind'])]};",
+            f"{indent}    condition.threshold = {int(condition['threshold'])};",
+            f"{indent}    condition.read_cap = {int(condition['read_cap'])};",
+            f"{indent}    condition.parameter = {_cpp_string(str(condition['parameter']))};",
+        ])
+        selector = condition["permanent_filter"]
+        if selector is not None:
+            lines.extend(_permanent_filter_lines("condition.permanent_filter", selector, indent + "    "))
+        lines.extend([
+            f"{indent}    {destination}.push_back(std::move(condition));",
+            f"{indent}}}",
+        ])
+    return lines
+
+
+def _permanent_filter_lines(
+    destination: str,
+    selector: Mapping[str, object],
+    indent: str,
+) -> list[str]:
+    kinds = ", ".join(KIND[str(kind)] for kind in selector["allowed_card_types"])
+    return [
+        f"{indent}{destination}.allowed_kinds = {{{kinds}}};",
+        f"{indent}{destination}.profession_id = {_cpp_string(str(selector['profession_id']))};",
+        f"{indent}{destination}.series_id = {_cpp_string(str(selector['series_id']))};",
+        f"{indent}{destination}.include_main_board = {'true' if selector['include_main_board'] else 'false'};",
+        f"{indent}{destination}.include_field = {'true' if selector['include_field'] else 'false'};",
+        f"{indent}{destination}.exclude_source = {'true' if selector['exclude_source'] else 'false'};",
+    ]
+
+
+def _card_filter_lines(
+    destination: str,
+    selector: Mapping[str, object],
+    indent: str,
+) -> list[str]:
+    allowed = ", ".join(KIND[str(kind)] for kind in selector["allowed_card_types"])
+    excluded = ", ".join(KIND[str(kind)] for kind in selector["excluded_card_types"])
+    neutral = selector["neutral"]
+    return [
+        f"{indent}{destination}.allowed_kinds = {{{allowed}}};",
+        f"{indent}{destination}.excluded_kinds = {{{excluded}}};",
+        f"{indent}{destination}.profession_id = {_cpp_string(str(selector['profession_id']))};",
+        f"{indent}{destination}.series_id = {_cpp_string(str(selector['series_id']))};",
+        f"{indent}{destination}.neutral = " + (
+            "std::nullopt;" if neutral is None else ("true;" if neutral else "false;")
+        ),
+    ]
+
+
+def _effect_lines(
+    effect: Mapping[str, object],
+    destination: str,
+    indent: str,
+) -> list[str]:
+    value = effect["value"]
+    assert isinstance(value, dict)
+    lines = [
+        f"{indent}{{",
+        f"{indent}    EffectSpec effect;",
+        f"{indent}    effect.trigger = {TRIGGER[str(effect['trigger'])]};",
+        f"{indent}    effect.kind = {EFFECT[str(effect['kind'])]};",
+        f"{indent}    effect.amount = {int(value['fixed'])};",
+        f"{indent}    effect.target = {TARGET[str(effect.get('target', 'none'))]};",
+        f"{indent}    effect.parameter = {_cpp_string(str(effect.get('parameter', '')))};",
+        f"{indent}    effect.effect_id = {_cpp_string(str(effect['effect_id']))};",
+        f"{indent}    effect.value = ValueSpec{{{AMOUNT_SOURCE[str(value['source'])]}, {int(value['fixed'])}, {int(value['multiplier'])}, {int(value['cap'])}}};",
+        f"{indent}    effect.uses_value_spec = true;",
+        f"{indent}    effect.secondary_amount = {int(effect.get('secondary_amount', 0))};",
+        f"{indent}    effect.uses_secondary_amount = {'true' if 'secondary_amount' in effect else 'false'};",
+        f"{indent}    effect.duration = {DURATION[str(effect.get('duration', 'immediate'))]};",
+        f"{indent}    effect.optional = {'true' if effect.get('optional', False) else 'false'};",
+        f"{indent}    effect.dependency = {DEPENDENCY[str(effect.get('dependency', 'none'))]};",
+        f"{indent}    effect.depends_on_effect_id = {_cpp_string(str(effect.get('depends_on_effect_id') or ''))};",
+        f"{indent}    effect.reveal_count = {int(effect.get('reveal_count', 0))};",
+        f"{indent}    effect.selection_minimum = {int(effect.get('selection_minimum', 0))};",
+        f"{indent}    effect.selection_maximum = {int(effect.get('selection_maximum', 0))};",
+        f"{indent}    effect.randomize_remainder = {'true' if effect.get('randomize_remainder', False) else 'false'};",
+        f"{indent}    effect.preserve_source_slot = {'true' if effect.get('preserve_source_slot', False) else 'false'};",
+        f"{indent}    effect.target_from_effect_id = {_cpp_string(str(effect.get('target_from_effect_id') or ''))};",
+        f"{indent}    effect.trigger_player_relation = {TRIGGER_RELATION[str(effect.get('trigger_player_relation', 'any'))]};",
+        f"{indent}    effect.trigger_owner_turn_only = {'true' if effect.get('trigger_owner_turn_only', False) else 'false'};",
+    ]
+    once = effect.get("once")
+    if once is not None:
+        lines.extend([
+            f"{indent}    effect.once_scope = {ONCE_SCOPE[str(once['scope'])]};",
+            f"{indent}    effect.once_key = {_cpp_string(str(once['key']))};",
+            f"{indent}    effect.once_consumption = {ONCE_CONSUMPTION[str(once['consumption'])]};",
+        ])
+    keyword = effect.get("keyword")
+    if keyword is not None:
+        lines.append(f"{indent}    effect.granted_keyword = {KEYWORD[str(keyword)]};")
+    conditions = effect.get("conditions", {"all": [], "any": []})
+    assert isinstance(conditions, dict)
+    lines.extend(_condition_lines("effect.conditions.all", conditions["all"], indent + "    "))
+    lines.extend(_condition_lines("effect.conditions.any", conditions["any"], indent + "    "))
+    target_filter = effect.get("target_filter")
+    if target_filter is not None:
+        lines.extend(_permanent_filter_lines("effect.target_filter", target_filter, indent + "    "))
+    card_filter = effect.get("card_filter")
+    if card_filter is not None:
+        lines.extend(_card_filter_lines("effect.card_filter", card_filter, indent + "    "))
+    lines.extend([
+        f"{indent}    {destination}.push_back(std::move(effect));",
+        f"{indent}}}",
+    ])
+    return lines
+
+
+def _compiled_program_lines(programs: Mapping[str, object], indent: str) -> str:
+    lines: list[str] = []
+    for definition in programs["definitions"]:
+        design_id = str(definition["design_id"])
+        effects = definition["effects"]
+        modes = definition["modes"]
+        if not effects and not modes:
+            continue
+        lines.append(f'{indent}if (row.design_id == {_cpp_string(design_id)}) {{')
+        for effect in effects:
+            lines.extend(_effect_lines(effect, "definition.effects", indent + "    "))
+        for mode in modes:
+            lines.extend([
+                f"{indent}    for (ModeSpec& mode : definition.modes) {{",
+                f"{indent}        if (mode.mode_id != {_cpp_string(str(mode['mode_id']))}) {{",
+                f"{indent}            continue;",
+                f"{indent}        }}",
+            ])
+            for effect in mode["effects"]:
+                lines.extend(_effect_lines(effect, "mode.effects", indent + "        "))
+            lines.append(f"{indent}    }}")
+        lines.append(f"{indent}}}")
+    return "\n".join(lines)
+
+
+def _expanded_cards(entries: Sequence[Mapping[str, object]]) -> list[str]:
+    result: list[str] = []
+    for entry in entries:
+        result.extend([str(entry["design_id"])] * int(entry["copies"]))
+    return result
+
+
+def _product_deck_lines(document: Mapping[str, object]) -> str:
+    decks = document["decks"]
+    assert isinstance(decks, list)
+    if len(decks) != 2:
+        raise ManifestError("generated product catalog requires exactly two locked decks")
+    lines: list[str] = []
+    for deck in decks:
+        main = _expanded_cards(deck["main"])
+        standby = _expanded_cards(deck["standby"])
+        if len(main) != 30 or len(standby) != 4:
+            raise ManifestError("generated product decks must expand to exactly 30 main + 4 standby")
+        main_values = ", ".join(_cpp_string(design_id) for design_id in main)
+        standby_values = ", ".join(_cpp_string(design_id) for design_id in standby)
+        lines.extend([
+            "    {",
+            "        ProductDeckDefinition deck;",
+            f"        deck.deck_id = {_cpp_string(str(deck['deck_id']))};",
+            f"        deck.name = {_cpp_string(str(deck['name']))};",
+            f"        deck.profession_id = {_cpp_string(str(deck['profession_id']))};",
+            f"        deck.series_id = {_cpp_string(str(deck['series_id']))};",
+            f"        deck.leader_id = {_cpp_string(str(deck['leader_id']))};",
+            f"        deck.main_deck = {{{main_values}}};",
+            f"        deck.standby = {{{standby_values}}};",
+            "        decks.push_back(std::move(deck));",
+            "    }",
+        ])
+    return "\n".join(lines)
+
+
 def render(
     document: Mapping[str, object],
     runtime: Mapping[str, object],
+    programs: Mapping[str, object],
 ) -> str:
     cards = document["cards"]
     tokens = document["tokens"]
     capabilities = document["capability_catalog"]
     assert isinstance(cards, list) and isinstance(tokens, list) and isinstance(capabilities, list)
-    defaults = runtime["default_definition"]
+    defaults = programs["default_definition"]
     assert isinstance(defaults, dict)
     implementation_status = str(defaults["implementation_status"])
     effects_compiled = bool(defaults["effects_compiled"])
@@ -303,9 +705,12 @@ def render(
     capability_body = "\n".join(
         f"    {_cpp_string(capability_id)}," for capability_id in required_capabilities
     )
+    compiled_program_body = _compiled_program_lines(programs, "        ")
+    product_deck_body = _product_deck_lines(document)
     return f'''// SPDX-License-Identifier: GPL-3.0-or-later
 // GENERATED FILE. Sources: design/product-decks-v1/card-pool.lock.json and
-// design/product-decks-v1/runtime-foundation.lock.json.
+// design/product-decks-v1/runtime-foundation.lock.json and
+// design/product-decks-v1/product-effects.lock.json.
 // Regenerate with scripts/design/generate_product_catalog_v2.py.
 #include "scgs/product_runtime.hpp"
 
@@ -473,9 +878,17 @@ CardCatalog make_locked_product_catalog() {{
             standby.additional_cost_text = row.standby_additional_cost_text;
             definition.standby = std::move(standby);
         }}
+{compiled_program_body}
         catalog.add(std::move(definition));
     }}
     return catalog;
+}}
+
+std::vector<ProductDeckDefinition> make_locked_product_decks() {{
+    std::vector<ProductDeckDefinition> decks;
+    decks.reserve(2);
+{product_deck_body}
+    return decks;
 }}
 
 std::span<const std::string_view> required_product_capability_ids() noexcept {{
@@ -492,6 +905,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--schema", type=Path, default=DEFAULT_SCHEMA)
     parser.add_argument("--runtime-manifest", type=Path, default=DEFAULT_RUNTIME_MANIFEST)
     parser.add_argument("--runtime-schema", type=Path, default=DEFAULT_RUNTIME_SCHEMA)
+    parser.add_argument("--effects-manifest", type=Path, default=DEFAULT_EFFECTS_MANIFEST)
+    parser.add_argument("--effects-schema", type=Path, default=DEFAULT_EFFECTS_SCHEMA)
     parser.add_argument("--output", type=Path, default=DEFAULT_OUTPUT)
     parser.add_argument("--check", action="store_true")
     args = parser.parse_args(argv)
@@ -508,7 +923,13 @@ def main(argv: Sequence[str] | None = None) -> int:
         if not isinstance(runtime, dict):
             raise ManifestError("the validated runtime foundation root is not an object")
         _validate_runtime_foundation(document, runtime)
-        generated = render(document, runtime)
+        programs = _load_json(args.effects_manifest.resolve(strict=True))
+        effects_schema = _load_json(args.effects_schema.resolve(strict=True))
+        validate_json_schema(programs, effects_schema)
+        if not isinstance(programs, dict):
+            raise ManifestError("the validated product effect program root is not an object")
+        _validate_effect_programs(document, runtime, programs)
+        generated = render(document, runtime, programs)
         output = args.output.resolve()
         if args.check:
             current = output.read_text(encoding="utf-8")

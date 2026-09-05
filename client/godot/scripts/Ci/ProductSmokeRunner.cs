@@ -43,7 +43,8 @@ internal sealed record ProductSmokeOptions(string ReportPath, string RunKind, st
 
     internal V05.GameConfigRequest CreateConfig(string player0Deck, string player1Deck, int matchIndex)
     {
-        if (matchIndex < 0 || matchIndex >= 12) throw new ArgumentOutOfRangeException(nameof(matchIndex));
+        if (matchIndex < 0 || matchIndex >= ProductSmokeCompletionPolicy.MaximumMatches)
+            throw new ArgumentOutOfRangeException(nameof(matchIndex));
         // First preserve the short baseline. Subsequent real matches vary only
         // their reproducible shuffle/first-player config, never their decks.
         uint[] seeds = [0xC0DE_C0DEU, 17U, 17U, 17U, 311U, 733U, 1237U, 2027U, 4099U, 8191U, 12011U, 16001U];
@@ -128,6 +129,8 @@ internal sealed class ProductSmokeRunner
         this.capture = capture;
         if (options.CaptureDirectory is not null && capture is null)
             throw new ArgumentException("Capture must be shared from the real menu/setup through the match.");
+        if (options.RequirePerformance && capture?.RequiresPerformance != true)
+            throw new ArgumentException("Product performance must use the shared real heavy-board capture.");
     }
 
     internal async Task<ProductSmokeReport> RunAsync()
@@ -135,6 +138,7 @@ internal sealed class ProductSmokeRunner
         try { return await RunCoreAsync(); }
         catch (Exception exception)
         {
+            capture?.RecordIncompletePerformance();
             // Independent failure evidence has counters only. It must never
             // resemble a successful report or serialize private UI state.
             Directory.CreateDirectory(Path.GetDirectoryName(options.ReportPath)!);
@@ -218,10 +222,12 @@ internal sealed class ProductSmokeRunner
                 GD.Print($"SCGS_PRODUCT_UI_MATCH_COUNTS {sessions.Count}: {JsonSerializer.Serialize(actions)}");
                 bool allNaturalActions = Enumerable.Range(0, 14).Where(kind => kind != 10)
                     .All(kind => actions[kind] > 0);
-                bool complete = options.Coverage == "natural-ui" ||
-                    allNaturalActions && sessions.Sum(session => session.ReactionSurrenders) > 0 &&
-                        sessions.Sum(session => session.ChoiceSurrenders) > 0;
-                if (complete)
+                ProductSmokeCompletionDecision completion = ProductSmokeCompletionPolicy.Evaluate(
+                    options.Coverage == "full-ui", allNaturalActions,
+                    sessions.Sum(session => session.ReactionSurrenders) > 0,
+                    sessions.Sum(session => session.ChoiceSurrenders) > 0,
+                    options.RequirePerformance, capture?.PerformanceCompleted == true, terminals.Count);
+                if (completion.CanComplete)
                 {
                     await Inject(match.CiReturnInput(), audit);
                     for (int frame = 0; frame < 180 && audit.DisposedCount == 0; ++frame) await NextFrame();
@@ -234,9 +240,13 @@ internal sealed class ProductSmokeRunner
                         new JsonSerializerOptions { WriteIndented = true }));
                     return report;
                 }
-                if (sessions.Count >= 12)
-                    throw new InvalidOperationException("Product UI smoke could not cover all 14 actions in twelve real matches.");
-                surrender = allNaturalActions;
+                if (!completion.CanRestart)
+                    throw new InvalidOperationException("Product UI smoke could not complete required action/surrender " +
+                        "coverage and real heavy-board performance in twelve real matches.");
+                surrender = completion.SeekSurrender;
+                if (options.RequirePerformance && capture?.PerformanceAcceptanceSatisfied != true)
+                    GD.Print($"SCGS_PRODUCT_UI_PERFORMANCE_PENDING completed-matches={terminals.Count}, " +
+                        $"next-match={sessions.Count + 1}, surrender-coverage-pending={surrender}");
                 await Inject(match.CiRestartInput(), audit);
                 continue;
             }

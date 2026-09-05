@@ -115,11 +115,17 @@ jobs:
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           New-Item -ItemType Directory -Path artifacts/product-heavy -Force | Out-Null
           git rev-parse HEAD | Set-Content -LiteralPath artifacts/product-heavy/implementation-sha.txt
+          # Preserve evidence from every size even when one bounded case fails.
+          # Any failure still fails this job; never replace it with a skipped gate.
+          $failedViewports = @()
           foreach ($viewport in @("1280x720", "1600x900", "2560x1440", "2560x1600")) {
             $arguments = @("scripts/ci/run_product_smoke.py", "--executable", "$env:GODOT4", "--project", "client/godot", "--native-library", "build/stage-visual-heavy/bin/scgs_v05.dll", "--artifact", "source", "--coverage", "full-ui", "--viewport", $viewport, "--display", "--capture", "--output", "artifacts/product-heavy/$viewport")
             if ($viewport -eq "1600x900") { $arguments += "--performance" }
             python @arguments
-            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            if ($LASTEXITCODE -ne 0) { $failedViewports += $viewport }
+          }
+          if ($failedViewports.Count -gt 0) {
+            throw "Product visual acceptance failed: $($failedViewports -join ', ')"
           }
       - name: Check patch whitespace
         run: git diff --check

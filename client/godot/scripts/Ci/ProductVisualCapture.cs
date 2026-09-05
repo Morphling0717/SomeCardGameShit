@@ -47,6 +47,7 @@ internal sealed class ProductVisualCapture
 
     internal bool PerformanceCompleted => performance?.Success == true;
     internal bool RequiresPerformance => requirePerformance;
+    internal bool PerformanceAcceptanceSatisfied => !requirePerformance || PerformanceCompleted;
 
     internal Task CaptureShellAsync(string state, Func<bool> stillCurrent)
     {
@@ -278,16 +279,19 @@ internal sealed class ProductVisualCapture
     internal void Complete()
     {
         string[] missing = RequiredStates.Where(state => !captures.ContainsKey(state)).ToArray();
-        if (requirePerformance && performance is null)
-        {
-            performance = new ProductPerformanceEvidence { Status = "heavy_board_not_observed", Success = false };
-            WritePerformance();
-        }
-        bool success = missing.Length == 0 && (!requirePerformance || PerformanceCompleted);
+        RecordIncompletePerformance();
+        bool success = missing.Length == 0 && PerformanceAcceptanceSatisfied;
         WriteManifest(success);
         completed = true;
         if (!success)
             throw new InvalidOperationException($"Product visual evidence incomplete: missing states [{string.Join(", ", missing)}]; heavy-board performance={performance?.Status ?? "not_requested"}.");
+    }
+
+    internal void RecordIncompletePerformance()
+    {
+        if (!requirePerformance || performance is not null) return;
+        performance = new ProductPerformanceEvidence { Status = "heavy_board_not_observed", Success = false };
+        WritePerformance();
     }
 
     private async Task DrawFrame()

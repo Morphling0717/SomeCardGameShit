@@ -31,6 +31,8 @@
              Link="GodotContracts\AnimeCardBodyHandLayoutPolicy.cs" />
     <Compile Include="..\godot\scripts\Ci\AnimeCardBodyFrameStability.cs"
              Link="GodotContracts\AnimeCardBodyFrameStability.cs" />
+    <Compile Include="..\godot\scripts\Ci\ProductSmokeCompletionPolicy.cs"
+             Link="GodotContracts\ProductSmokeCompletionPolicy.cs" />
     <Compile Include="..\godot\scripts\Ci\AnimeCardBodyGpuReadabilityContract.cs"
              Link="GodotContracts\AnimeCardBodyGpuReadabilityContract.cs" />
     <Compile Include="..\godot\scripts\CardFaces\CardFaceContracts.cs"

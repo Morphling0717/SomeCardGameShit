@@ -152,6 +152,9 @@ class WorkflowTieringContractTests(unittest.TestCase):
             self.assertIn(marker, self.heavy)
         for marker in ("--skip-performance-budget", "--ci-smoke", "--legacy-2d-board", "--export-release", "Compress-Archive", "--require-anime"):
             self.assertNotIn(marker, self.heavy)
+        self.assertIn("$failedViewports += $viewport", self.heavy)
+        self.assertIn("if ($failedViewports.Count -gt 0)", self.heavy)
+        self.assertIn('throw "Product visual acceptance failed:', self.heavy)
 
     def test_arm64_cold_import_budget_does_not_relax_gameplay_or_visual_gates(self) -> None:
         macos = self.fast.split("  macos-arm64:", 1)[1]

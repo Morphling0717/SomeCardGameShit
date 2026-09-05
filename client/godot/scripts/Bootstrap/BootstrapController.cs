@@ -182,6 +182,8 @@ public sealed partial class BootstrapController : Control
         try
         {
             await new ProductSmokeRunner(this, () => _productMatch, _productSmokeOptions!, _productCapture).RunAsync();
+            if (_productSmokeOptions!.RequirePerformance && _productCapture?.PerformanceAcceptanceSatisfied != true)
+                throw new InvalidOperationException("Product smoke cannot finish before real heavy-board performance passes.");
             _productPrivacy!.Complete();
             GD.Print(ProductSmokeOptions.SuccessMarker);
             GetTree().Quit(0);

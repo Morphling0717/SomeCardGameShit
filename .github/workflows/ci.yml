@@ -46,6 +46,8 @@ jobs:
         run: python scripts/design/generate_product_catalog_v2.py --check
       - name: Audit visual manifests
         run: python scripts/audit_visual_assets.py
+      - name: Validate isolated card-frame geometry and evidence contracts
+        run: python -m unittest scripts.tests.test_card_frame_projection scripts.tests.test_encode_card_frame_turntable
 
   linux-gcc:
     needs: classify-changes

@@ -46,7 +46,8 @@ public sealed class BattlefieldHandRig
         int index,
         int count,
         int? hoveredIndex = null,
-        int? selectedIndex = null)
+        int? selectedIndex = null,
+        bool compactPublicBacks = false)
     {
         ValidatePlayer(player);
         ValidatePlayer(viewer);
@@ -80,6 +81,10 @@ public sealed class BattlefieldHandRig
                 hand.FarHeightRatio,
                 hand.FarMinimumHeight,
                 hand.FarMaximumHeight);
+        // During R1's input-locked public projection, anonymous hands convey
+        // count, not card faces. Keep them below the exact rear-row spell so
+        // the authoritative enter/resolve/leave sequence remains observable.
+        if (compactPublicBacks && near) basePixelHeight *= .5f;
         float focusScale = hovered ? hand.HoverScale : selected ? hand.SelectedScale : 1.0f;
         float pixelHeight = basePixelHeight * focusScale;
         float pixelWidth = pixelHeight * BattlefieldPerspective.CardWidth /

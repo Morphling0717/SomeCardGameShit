@@ -1565,7 +1565,8 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
                 binding.Index,
                 binding.Count,
                 hoveredIndex,
-                selectedIndex);
+                selectedIndex,
+                compactPublicBacks: Scgs.GodotClient.PresentationV2.CardFrameReviewRuntime.Enabled && !_privateRender);
             binding.Actor.ApplyPresentationPose(pose.Transform, animate);
             (pose.Near ? _nearHandPoses : _farHandPoses).Add(pose);
         }

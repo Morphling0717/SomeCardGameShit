@@ -85,7 +85,7 @@ product::CardCatalog make_game_catalog() {
     last_words.effects.push_back(std::move(last_words_draw));
     catalog.add(std::move(last_words));
 
-    for (const auto [id, effect_id] : {
+    for (const auto& [id, effect_id] : {
              std::pair{kTriggerA, std::string_view("trigger-a")},
              std::pair{kTriggerB, std::string_view("trigger-b")},
          }) {
@@ -1939,7 +1939,7 @@ void test_simultaneous_non_equivalent_triggers_require_order(TestContext& contex
 
     const InstanceId trigger_a = find_card(game, PlayerId::Player0, product::Zone::Hand, kTriggerA);
     const InstanceId trigger_b = find_card(game, PlayerId::Player0, product::Zone::Hand, kTriggerB);
-    for (const auto [card, slot] : {std::pair{trigger_a, 0U}, std::pair{trigger_b, 1U}}) {
+    for (const auto& [card, slot] : {std::pair{trigger_a, 0U}, std::pair{trigger_b, 1U}}) {
         auto play = command(game, PlayerId::Player0, product::ActionKind::PlayFollower);
         play.source = card;
         play.slot = slot;
@@ -2193,7 +2193,7 @@ void test_locked_product_catalog_and_multiseed_matches(TestContext& context) {
 struct TestCase {
     std::string_view name;
     void (*function)(TestContext&);
-    std::vector<std::string> locked_definitions;
+    std::vector<std::string> locked_definitions{};
 };
 
 } // namespace

@@ -153,6 +153,22 @@ class WorkflowTieringContractTests(unittest.TestCase):
         for marker in ("--skip-performance-budget", "--ci-smoke", "--legacy-2d-board", "--export-release", "Compress-Archive", "--require-anime"):
             self.assertNotIn(marker, self.heavy)
 
+    def test_arm64_cold_import_budget_does_not_relax_gameplay_or_visual_gates(self) -> None:
+        macos = self.fast.split("  macos-arm64:", 1)[1]
+        preparation = macos.split("      - name: Godot headless import", 1)[1].split(
+            "      - name: Product v05 current-project full UI smoke", 1
+        )[0]
+        self.assertIn("--timeout 1800", preparation)
+        self.assertIn('--forbid-output "SCRIPT ERROR:" --forbid-output "ERROR:"', preparation)
+        self.assertIn('-- "$GODOT4" --headless --path client/godot --import', preparation)
+        self.assertEqual(1, self.fast.count("--timeout 1800"))
+        self.assertNotIn("--timeout 1800", self.heavy)
+        # Runtime has its own bounded process and stricter in-game deadline.
+        runner = (ROOT / "scripts/ci/run_product_smoke.py").read_text(encoding="utf-8")
+        self.assertIn('"--timeout", "600"', runner)
+        self.assertNotIn('"--timeout", "1800"', runner)
+        self.assertIn("validate_privacy_directory(output, require_gpu=args.display)", runner)
+
 
 if __name__ == "__main__":
     unittest.main()

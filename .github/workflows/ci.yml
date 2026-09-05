@@ -422,8 +422,11 @@ jobs:
       - name: Godot headless import
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
+        # The 66-asset cold ARM64 import was still compressing at 70% when
+        # the former 600-second preparation limit elapsed. This is not a
+        # gameplay timeout; all source/export/ZIP smoke limits stay unchanged.
         run: >-
-          python scripts/ci/run_with_timeout.py --timeout 600
+          python scripts/ci/run_with_timeout.py --timeout 1800
           --forbid-output "SCRIPT ERROR:" --forbid-output "ERROR:"
           -- "$GODOT4" --headless --path client/godot --import
       - name: Product v05 current-project full UI smoke

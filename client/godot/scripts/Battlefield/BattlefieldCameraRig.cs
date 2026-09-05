@@ -12,6 +12,7 @@ public sealed partial class BattlefieldCameraRig : Camera3D
     private const float MinimumProductAspectRatio = 16.0f / 10.0f;
     private const float ProductAspectFramingWeight = 0.5f;
     private float _zoom = 1.0f;
+    private bool _cardFrameReview;
     private BattlefieldViewportLayout _viewportLayout =
         BattlefieldViewportLayout.Product(new Vector2(1600.0f, 900.0f));
 
@@ -22,6 +23,17 @@ public sealed partial class BattlefieldCameraRig : Camera3D
     public float PitchDegrees => BattlefieldPerspective.CameraPitchDegrees;
 
     public BattlefieldViewportLayout ViewportLayout => _viewportLayout;
+
+    // Only the independent R1 review uses this table lens. Equal projected
+    // scale at both ends keeps the complete frame inside its existing slot
+    // while preserving 16px numerals on the far player's evolved card.
+    public void SetCardFrameReviewFraming()
+    {
+        _cardFrameReview = true;
+        _zoom = BattlefieldPerspective.MinimumZoom;
+        ApplyPose();
+        ProjectionChanged?.Invoke();
+    }
 
     public override void _Ready()
     {
@@ -118,6 +130,16 @@ public sealed partial class BattlefieldCameraRig : Camera3D
             MathF.Max(1.0f, ReferenceSafeWidthRatio / safeRatio),
             aspectFramingScale);
         Position = BattlefieldPerspective.CameraPosition(_zoom, framingScale);
+        if (_cardFrameReview)
+        {
+            Projection = ProjectionType.Orthogonal;
+            float wheelFraction = Mathf.InverseLerp(
+                BattlefieldPerspective.MinimumZoom, BattlefieldPerspective.MaximumZoom, _zoom);
+            // A deliberately small table-only adjustment; neither endpoint
+            // reduces the far card below the minimum-resolution ink budget.
+            Size = Mathf.Lerp(12.7f, 13.0f, wheelFraction) *
+                   MathF.Max(1.0f, MinimumProductAspectRatio / aspectRatio);
+        }
         // Camera HOffset moves the projected scene in the opposite screen direction.
         // A wider right HUD therefore needs a positive camera offset so the board
         // shifts left into the center of the remaining play area.
@@ -125,6 +147,10 @@ public sealed partial class BattlefieldCameraRig : Camera3D
                     _viewportLayout.LeftReservedPixels) / viewportWidth) *
                   HudInsetToWorldScale * _zoom;
         VOffset = -0.62f * _zoom;
+        if (_cardFrameReview)
+        {
+            VOffset += .45f;
+        }
         LookAt(Vector3.Zero, Vector3.Up);
     }
 }

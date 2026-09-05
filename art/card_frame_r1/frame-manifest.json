@@ -1,0 +1,62 @@
+{
+  "schema_version": 1,
+  "kind": "card-frame-r1",
+  "blender_version": "4.5.13",
+  "sources": {
+    "blend": {
+      "path": "art/card_frame_r1/card_frame_r1.blend",
+      "sha256": "1034560dfe8226fcdbca1906689def241de993b51da2adfbb7957e3b2e85ca72"
+    },
+    "script": {
+      "path": "scripts/art/build_card_frame_r1.py",
+      "sha256": "b591bb01989e999fed3847ec6a03a91cff14f175ca68e2ab40f0ff498a776bfa"
+    },
+    "concept": {
+      "path": "art/card_frame_r1/concept-master-r1.png",
+      "sha256": "38462cf384146e02f055ee4c5a201f9892e9df31ed1c9a6d71a6d964b6df21fe"
+    }
+  },
+  "models": [
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_frame_r1/frame-master.glb",
+      "sha256": "d0463ad88882ca010a8eb1485df633f30903d2b7eb03ea446d8319bf6b2ed72e",
+      "lod": "high"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_frame_r1/frame-master-low.glb",
+      "sha256": "38304eea238c8919c176c3f3d58826947ca73bd9a19bf90adeaaea05bf9987ab",
+      "lod": "low"
+    }
+  ],
+  "textures": [
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_frame_r1/relief-normal.png",
+      "sha256": "e5d5c44bd81b8656e37b591b0804729b67c9b315201b3c2149bc9e8d9690ff30",
+      "role": "normal"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_frame_r1/relief-ao.png",
+      "sha256": "691dbb125a52c14fecf2a0edb50b4b17e7f5ba8f87615e08f48bd4f4d14e733e",
+      "role": "ao"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_frame_r1/relief-roughness.png",
+      "sha256": "7f6adda414545d7e960870923bbed9559be83b23e67e06023a6a6b5b66b09b84",
+      "role": "roughness"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_frame_r1/platinum-albedo-source.png",
+      "sha256": "5c59f2e73c832604a62ee5618541b39aefedaf57fee4951935552cab67bc2cc6",
+      "role": "engraving"
+    }
+  ],
+  "extra_sources": [
+    {
+      "path": "art/card_frame_r1/engraving-bake.blend",
+      "sha256": "d38f3a3624f5f55920d8f0e0248f32c886ca945138ccbc351396adbfb4e99b2b"
+    }
+  ],
+  "coordinates": "Godot metres: X width 1.58, Z depth 2.106667, Y face upward; maximum relief 0.13",
+  "text_clearance": 0.018,
+  "approval": "candidate_not_user_approved"
+}

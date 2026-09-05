@@ -247,7 +247,11 @@ class R3VisualSliceTests(unittest.TestCase):
             {"client/godot/assets/visual/anime_v1/shared/fallback_front.svg",
              "client/godot/assets/visual/anime_v1/presentation_v2/engraved-platinum.png",
              "client/godot/assets/visual/anime_v1/presentation_v2/LO-11-cutin.png",
-             "client/godot/assets/visual/anime_v1/presentation_v2/AP-11-cutin.png"},
+             "client/godot/assets/visual/anime_v1/presentation_v2/AP-11-cutin.png",
+             "client/godot/assets/visual/anime_v1/card_frame_r1/platinum-albedo-source.png",
+             "client/godot/assets/visual/anime_v1/card_frame_r1/relief-normal.png",
+             "client/godot/assets/visual/anime_v1/card_frame_r1/relief-ao.png",
+             "client/godot/assets/visual/anime_v1/card_frame_r1/relief-roughness.png"},
             {entry["path"] for entry in product["assets"]},
         )
         self.assertFalse((ROOT / "client/godot/assets/visual/arena/R3_ASSET_MANIFEST.json").exists())

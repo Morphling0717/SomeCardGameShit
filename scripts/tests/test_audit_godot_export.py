@@ -94,6 +94,20 @@ def _write_packaged_notices(directory: Path, *, commit: str = "local") -> None:
 
 
 class GodotExportAuditTests(unittest.TestCase):
+    def test_card_frame_r1_generated_prompts_and_non_ai_bakes_are_packaged_exactly(self) -> None:
+        filename = "ANIME_V1_CARD_FRAME_R1_GENERATION_RECORD.json"
+        original = EXACT_PACKAGED_SOURCE_FILES[filename]
+        self.assertEqual(filename, FINALIZED_LICENSES[original])
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            _write_packaged_notices(directory)
+            _audit_licenses(directory)
+            (directory / filename).write_text(
+                '{"kind":"card-frame-r1-generation-record","bake":{"ai_generated":true}}',
+                encoding="utf-8")
+            with self.assertRaises(ExportAuditError):
+                _audit_licenses(directory)
+
     def test_presentation_v2_complete_prompts_are_packaged_and_exactly_audited(self) -> None:
         filename = "ANIME_V1_PRESENTATION_V2_GENERATION_RECORD.json"
         original = EXACT_PACKAGED_SOURCE_FILES[filename]
@@ -399,6 +413,7 @@ class GodotExportAuditTests(unittest.TestCase):
             {
                 "ANIME_V1_SHARED_ASSET_MANIFEST.json",
                 "ANIME_V1_PRESENTATION_V2_GENERATION_RECORD.json",
+                "ANIME_V1_CARD_FRAME_R1_GENERATION_RECORD.json",
                 "ANIME_V1_ASSET_MANIFEST.json",
                 "ANIME_V1_PROVENANCE.md",
                 "ANIME_V1_SLICE_README.md",

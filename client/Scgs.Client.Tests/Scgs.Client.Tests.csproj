@@ -37,6 +37,10 @@
              Link="GodotContracts\AnimeCardBodyGpuReadabilityContract.cs" />
     <Compile Include="..\godot\scripts\CardFaces\CardFaceContracts.cs"
              Link="GodotContracts\CardFaces\CardFaceContracts.cs" />
+    <Compile Include="..\godot\scripts\PresentationV2\CardFrameMaster.cs"
+             Link="GodotContracts\PresentationV2\CardFrameMaster.cs" />
+    <Compile Include="..\godot\scripts\PresentationV2\CardFrameReviewRuntime.cs"
+             Link="GodotContracts\PresentationV2\CardFrameReviewRuntime.cs" />
     <Compile Include="..\godot\scripts\CardFaces\ProductCardVisualCatalog.cs"
              Link="GodotContracts\CardFaces\ProductCardVisualCatalog.cs" />
     <Compile Include="..\godot\scripts\CardFaces\CardFrameStyleCatalog.cs"

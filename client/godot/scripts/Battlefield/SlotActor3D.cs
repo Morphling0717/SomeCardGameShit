@@ -12,6 +12,14 @@ namespace Scgs.GodotClient.Battlefield;
 /// </summary>
 public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
 {
+    private float _presentationScale = 1.0f;
+
+    internal void SetPresentationScale(float scale)
+    {
+        if (!float.IsFinite(scale) || scale <= 0) throw new ArgumentOutOfRangeException(nameof(scale));
+        _presentationScale = scale;
+        Scale = Vector3.One * scale;
+    }
     private enum VisualMode
     {
         Slot,
@@ -402,7 +410,7 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
             return;
         }
 
-        Scale = hovered ? new Vector3(1.055f, 1.0f, 1.055f) : Vector3.One;
+        Scale = (hovered ? new Vector3(1.055f, 1.0f, 1.055f) : Vector3.One) * _presentationScale;
     }
 
     public void ClearSensitive()
@@ -451,6 +459,7 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
             : CyanCoreMaterial;
         _leaderCore.MaterialOverride = _leaderHalo.MaterialOverride;
         Transform = Transform3D.Identity;
+        _presentationScale = 1.0f;
         Scale = Vector3.One;
         _collision.Disabled = true;
         CollisionLayer = 0;
@@ -475,6 +484,7 @@ public sealed partial class SlotActor3D : Area3D, IBattlefieldPickTarget
         VisualMode visualMode)
     {
         Transform = transform;
+        _presentationScale = 1.0f;
         Scale = Vector3.One;
         Surface = surface;
         _visualMode = visualMode;

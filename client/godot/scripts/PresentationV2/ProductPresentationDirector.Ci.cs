@@ -14,7 +14,7 @@ internal sealed partial class ProductPresentationDirector
     /// </summary>
     public string CiInspectPresentationSafety()
     {
-        if (!BattlePresentationReviewRuntime.Enabled)
+        if (!BattlePresentationReviewRuntime.Enabled && !CardFrameReviewRuntime.Enabled)
             return "{\"available\":false,\"reason\":\"review_entry_required\"}";
         Node? board = _presenter;
         board ??= GetParent()?.GetNodeOrNull<Battlefield3DPresenter>("%Battlefield3D");
@@ -56,12 +56,12 @@ internal sealed partial class ProductPresentationDirector
     /// </summary>
     public void CiCancelPresentationForTest()
     {
-        if (BattlePresentationReviewRuntime.Enabled) Cancel();
+        if (BattlePresentationReviewRuntime.Enabled || CardFrameReviewRuntime.Enabled) Cancel();
     }
 
     public void CiSkipPresentationForTest()
     {
-        if (BattlePresentationReviewRuntime.Enabled) Skip();
+        if (BattlePresentationReviewRuntime.Enabled || CardFrameReviewRuntime.Enabled) Skip();
     }
 
     private static object DescribeCard(CardActor3D card, Camera3D? camera)

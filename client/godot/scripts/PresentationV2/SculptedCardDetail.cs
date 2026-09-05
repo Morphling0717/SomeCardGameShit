@@ -30,12 +30,14 @@ internal sealed partial class SculptedCardDetail : SubViewport
             RotationDegrees = new(-55, -28, 0), LightColor = new("fff1d7"), LightEnergy = 1.10f,
         };
         AddChild(light);
-        AddChild(new WorldEnvironment { Environment = new Godot.Environment {
+        var environment=new Godot.Environment {
             BackgroundMode = Godot.Environment.BGMode.ClearColor,
             AmbientLightSource = Godot.Environment.AmbientSource.Color,
             AmbientLightColor = new("b9c9df"), AmbientLightEnergy = .5f,
             TonemapMode = Godot.Environment.ToneMapper.Filmic,
-        }});
+        };
+        if(CardFrameReviewRuntime.Enabled)CardFrameLighting.Apply(environment);
+        AddChild(new WorldEnvironment {Environment=environment});
         actor = new CardActor3D { Name = "SharedDetailCard" };
         AddChild(actor);
         actor.ClearSensitive();

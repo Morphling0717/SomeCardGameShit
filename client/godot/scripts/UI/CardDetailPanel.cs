@@ -73,7 +73,8 @@ public sealed partial class CardDetailPanel : PanelContainer
         SetCompact(false);
         _title.Text = heading;
         _rules.Text = ProductCardPresentation.FormatRules(card);
-        if (BattlePresentationReviewRuntime.UsesSculptedFace(card.DesignId))
+        if (BattlePresentationReviewRuntime.UsesSculptedFace(card.DesignId) ||
+            CardFrameReviewRuntime.UsesRefinedFace(card.DesignId))
         {
             if (sculptedDetail is null)
             {

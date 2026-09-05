@@ -35,11 +35,17 @@ public sealed class PresentationReviewScenarioTests
 
     [TestMethod]
     [TestCategory("NativeIntegrationV05")]
-    [DataRow(PresentationReviewKind.Oathguard)]
-    [DataRow(PresentationReviewKind.Pactmage)]
-    [DataRow(PresentationReviewKind.Spell)]
-    public void RealFixedDeckReviewReplaysEveryCommandAndKeepsHandoffCovered(PresentationReviewKind kind)
+    [DataRow(PresentationReviewKind.Oathguard, ProductReviewEntryKind.BattlePresentation)]
+    [DataRow(PresentationReviewKind.Pactmage, ProductReviewEntryKind.BattlePresentation)]
+    [DataRow(PresentationReviewKind.Spell, ProductReviewEntryKind.BattlePresentation)]
+    [DataRow(PresentationReviewKind.Oathguard, ProductReviewEntryKind.CardFrame)]
+    [DataRow(PresentationReviewKind.Pactmage, ProductReviewEntryKind.CardFrame)]
+    [DataRow(PresentationReviewKind.Spell, ProductReviewEntryKind.CardFrame)]
+    public void RealFixedDeckReviewReplaysEveryCommandAndKeepsHandoffCovered(
+        PresentationReviewKind kind, ProductReviewEntryKind reviewEntry)
     {
+        ProductReviewLaunchOptions options = ProductReviewLaunchOptions.Parse([
+            reviewEntry == ProductReviewEntryKind.CardFrame ? "--card-frame-review" : "--battle-presentation-review"])!;
         string native = NativePath();
         using PreparedPresentationReview prepared = PresentationReviewScenario.Prepare(
             kind, config => V05.ScgsV05GameSession.Create(config, native), ImplementationSha);
@@ -98,7 +104,9 @@ public sealed class PresentationReviewScenarioTests
         V05.IScgsV05GameSession session = prepared.TakeSession();
         Assert.AreEqual(0UL, session.GetEventCursor(V05.PlayerId.Player0));
         Assert.AreEqual(0UL, session.GetEventCursor(V05.PlayerId.Player1));
-        using var controller = new ProductHotseatMatchController(session);
+        using var controller = new ProductHotseatMatchController(session, options.EnablePresentationPlayback);
+        Assert.IsTrue(controller.PresentationEnabled);
+        Assert.AreEqual(reviewEntry == ProductReviewEntryKind.CardFrame, options.EnableCardFrame);
         Assert.AreEqual(ProductHotseatUiMode.Covered, controller.State.Mode);
         Assert.IsNull(controller.State.Snapshot);
         Assert.IsNull(controller.State.Viewer);

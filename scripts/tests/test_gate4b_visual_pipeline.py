@@ -30,10 +30,13 @@ from audit_visual_assets import (  # noqa: E402
     EXPECTED_ANIME_V1_PATHS,
     EXPECTED_CARD_BODY_PATHS,
     EXPECTED_PRESENTATION_V2_PATHS,
+    EXPECTED_CARD_FRAME_R1_PATHS,
+    CARD_FRAME_R1_RECORD,
     PRODUCT_CARD_ART_MANIFEST_RELATIVE_PATH,
     VisualAssetAuditError,
     _rgba_alpha_extrema,
     _audit_presentation_v2_entry,
+    _audit_card_frame_r1_entry,
     audit,
 )
 from compare_visual_golden import (  # noqa: E402
@@ -191,7 +194,145 @@ def _fixture_region(
     return anchor, region
 
 
+class CardFramePerformanceSourceTests(unittest.TestCase):
+    """Source wiring guards only: never label these tests as real GPU timing."""
+
+    def _source(self) -> str:
+        return (SCRIPTS.parent / "client/godot/scripts/Match/ProductMatchScreen.CardFramePerformance.cs").read_text(encoding="utf-8")
+
+    def test_r1_actual_render_dimensions_come_from_gpu_image_not_texture_api_or_scale(self) -> None:
+        source = self._source()
+        method = source.split("private Vector2I ReadCardFrameActualGpuImageSize()", 1)[1].split("private void CompleteCardFramePerformance", 1)[0]
+        self.assertIn("using Image image = GetViewport().GetTexture().GetImage();", method)
+        self.assertIn("return image.GetSize();", method)
+        self.assertIn("image.IsEmpty()", method)
+        self.assertNotIn("ScreenScale", method)
+        self.assertNotIn("GetWindow().Size", method)
+        self.assertIn("ImageSize = actualImageSize", source)
+        self.assertIn("measurement_revision = 2", source)
+        self.assertIn("raw_texture_api_size =", source)
+        self.assertIn("actual_gpu_image_dimensions_verified = complete && finalImageSize == run.ImageSize", source)
+
+    def test_r1_gpu_readback_is_outside_all_timed_frame_callbacks(self) -> None:
+        source = self._source()
+        observer = source.split("private void ObserveCardFramePerformanceDraw()", 1)[1].split("private bool CardFramePerformanceContextCurrent", 1)[0]
+        context = source.split("private bool CardFramePerformanceContextCurrent", 1)[1].split("private Vector2I CardFramePerformanceTextureApiSize", 1)[0]
+        for section in (observer, context):
+            self.assertNotIn("GetImage()", section)
+            self.assertNotIn("ReadCardFrameActualGpuImageSize()", section)
+        self.assertIn("Stopwatch.GetElapsedTime(run.PreviousTimestamp, now)", observer)
+        completion = source.split("private void CompleteCardFramePerformance", 1)[1]
+        self.assertLess(completion.index("RenderingServer.FramePostDraw -= ObserveCardFramePerformanceDraw"),
+                        completion.index("ReadCardFrameActualGpuImageSize()"))
+        self.assertIn("actual_gpu_image_dimensions_changed", completion)
+        self.assertIn("actual_gpu_image_unavailable_after_measurement", completion)
+        self.assertIn("gpu_readbacks_inside_timed_frames = 0", completion)
+
+    def test_r1_live_performance_cannot_overlap_glyph_synthetic_or_pool_probes(self) -> None:
+        source = self._source()
+        start = source.split("public string ReviewStartCardFramePerformanceCapture()", 1)[1].split("public string ReviewCardFramePerformanceResult", 1)[0]
+        context = source.split("private bool CardFramePerformanceContextCurrent", 1)[1].split("private Vector2I CardFramePerformanceTextureApiSize", 1)[0]
+        for section in (start, context):
+            for flag in ("cardFrameCaptureBusy", "cardFramePoolProbeBusy", "cardFrameSyntheticHost"):
+                self.assertIn(flag, section)
+        self.assertIn("maximum_board_or_full_animation_suite_verified = false", source)
+        self.assertIn("overall_performance_or_visual_approval = false", source)
+        self.assertIn("commands_submitted = 0", source)
+
+
+class CardFramePrivacySourceTests(unittest.TestCase):
+    """Structural clear wiring only; the real sentinel/GPU probe stays required."""
+
+    def test_r1_pool_clear_resets_child_mesh_type_bits_and_identity_materials(self) -> None:
+        source = (SCRIPTS.parent / "client/godot/scripts/PresentationV2/RefinedCardBody.cs").read_text(encoding="utf-8")
+        clear = source.split("internal void ClearSensitive()", 1)[1].split("private static Dictionary<string,Material> Palette", 1)[0]
+        mesh_loop = clear.split("foreach(MeshInstance3D part in Meshes(frame))", 1)[1]
+        # Hiding a GLB parent alone leaves AttackFoot/HealthFoot visibility as a
+        # stale follower/spell bit in the hidden actor's inspectable subtree.
+        self.assertIn("part.Visible=false", mesh_loop.replace(" ", ""))
+        self.assertIn("part.SetSurfaceOverrideMaterial(i,null)", mesh_loop.replace(" ", ""))
+        self.assertIn('artMaterial.SetShaderParameter("artwork",default(Variant))', clear.replace(" ", ""))
+        self.assertIn("HasIdentity=false;Follower=false", clear.replace(" ", ""))
+        bind = source.split("internal void Bind(CardFaceComposition face)", 1)[1].split("internal void SetHighlight", 1)[0]
+        binding = bind.replace(" ", "")
+        self.assertIn('part.Visible=name.StartsWith("CommonFrameMotif"', binding)
+        self.assertIn('name=="CommonFrameMotif"+face.ViewModel.Faction', binding)
+        self.assertIn(':Follower||!(name.StartsWith("AttackFoot"', binding)
+        self.assertIn('name.StartsWith("HealthFoot"', binding)
+
+
 class VisualAssetAuditTests(unittest.TestCase):
+    def _card_frame_entries(self) -> list[dict]:
+        manifest = json.loads((SCRIPTS.parent / "client/godot/assets/visual/ASSET_MANIFEST.json").read_text(encoding="utf-8"))
+        return [entry for entry in manifest["assets"] if entry["path"] in EXPECTED_CARD_FRAME_R1_PATHS]
+
+    def _card_frame_record(self) -> dict:
+        return json.loads((SCRIPTS.parent / CARD_FRAME_R1_RECORD).read_text(encoding="utf-8"))
+
+    def test_card_frame_r1_registers_exact_four_runtime_images_not_external_concept(self) -> None:
+        entries = self._card_frame_entries()
+        self.assertEqual(EXPECTED_CARD_FRAME_R1_PATHS, {entry["path"] for entry in entries})
+        self.assertEqual({"albedo", "normal", "ao", "roughness"}, {entry["material_role"] for entry in entries})
+        for entry in entries:
+            _audit_card_frame_r1_entry(SCRIPTS.parent, entry)
+        self.assertEqual(14, len(EXPECTED_ANIME_V1_PATHS))
+        self.assertEqual(23, len(EXPECTED_CARD_BODY_PATHS))
+        self.assertEqual(28, len(EXPECTED_PRODUCT_CARD_ART_PATHS))
+        self.assertTrue(all("concept-master" not in path for path in EXPECTED_CARD_FRAME_R1_PATHS))
+
+    def test_card_frame_r1_rejects_false_ai_bake_or_wrong_bake_pipeline(self) -> None:
+        for key, value in (("ai_generated", True), ("selected_to_active", False), ("engine", "EEVEE")):
+            record = self._card_frame_record()
+            record["bake"][key] = value
+            with self.subTest(key=key), patch("audit_visual_assets._load_json", return_value=record):
+                with self.assertRaisesRegex(VisualAssetAuditError, "non-AI selected-to-active Cycles"):
+                    _audit_card_frame_r1_entry(SCRIPTS.parent, self._card_frame_entries()[0])
+
+    def test_card_frame_r1_requires_full_prompts_and_unedited_source_history(self) -> None:
+        for key, value in (("prompt", "summary only"), ("reference_images", ["unregistered.png"]),
+                           ("copied_without_raster_editing", False)):
+            record = self._card_frame_record()
+            record["generated_assets"][0][key] = value
+            with self.subTest(key=key), patch("audit_visual_assets._load_json", return_value=record):
+                with self.assertRaisesRegex(VisualAssetAuditError, "complete original prompt and source history"):
+                    _audit_card_frame_r1_entry(SCRIPTS.parent, self._card_frame_entries()[0])
+
+    def test_card_frame_r1_rejects_concept_runtime_path_and_stale_source_hash(self) -> None:
+        for key, value, expected in (("committed_path", "client/godot/assets/visual/concept.png", "path does not match"),
+                                      ("sha256", "0" * 64, "SHA-256 mismatch")):
+            record = self._card_frame_record()
+            record["generated_assets"][0][key] = value
+            with self.subTest(key=key), patch("audit_visual_assets._load_json", return_value=record):
+                with self.assertRaisesRegex(VisualAssetAuditError, expected):
+                    _audit_card_frame_r1_entry(SCRIPTS.parent, self._card_frame_entries()[0])
+
+    def test_card_frame_r1_requires_complete_typed_bake_outputs_and_editable_source(self) -> None:
+        for change, expected in (("missing_output", "exactly three typed"),
+                                  ("wrong_bake_type", "bake type does not match"),
+                                  ("stale_blend", "SHA-256 mismatch")):
+            record = self._card_frame_record()
+            if change == "missing_output":
+                record["bake"]["outputs"].pop()
+            elif change == "wrong_bake_type":
+                record["bake"]["outputs"][0]["bake_type"] = "AO"
+            else:
+                record["bake"]["editable_source"]["sha256"] = "0" * 64
+            with self.subTest(change=change), patch("audit_visual_assets._load_json", return_value=record):
+                with self.assertRaisesRegex(VisualAssetAuditError, expected):
+                    _audit_card_frame_r1_entry(SCRIPTS.parent, self._card_frame_entries()[0])
+
+    def test_card_frame_r1_rejects_missing_mipmaps_and_wrong_normal_import(self) -> None:
+        entry = next(item for item in self._card_frame_entries() if item["material_role"] == "normal")
+        original_read_text = Path.read_text
+        for old, new in (("mipmaps/generate=true", "mipmaps/generate=false"),
+                         ("compress/normal_map=1", "compress/normal_map=0")):
+            def changed_read_text(path, *args, **kwargs):
+                text = original_read_text(path, *args, **kwargs)
+                return text.replace(old, new) if path == SCRIPTS.parent / (entry["path"] + ".import") else text
+            with self.subTest(setting=old), patch.object(Path, "read_text", changed_read_text):
+                with self.assertRaisesRegex(VisualAssetAuditError, "desktop compression, mipmaps and typed normal"):
+                    _audit_card_frame_r1_entry(SCRIPTS.parent, entry)
+
     def _presentation_entries(self) -> list[dict]:
         manifest = json.loads((SCRIPTS.parent / "client/godot/assets/visual/ASSET_MANIFEST.json").read_text(encoding="utf-8"))
         return [entry for entry in manifest["assets"] if entry["path"] in EXPECTED_PRESENTATION_V2_PATHS]
@@ -280,9 +421,11 @@ class VisualAssetAuditTests(unittest.TestCase):
         anime_manifest = root / ANIME_V1_MANIFEST_RELATIVE_PATH
         card_body_manifest = root / CARD_BODY_MANIFEST_RELATIVE_PATH
         product_card_art_manifest = root / PRODUCT_CARD_ART_MANIFEST_RELATIVE_PATH
-        self.assertEqual(69, result["asset_count"])
-        self.assertEqual(4, result["product_asset_count"])
+        self.assertEqual(73, result["asset_count"])
+        self.assertEqual(8, result["product_asset_count"])
         self.assertEqual(3, result["presentation_v2_asset_count"])
+        self.assertEqual(4, result["card_frame_r1_asset_count"])
+        self.assertGreater(result["card_frame_r1_source_payload_bytes"], 0)
         self.assertEqual(8_302_778, result["presentation_v2_source_payload_bytes"])
         self.assertEqual(0, result["candidate_asset_count"])
         self.assertEqual(14, result["anime_asset_count"])

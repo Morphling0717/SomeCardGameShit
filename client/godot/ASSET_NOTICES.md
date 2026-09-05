@@ -157,6 +157,47 @@ copyright or trademark clearance. Human commercial-release review remains
 required. This registration covers only the three first-stage presentation
 candidates, not completion of the entire presentation overhaul.
 
+## Card Frame R1: separate frame-review candidates
+
+The isolated `--card-frame-review` lane adds four runtime PNGs under
+`assets/visual/anime_v1/card_frame_r1/` on 2026-09-06. They extend the previously
+registered sixty-nine images to seventy-three without changing earlier image
+hashes. This registration is not approval of their appearance or completion
+of all card frames and battle effects.
+
+- `platinum-albedo-source.png` is an original wordless surface-detail candidate
+  created with OpenAI's built-in image generation workflow, without reference
+  images. It is an albedo source, not an AI-authored normal or roughness map.
+- `relief-normal.png`, `relief-ao.png`, and `relief-roughness.png` are **not
+  AI-generated**. Blender 4.5.13 Cycles performs actual selected-to-active
+  NORMAL, AO, and ROUGHNESS bakes from the repository's editable shallow-relief
+  high mesh to its UV receiver. The bake uses the source material's roughness;
+  it does not claim a separately painted variation map.
+
+The separate wordless frame concept is an original built-in image-generation
+candidate retained at repository path `art/card_frame_r1/concept-master-r1.png`.
+That source image, editable `.blend` files, and the authoring script stay
+outside the Godot project and are not runtime images in this package. Runtime
+high/low GLBs are original repository-authored geometry, not conversions or
+copies of another game's frame. Model/source hashes and structural constraints
+are tracked separately in `art/card_frame_r1/frame-manifest.json`.
+
+The exact four runtime image paths, SHA-256 hashes, uses, dates and source
+records are in the shared `ASSET_MANIFEST.json`. Complete generation prompts,
+selected generator outputs, original bake provenance and dated modification
+history are in `card_frame_r1/GENERATION_RECORD.json`, additionally packaged
+as `ANIME_V1_CARD_FRAME_R1_GENERATION_RECORD.json`. Names and gameplay numbers
+remain live text components, not content baked into generated materials.
+
+Both generated images were made specifically for this project under the
+user's development authorization. They contain no intentionally copied
+third-party artwork, frame, logo, signature or watermark. The generated
+candidates and project-authored geometry/bakes are not third-party MIT/OFL
+assets; this provenance statement makes no exclusive-copyright or trademark
+clearance claim. Actual GPU review and human commercial-release review remain
+required. The normal product and previous presentation-review lane remain
+separate; inherited presentation effects are not claimed as new R1 work.
+
 ## Noto Serif CJK SC SemiBold
 
 `assets/fonts/NotoSerifCJKsc-SemiBold.otf` is copied without modification from

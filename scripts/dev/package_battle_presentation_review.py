@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 # SPDX-License-Identifier: GPL-3.0-or-later
-"""Audit and ZIP an existing Windows stage-one review export; never run Godot.
+"""Audit and ZIP an existing Windows review export; never run Godot.
 
 This does not rebuild the export or prove that its bytes came from a commit.
 It preserves the original export and normal product launch. Actual launch and
@@ -26,15 +26,43 @@ from audit_godot_export import (  # noqa: E402
     _audit_font_source, _audit_product_card_export_policy, _audit_windows,
 )
 from audit_visual_assets import audit as audit_visual_assets  # noqa: E402
-from dev.check_godot_mcp_export import check_export  # noqa: E402
+from check_card_frame_r1_assets import audit as audit_card_frame  # noqa: E402
+from dev.check_godot_mcp_export import check_export, check_pck  # noqa: E402
 
 LAUNCHER = "PLAY_BATTLE_PRESENTATION_REVIEW.cmd"
 PACKAGE_MANIFEST = "REVIEW_PACKAGE.json"
 PACKAGE_README = "REVIEW_README.txt"
+ENTRIES = {
+    "battle-presentation": {
+        "argument": "--battle-presentation-review", "launcher": LAUNCHER,
+        "kind": "battle-presentation-v2-stage1-windows-review",
+        "archive": "SomeCardGameShit-battle-presentation-v2-stage1-windows-x86_64-review.zip",
+        "title": "战斗表现 V2 第一阶段：独立实机验收候选",
+        "scope": "本阶段不代表所有卡牌演出完成，素材与演出等待用户视觉批准。",
+    },
+    "card-frame-r1": {
+        "argument": "--card-frame-review", "launcher": "PLAY_CARD_FRAME_R1_REVIEW.cmd",
+        "kind": "card-frame-r1-windows-review",
+        "archive": "SomeCardGameShit-card-frame-r1-windows-x86_64-review.zip",
+        "title": "卡框精修 R1：独立实机验收候选",
+        "scope": "仅验收三张代表卡的新实体卡框、宝石、完整卡名和数字排版；"
+                 "不代表所有卡牌换装，也不将沿用的基础动作计为新增演出。",
+    },
+}
+FRAME_ROOT = "assets/visual/anime_v1/card_frame_r1/"
+FRAME_MODELS = ("frame-master.glb", "frame-master-low.glb")
+FRAME_TEXTURES = ("platinum-albedo-source.png", "relief-normal.png", "relief-ao.png", "relief-roughness.png")
+FRAME_MANIFEST = "art/card_frame_r1/frame-manifest.json"
 
 
 class ReviewPackageError(ValueError):
     pass
+
+
+def _entry(name: str) -> dict[str, str]:
+    if name not in ENTRIES:
+        raise ReviewPackageError(f"unknown review entry: {name}")
+    return ENTRIES[name]
 
 
 def _sha256(path: Path) -> str:
@@ -59,7 +87,8 @@ def _source_identity(repo: Path, allow_worktree: bool) -> dict[str, object]:
             "export_provenance": "operator_supplied_export_not_rebuilt_by_packager"}
 
 
-def _launcher(executable_name: str, identity: dict[str, object]) -> str:
+def _launcher(executable_name: str, identity: dict[str, object], *, entry: str = "battle-presentation") -> str:
+    selected = _entry(entry)
     if not re.fullmatch(r"[A-Za-z0-9_.-]+\.exe", executable_name, re.IGNORECASE):
         raise ReviewPackageError("review executable filename must be shell-safe ASCII")
     # Do not pass a clean-source claim for a dirty build. The review screen then
@@ -67,7 +96,7 @@ def _launcher(executable_name: str, identity: dict[str, object]) -> str:
     source_argument = ("" if identity["worktree_dirty"] else
                        f" --review-source-sha={identity['base_commit']}")
     return ("@echo off\r\nsetlocal\r\n"
-            f'start "" "%~dp0{executable_name}" -- --battle-presentation-review{source_argument}\r\n'
+            f'start "" "%~dp0{executable_name}" -- {selected["argument"]}{source_argument}\r\n'
             "endlocal\r\n")
 
 
@@ -77,6 +106,37 @@ def _audit_finalized(export: Path) -> None:
     _audit_product_card_export_policy()
     _audit_windows(export)
     check_export(export.parent)
+
+
+def _audit_card_frame_export(export: Path) -> dict[str, object]:
+    source_audit = audit_card_frame(ROOT)
+    entries: set[str] = set()
+
+    def inspect(name: str) -> None:
+        lower = name.lower()
+        if re.search(r"\.blend\d*$", lower) or lower.startswith(("art/", "scripts/art/")):
+            raise ReviewPackageError(f"Blender/development source leaked into player PCK: {name}")
+        entries.add(name)
+
+    check_pck(export.with_suffix(".pck"), check_entry=inspect)
+    for name in (*FRAME_MODELS, *FRAME_TEXTURES):
+        resource = FRAME_ROOT + name
+        if resource in entries:
+            continue
+        if not any(resource + suffix in entries for suffix in (".import", ".remap")):
+            raise ReviewPackageError(f"R1 player pack is missing resource entry: {resource}")
+        extension = "scn" if name.endswith(".glb") else "ctex"
+        pattern = rf"\.godot/imported/{re.escape(name)}-[0-9a-f]{{32}}(?:\.[a-z0-9_]+)?\.{extension}"
+        if not any(re.fullmatch(pattern, path) for path in entries):
+            raise ReviewPackageError(f"R1 resource entry has no imported payload: {resource}")
+    for path in export.parent.rglob("*"):
+        if path.is_file() and re.search(r"\.blend\d*$", path.name, re.IGNORECASE):
+            raise ReviewPackageError("Blender source must not be included in the player directory")
+    return {"source_model_manifest_sha256": source_audit["manifest_sha256"],
+            "source_models": source_audit["models"], "packed_model_entries": list(FRAME_MODELS),
+            "packed_texture_entries": list(FRAME_TEXTURES),
+            "packed_importer_bytes_match_source_claimed": False,
+            "gpu_or_user_visual_approval_claimed": False}
 
 
 def _source_files(export: Path) -> list[Path]:
@@ -102,7 +162,9 @@ def _source_files(export: Path) -> list[Path]:
     return sorted(files)
 
 
-def package(export: Path, native_library: Path, output: Path, *, allow_worktree: bool = False) -> dict[str, object]:
+def package(export: Path, native_library: Path, output: Path, *, allow_worktree: bool = False,
+            entry: str = "battle-presentation") -> dict[str, object]:
+    selected = _entry(entry)
     export = export.resolve(strict=True)
     native_library = native_library.resolve(strict=True)
     output = output.resolve()
@@ -112,10 +174,11 @@ def package(export: Path, native_library: Path, output: Path, *, allow_worktree:
         raise ReviewPackageError("ZIP must be outside the source export directory")
     identity = _source_identity(ROOT, allow_worktree)
     _audit_finalized(export)
+    frame_audit = _audit_card_frame_export(export) if entry == "card-frame-r1" else None
     if _sha256(export.parent / "scgs_v05.dll") != _sha256(native_library):
         raise ReviewPackageError("export v05 DLL differs from the explicit current build")
     sources = _source_files(export)
-    launcher = _launcher(export.name, identity)
+    launcher = _launcher(export.name, identity, entry=entry)
     output.parent.mkdir(parents=True, exist_ok=True)
     with tempfile.TemporaryDirectory(prefix="scgs-review-package-", dir=output.parent) as temporary:
         temporary_root = Path(temporary)
@@ -125,15 +188,18 @@ def package(export: Path, native_library: Path, output: Path, *, allow_worktree:
             destination = staged / source.relative_to(export.parent)
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(source, destination)
-        (staged / LAUNCHER).write_bytes(launcher.encode("ascii"))
+        (staged / selected["launcher"]).write_bytes(launcher.encode("ascii"))
+        if frame_audit is not None:
+            # Provenance only: editable .blend/concept/generator stay outside the player.
+            shutil.copy2(ROOT / FRAME_MANIFEST, staged / "licenses/CARD_FRAME_R1_MODEL_MANIFEST.json")
         readme = (
-            "战斗表现 V2 第一阶段：独立实机验收候选\n"
+            selected["title"] + "\n"
             "implementation in progress / visual pending user approval\n\n"
-            f"请先解压整个 ZIP，再双击 {LAUNCHER}。\n"
+            f"请先解压整个 ZIP，再双击 {selected['launcher']}。\n"
             "三入口为 LO-11、AP-11、NT-04；使用真实规则准备场面。\n"
             "请主动揭示后亲手出牌、选择格位/目标或进化；没有自动替您操作。\n"
             f"直接运行 {export.name} 仍打开正常产品菜单。\n"
-            "本阶段不代表所有卡牌演出完成，素材与演出等待用户视觉批准。\n"
+            + selected["scope"] + "\n"
             "此包未正式签名；打包审计不等于已经实际启动或通过 GPU 验收。\n"
             "若验收入口不可见或有错误，请反馈；不要把旧主菜单当成新演出验收。\n"
             "个人验收轨迹保存在 Godot user://review-evidence，可能包含私密对局选择，\n"
@@ -145,19 +211,24 @@ def package(export: Path, native_library: Path, output: Path, *, allow_worktree:
         )
         (staged / PACKAGE_README).write_text(readme, encoding="utf-8-sig", newline="\n")
         manifest: dict[str, object] = {
-            "schema_version": 1, "kind": "battle-presentation-v2-stage1-windows-review",
+            "schema_version": 1, "kind": selected["kind"],
             "status": "implementation_in_progress_pending_visual_user_approval",
-            "source": identity, "executable": export.name, "launcher": LAUNCHER,
-            "launch_arguments": ["--", "--battle-presentation-review"] + (
+            "source": identity, "executable": export.name, "launcher": selected["launcher"],
+            "launch_arguments": ["--", selected["argument"]] + (
                 [] if identity["worktree_dirty"] else [f"--review-source-sha={identity['base_commit']}"]
             ),
             "native_sha256": _sha256(native_library), "runtime_launched_by_packager": False,
             "files": [{"path": file.relative_to(staged).as_posix(), "sha256": _sha256(file)}
                       for file in sorted(staged.rglob("*")) if file.is_file()],
         }
+        if frame_audit is not None:
+            manifest["card_frame_r1_audit"] = frame_audit
+            manifest["recommended_archive_name"] = selected["archive"]
         (staged / PACKAGE_MANIFEST).write_text(json.dumps(manifest, ensure_ascii=False, indent=2) + "\n",
                                               encoding="utf-8", newline="\n")
         _audit_finalized(staged / export.name)
+        if frame_audit is not None:
+            _audit_card_frame_export(staged / export.name)
         candidate = temporary_root / "candidate.zip"
         with zipfile.ZipFile(candidate, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
             for item in sorted(staged.rglob("*")):
@@ -172,6 +243,8 @@ def package(export: Path, native_library: Path, output: Path, *, allow_worktree:
                 raise ReviewPackageError("ZIP CRC round-trip failed")
             archive.extractall(unpacked)  # Only our newly authored normalized paths.
         _audit_finalized(unpacked / export.name)
+        if frame_audit is not None:
+            _audit_card_frame_export(unpacked / export.name)
         for entry in manifest["files"]:
             if _sha256(unpacked / entry["path"]) != entry["sha256"]:
                 raise ReviewPackageError("ZIP file-hash round-trip failed")
@@ -189,9 +262,12 @@ def main() -> int:
     parser.add_argument("--native-library", required=True, type=Path)
     parser.add_argument("--output", required=True, type=Path)
     parser.add_argument("--allow-worktree", action="store_true")
+    parser.add_argument("--entry", choices=tuple(ENTRIES), default="battle-presentation",
+                        help="explicit review lane; the existing V2 default remains unchanged")
     args = parser.parse_args()
     try:
-        result = package(args.export, args.native_library, args.output, allow_worktree=args.allow_worktree)
+        result = package(args.export, args.native_library, args.output, allow_worktree=args.allow_worktree,
+                         entry=args.entry)
     except (OSError, ValueError, RuntimeError, subprocess.CalledProcessError, zipfile.BadZipFile) as error:
         print(f"review packaging failed: {error}", file=sys.stderr)
         return 1

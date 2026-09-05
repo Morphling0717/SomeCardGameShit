@@ -6,6 +6,7 @@ using Scgs.GodotClient.Native;
 using Scgs.GodotClient.PresentationV2;
 using Scgs.GodotClient.UI;
 using Scgs.GodotClient.Visuals;
+using Scgs.Hotseat.ProductReview;
 using V05 = Scgs.Client.V05;
 
 namespace Scgs.GodotClient.Bootstrap;
@@ -35,10 +36,8 @@ public sealed partial class BootstrapController : Control
         IReadOnlyList<string> arguments = OS.GetCmdlineUserArgs();
         try
         {
-            if (arguments.Contains("--battle-presentation-review"))
+            if (ProductReviewLaunchOptions.Parse(arguments) is not null)
             {
-                if (arguments.Contains("--ci-product-smoke"))
-                    throw new ArgumentException("Battle presentation review cannot replace product CI smoke.");
                 _presentationReview = GD.Load<PackedScene>("res://scenes/review/BattlePresentationReview.tscn")
                     .Instantiate<BattlePresentationReviewScreen>();
                 _presentationReview.ConfigureArguments(arguments);

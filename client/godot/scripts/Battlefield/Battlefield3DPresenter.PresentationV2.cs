@@ -49,6 +49,9 @@ public sealed partial class Battlefield3DPresenter
             return true;
         }
         else return false;
+        if(Scgs.GodotClient.PresentationV2.CardFrameReviewRuntime.UsesRefinedFace(endpoint?.DesignId) &&
+            location?.Zone is V05.Zone.MainBoard or V05.Zone.Tactic or V05.Zone.Field)
+            local=local.ScaledLocal(Vector3.One*1.16f);
         worldPose = GlobalTransform * local;
         return true;
     }
@@ -102,7 +105,8 @@ public sealed partial class Battlefield3DPresenter
             actor = RentCard();
             presentationOriginals[id] = actor;
         }
-        actor.BindProductFace(face, GlobalTransform.AffineInverse() * pose, BattlefieldCardLayout.Field);
+        actor.BindProductFace(face, GlobalTransform.AffineInverse() * pose, BattlefieldCardLayout.Field,
+            reviewPoseAlreadyScaled:true);
     }
 
     internal void ClearPresentationActors()

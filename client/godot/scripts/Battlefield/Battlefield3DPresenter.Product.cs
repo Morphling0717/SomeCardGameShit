@@ -17,7 +17,15 @@ public sealed partial class Battlefield3DPresenter
     {
         SetVisualCatalog(ProductBackCatalog);
         ConfigureVisualProfile(BattlefieldVisualProfile.AnimeV1);
-        if (Scgs.GodotClient.PresentationV2.BattlePresentationReviewRuntime.Enabled &&
+        if(Scgs.GodotClient.PresentationV2.CardFrameReviewRuntime.Enabled &&
+            _animeArena?.GetNodeOrNull<WorldEnvironment>("Environment") is {} env)
+        {
+            env.Environment=(Godot.Environment)env.Environment.Duplicate();
+            Scgs.GodotClient.PresentationV2.CardFrameLighting.Apply(env.Environment);
+            _camera.SetCardFrameReviewFraming();
+        }
+        if ((Scgs.GodotClient.PresentationV2.BattlePresentationReviewRuntime.Enabled ||
+             Scgs.GodotClient.PresentationV2.CardFrameReviewRuntime.Enabled) &&
             _animeArena?.GetNodeOrNull<MeshInstance3D>("PaintedVista") is { } vista)
         {
             var shader = new Shader { Code = """

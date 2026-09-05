@@ -635,7 +635,8 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         CardFaceComposition composition,
         Transform3D transform,
         BattlefieldCardLayout layout,
-        BattlefieldSurfaceRef? surface = null)
+        BattlefieldSurfaceRef? surface = null,
+        bool reviewPoseAlreadyScaled = false)
     {
         ArgumentNullException.ThrowIfNull(composition);
         EnsureBuilt();
@@ -646,6 +647,10 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         ApplyShadowPolicy(layout);
 
         composition = BattlePresentationReviewRuntime.Compose(composition);
+        composition = CardFrameMaster.Compose(composition);
+        if(!reviewPoseAlreadyScaled && composition.Layout.Context==CardFaceContext.Field &&
+            CardFrameReviewRuntime.UsesRefinedFace(composition.ViewModel.DesignId))
+            transform=transform.ScaledLocal(Vector3.One*1.16f);
 
         _layout = layout;
         Surface = surface;
@@ -672,6 +677,10 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         _stackUnderlayA.Visible = false;
         _stackUnderlayB.Visible = false;
 
+        bool physicalFace=BattlePresentationReviewRuntime.UsesSculptedFace(composition.ViewModel.DesignId) ||
+            CardFrameReviewRuntime.UsesRefinedFace(composition.ViewModel.DesignId);
+        if(!physicalFace)
+        {
         BindProductArtwork(
             _productArtwork,
             composition.Layout.ArtWindow,
@@ -743,8 +752,8 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             composition.Layout.CountdownGem,
             composition.ViewModel.Countdown,
             composition.FrameStyle.CountdownGemPath);
-
-        if (BattlePresentationReviewRuntime.UsesSculptedFace(composition.ViewModel.DesignId))
+        }
+        if (physicalFace)
         {
             // One continuous face replaces the separate decorative planes. Clear
             // their identity textures as well as hiding them.
@@ -765,6 +774,16 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             _sculptedBody.Bind(composition);
         }
         ApplyProductLabels(composition);
+        if(CardFrameReviewRuntime.UsesRefinedFace(composition.ViewModel.DesignId))
+        {
+            RefinedCardTypography.Apply(_faceLabel,composition.Layout.NameText,composition.ViewModel.DisplayName,false,
+                composition.ViewModel.Faction==ProductCardFaction.Pactmage?new Color("f3e8d2"):new Color("29243b"));
+            RefinedCardTypography.Apply(_costLabel,composition.Layout.CostText,_costLabel.Text,true);
+            if(composition.Layout.AttackText is {} attackSlot)
+                RefinedCardTypography.Apply(_attackLabel,attackSlot,_attackLabel.Text,true);
+            if(composition.Layout.HealthText is {} healthSlot)
+                RefinedCardTypography.Apply(_healthLabel,healthSlot,_healthLabel.Text,true);
+        }
         foreach (MeshInstance3D oldPlate in LegacyBadgePlates)
         {
             oldPlate.Visible = false;
@@ -792,7 +811,8 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             BattlefieldHighlightKind.Destination => "◎",
             _ => string.Empty,
         };
-        _stateLabel.Visible = _stateLabel.Text.Length > 0;
+        _stateLabel.Visible = _stateLabel.Text.Length > 0 &&
+            !CardFrameReviewRuntime.UsesRefinedFace(_productFace?.ViewModel.DesignId);
         UpdateHighlight();
     }
 
@@ -1225,7 +1245,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
                 _highlight == BattlefieldHighlightKind.Selected ? 2f : 1f);
             return;
         }
-        if (BattlePresentationReviewRuntime.Enabled && _productFace is not null)
+        if ((BattlePresentationReviewRuntime.Enabled || CardFrameReviewRuntime.Enabled) && _productFace is not null)
         {
             _outlineMesh.Mesh = ReviewContourMesh;
             _outlineMesh.RotationDegrees = new(-90,0,0);
@@ -1772,8 +1792,10 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
     {
         CardFaceViewModel view = composition.ViewModel;
         bool overlayText = _layout == BattlefieldCardLayout.NearHand &&
-                           !BattlePresentationReviewRuntime.UsesSculptedFace(view.DesignId);
-        int numberMaximum = BattlePresentationReviewRuntime.UsesSculptedFace(view.DesignId) ? 84 : 38;
+                           !BattlePresentationReviewRuntime.UsesSculptedFace(view.DesignId) &&
+                           !CardFrameReviewRuntime.UsesRefinedFace(view.DesignId);
+        int numberMaximum = BattlePresentationReviewRuntime.UsesSculptedFace(view.DesignId) ||
+            CardFrameReviewRuntime.UsesRefinedFace(view.DesignId) ? 84 : 38;
         ConfigureProductLabel(
             _faceLabel,
             composition.Layout.NameText,
@@ -1855,6 +1877,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         int horizontalFitPaddingPixels,
         int verticalFitPaddingPixels)
     {
+        label.Scale = Vector3.One;
         const float pixelSize = 0.0066f;
         float width = rect.Width * BattlefieldPerspective.CardWidth;
         float height = rect.Height * ProductFaceDepth;

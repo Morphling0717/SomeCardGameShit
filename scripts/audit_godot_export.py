@@ -64,6 +64,7 @@ NATIVE_LAYOUTS = {
 
 
 LICENSE_MARKERS = {
+    "ANIME_V1_CARD_FRAME_R1_GENERATION_RECORD.json": '"card-frame-r1-generation-record"',
     "ANIME_V1_PRESENTATION_V2_GENERATION_RECORD.json": '"chroma"',
     "GPL-3.0-or-later.txt": "GNU GENERAL PUBLIC LICENSE",
     "THIRD_PARTY_NOTICES.md": "JSON for Modern C++",
@@ -90,6 +91,8 @@ LICENSE_MARKERS = {
 }
 
 EXACT_PACKAGED_SOURCE_FILES = {
+    "ANIME_V1_CARD_FRAME_R1_GENERATION_RECORD.json":
+        ROOT / "client/godot/assets/visual/anime_v1/card_frame_r1/GENERATION_RECORD.json",
     "ANIME_V1_PRESENTATION_V2_GENERATION_RECORD.json":
         ROOT / "client/godot/assets/visual/anime_v1/presentation_v2/GENERATION_RECORD.json",
     "ANIME_V1_SHARED_ASSET_MANIFEST.json":

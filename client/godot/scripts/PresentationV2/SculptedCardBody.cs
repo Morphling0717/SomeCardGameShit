@@ -28,18 +28,22 @@ internal sealed partial class SculptedCardBody : Node3D
     private MeshInstance3D edge = null!;
     private MeshInstance3D shadow = null!;
     private Texture2D? sharedCardBack;
-    internal bool HasIdentity { get; private set; }
+    private RefinedCardBody? refined;
+    private bool legacyIdentity;
+    internal bool HasIdentity { get => legacyIdentity || refined?.HasIdentity == true; private set => legacyIdentity=value; }
 
     // Structural evidence reads the actual visible mesh and bound shader
     // resources. It is not a substitute for the final GPU number/crest ROIs.
-    internal bool CiFrontSurfaceBound => HasIdentity && IsVisibleInTree() &&
+    internal bool CiFrontSurfaceBound => refined?.IsBound==true || (legacyIdentity && IsVisibleInTree() &&
         front is not null && front.IsVisibleInTree() && front.Mesh is not null &&
         front.MaterialOverride == frontMaterial && frontMaterial.Shader == FrontShader &&
         frontMaterial.GetShaderParameter("artwork").AsGodotObject() is Texture2D &&
-        frontMaterial.GetShaderParameter("engraving").AsGodotObject() is Texture2D;
-    internal float CiFrontSurfaceLocalY => front is null ? 0 : (Transform * front.Transform).Origin.Y;
+        frontMaterial.GetShaderParameter("engraving").AsGodotObject() is Texture2D);
+    internal float CiFrontSurfaceLocalY => refined?.IsBound==true ? CardFrameMaster.HighestSurface :
+        front is null ? 0 : (Transform * front.Transform).Origin.Y;
     internal bool CiCostSocketBound => CiFrontSurfaceBound;
-    internal bool CiFollowerSocketsBound => CiFrontSurfaceBound && frontMaterial.GetShaderParameter("follower").AsBool();
+    internal bool CiFollowerSocketsBound => refined?.IsBound==true ? refined.Follower :
+        CiFrontSurfaceBound && frontMaterial.GetShaderParameter("follower").AsBool();
     internal bool CiTypeCrestBound => CiFrontSurfaceBound;
 
     internal bool CiUsesSharedCardBack(Texture2D expected) =>
@@ -72,6 +76,14 @@ internal sealed partial class SculptedCardBody : Node3D
     internal void Bind(CardFaceComposition face)
     {
         if (!IsNodeReady()) throw new InvalidOperationException("Attach the card body before binding it.");
+        ClearSensitive();
+        if(CardFrameReviewRuntime.UsesRefinedFace(face.ViewModel.DesignId))
+        {
+            if(refined is null){refined=new RefinedCardBody{Name="RefinedMaster"};AddChild(refined);}
+            edge.Visible=false;front.Visible=false;shadow.Visible=false;
+            refined.Bind(face);Visible=true;return;
+        }
+        edge.Visible=true;front.Visible=true;
         sharedCardBack = null;
         frontMaterial.SetShaderParameter("anonymous_back", false);
         shadow.Visible = true;
@@ -110,6 +122,7 @@ internal sealed partial class SculptedCardBody : Node3D
         if (!IsNodeReady()) throw new InvalidOperationException("Attach the card body before binding it.");
         ClearSensitive();
         sharedCardBack = cardBack;
+        edge.Visible=true;front.Visible=true;
         frontMaterial.SetShaderParameter("artwork", cardBack);
         frontMaterial.SetShaderParameter("anonymous_back", true);
         edgeMaterial.AlbedoColor = new Color("707383");
@@ -119,11 +132,19 @@ internal sealed partial class SculptedCardBody : Node3D
         Visible = true;
     }
 
-    internal void SetHighlight(float value) => frontMaterial.SetShaderParameter("highlight", value);
+    internal void SetHighlight(float value)
+    {
+        if(refined?.HasIdentity==true)refined.SetHighlight(value);
+        else frontMaterial.SetShaderParameter("highlight",value);
+    }
     private static Vector4 Rect(CardFaceRect rect) => new(rect.X, rect.Y, rect.Width, rect.Height);
-    internal void SetEnergy(float value) => frontMaterial.SetShaderParameter("energy", value);
+    internal void SetEnergy(float value)
+    {
+        if(refined?.HasIdentity!=true)frontMaterial.SetShaderParameter("energy",value);
+    }
     internal void ClearSensitive()
     {
+        refined?.ClearSensitive();
         Visible = false; HasIdentity = false;
         sharedCardBack = null;
         frontMaterial.SetShaderParameter("artwork", default(Variant));

@@ -205,6 +205,13 @@ public sealed class BattlefieldHandRig
         float viewportHeight = MathF.Max(1.0f, _layout.ViewportSize.Y);
         float worldHeight = 2.0f * cameraDepth *
                             MathF.Tan(Mathf.DegToRad(_camera.Fov) * 0.5f);
+        if (_camera.Projection == Camera3D.ProjectionType.Orthogonal)
+        {
+            // Project through the real lens: the fixed screen-space hand must
+            // not shrink with a table-lens change or depend on camera depth.
+            worldHeight = _camera.ProjectPosition(new Vector2(0, viewportHeight), cameraDepth)
+                .DistanceTo(_camera.ProjectPosition(Vector2.Zero, cameraDepth));
+        }
         float scale = pixelHeight * worldHeight /
                       (viewportHeight * BattlefieldPerspective.CardDepth);
         Basis basis = new(

@@ -43,6 +43,14 @@ EXPECTED_PRESENTATION_V2_PATHS = {
     (PRESENTATION_V2_ROOT / name).as_posix()
     for name in ("engraved-platinum.png", "LO-11-cutin.png", "AP-11-cutin.png")
 }
+CARD_FRAME_R1_ROOT = VISUAL_ROOT / "anime_v1/card_frame_r1"
+CARD_FRAME_R1_RECORD = (CARD_FRAME_R1_ROOT / "GENERATION_RECORD.json").as_posix()
+CARD_FRAME_R1_ROLES = {
+    (CARD_FRAME_R1_ROOT / name).as_posix(): role for name, role in (
+        ("platinum-albedo-source.png", "albedo"), ("relief-normal.png", "normal"),
+        ("relief-ao.png", "ao"), ("relief-roughness.png", "roughness"))
+}
+EXPECTED_CARD_FRAME_R1_PATHS = set(CARD_FRAME_R1_ROLES)
 R3_CANDIDATE_FLOOR = (
     VISUAL_ROOT / "arena/r3_industrial_floor_albedo.png"
 ).as_posix()
@@ -168,11 +176,106 @@ EXPECTED_PRESENTATION_V2_FIELDS = EXPECTED_ASSET_FIELDS | {
     "source_images", "modification_history", "generation_record", "authorization",
     "transparency",
 }
+EXPECTED_CARD_FRAME_R1_FIELDS = EXPECTED_ASSET_FIELDS | {
+    "material_role", "modification_history", "generation_record", "authorization",
+}
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class VisualAssetAuditError(ValueError):
     """Raised when the committed visual inventory is incomplete or unsafe."""
+
+
+def _audit_card_frame_r1_entry(repo_root: Path, entry: dict[str, Any]) -> None:
+    """Keep generated albedo/concept separate from three actual Blender bakes."""
+    relative = entry.get("path")
+    role = CARD_FRAME_R1_ROLES.get(relative)
+    if (set(entry) != EXPECTED_CARD_FRAME_R1_FIELDS or role is None
+            or entry["material_role"] != role or entry["date"] != "2026-09-06"
+            or entry["generation_record"] != CARD_FRAME_R1_RECORD):
+        raise VisualAssetAuditError("Card Frame R1 requires exact provenance fields, role and date")
+    if not isinstance(entry["authorization"], str) or not entry["authorization"].strip():
+        raise VisualAssetAuditError("Card Frame R1 authorization/review boundary is missing")
+    history = entry["modification_history"]
+    if not isinstance(history, list) or not history or any(
+            not isinstance(item, str) or not item.startswith("2026-09-06: ") for item in history):
+        raise VisualAssetAuditError("Card Frame R1 dated modification history is missing")
+    method = entry["generation_method"]
+    if not isinstance(method, str) or ("OpenAI built-in image generation" if role == "albedo"
+            else f"Cycles selected-to-active {role.upper()} bake") not in method:
+        raise VisualAssetAuditError("Card Frame R1 must distinguish generated albedo from actual bakes")
+    record = _load_json(repo_root / CARD_FRAME_R1_RECORD)
+    if (not isinstance(record, dict) or record.get("schema_version") != 1
+            or record.get("kind") != "card-frame-r1-generation-record"
+            or record.get("date") != "2026-09-06"
+            or record.get("approval") != "candidate_not_user_approved"):
+        raise VisualAssetAuditError("Card Frame R1 requires its candidate generation record")
+
+    def verify_file(item: Any, expected: str, dimensions: tuple[int, int] | None = None) -> None:
+        if not isinstance(item, dict) or item.get("path", item.get("committed_path")) != expected:
+            raise VisualAssetAuditError("Card Frame R1 source/output path does not match its role")
+        path = repo_root / expected
+        if not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != item.get("sha256"):
+            raise VisualAssetAuditError("Card Frame R1 source/output SHA-256 mismatch")
+        if dimensions is not None and (_png_dimensions(path) != dimensions or path.read_bytes()[24:26] != b"\x08\x02"):
+            raise VisualAssetAuditError("Card Frame R1 expected RGB8 dimensions do not match the source")
+
+    generated = record.get("generated_assets")
+    if not isinstance(generated, list) or len(generated) != 2 or {
+            item.get("id") for item in generated if isinstance(item, dict)
+            } != {"concept-master-r1", "platinum-albedo-source"}:
+        raise VisualAssetAuditError("Card Frame R1 requires exactly the original concept and albedo prompts")
+    for item in generated:
+        if (not isinstance(item.get("prompt"), str) or len(item["prompt"].strip()) < 100
+                or item.get("reference_images") != []
+                or not isinstance(item.get("selected_output"), str) or not item["selected_output"].strip()
+                or item.get("copied_without_raster_editing") is not True):
+            raise VisualAssetAuditError("Card Frame R1 complete original prompt and source history are required")
+        is_concept = item["id"] == "concept-master-r1"
+        dimensions = (1086, 1448) if is_concept else (1254, 1254)
+        if item.get("dimensions") != list(dimensions):
+            raise VisualAssetAuditError("Card Frame R1 generation dimensions must match the source")
+        expected = "art/card_frame_r1/concept-master-r1.png" if is_concept else (
+            CARD_FRAME_R1_ROOT / "platinum-albedo-source.png").as_posix()
+        verify_file(item, expected, dimensions)
+        if relative == expected and item["sha256"] != entry["sha256"]:
+            raise VisualAssetAuditError("Card Frame R1 generation record and runtime inventory disagree")
+    bake = record.get("bake")
+    if (not isinstance(bake, dict) or bake.get("ai_generated") is not False
+            or bake.get("engine") != "CYCLES" or bake.get("blender_version") != "4.5.13"
+            or bake.get("selected_to_active") is not True
+            or bake.get("source_mesh") != "EditableShallowIncisions"
+            or bake.get("receiver_mesh") != "BakeReceiver"
+            or bake.get("dimensions") != [1024, 1024]
+            or bake.get("source_color_space") != "Non-Color"):
+        raise VisualAssetAuditError("Card Frame R1 requires non-AI selected-to-active Cycles bake provenance")
+    for key, expected in (("authoring_script", "scripts/art/build_card_frame_r1.py"),
+                          ("source_hash_manifest", "art/card_frame_r1/frame-manifest.json")):
+        if bake.get(key) != expected or not (repo_root / expected).is_file():
+            raise VisualAssetAuditError("Card Frame R1 editable bake source references are missing")
+    verify_file(bake.get("editable_source"), "art/card_frame_r1/engraving-bake.blend")
+    outputs = bake.get("outputs")
+    if not isinstance(outputs, list) or len(outputs) != 3 or {
+            item.get("role") for item in outputs if isinstance(item, dict)
+            } != {"normal", "ao", "roughness"}:
+        raise VisualAssetAuditError("Card Frame R1 requires exactly three typed bake outputs")
+    for item in outputs:
+        if item.get("bake_type") != item["role"].upper():
+            raise VisualAssetAuditError("Card Frame R1 bake type does not match its material role")
+        expected = (CARD_FRAME_R1_ROOT / f"relief-{item['role']}.png").as_posix()
+        verify_file(item, expected, (1024, 1024))
+        if relative == expected and item["sha256"] != entry["sha256"]:
+            raise VisualAssetAuditError("Card Frame R1 bake record and runtime inventory disagree")
+    try:
+        import_text = (repo_root / f"{relative}.import").read_text(encoding="utf-8")
+    except (FileNotFoundError, UnicodeDecodeError) as error:
+        raise VisualAssetAuditError("Card Frame R1 Godot import sidecar is missing") from error
+    expected_source = "res://" + relative.removeprefix("client/godot/")
+    required = {'"vram_texture": true', "compress/mode=2", "compress/high_quality=true",
+                "mipmaps/generate=true", f"compress/normal_map={1 if role == 'normal' else 0}",
+                f'source_file="{expected_source}"'}
+    if missing := sorted(setting for setting in required if setting not in import_text):
+        raise VisualAssetAuditError(f"Card Frame R1 requires desktop compression, mipmaps and typed normal import: {missing}")
 
 
 def _audit_presentation_v2_entry(repo_root: Path, entry: dict[str, Any]) -> None:
@@ -501,6 +604,9 @@ def audit(
                 EXPECTED_PRESENTATION_V2_FIELDS
                 if isinstance(entry, dict) and isinstance(entry.get("path"), str)
                 and entry["path"] in EXPECTED_PRESENTATION_V2_PATHS
+                else EXPECTED_CARD_FRAME_R1_FIELDS
+                if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+                and entry["path"] in EXPECTED_CARD_FRAME_R1_PATHS
                 else EXPECTED_ASSET_FIELDS
             )
             if not isinstance(entry, dict) or set(entry) != expected_asset_fields:
@@ -562,6 +668,8 @@ def audit(
                 ) from error
             if relative in EXPECTED_PRESENTATION_V2_PATHS:
                 _audit_presentation_v2_entry(repo_root, entry)
+            elif relative in EXPECTED_CARD_FRAME_R1_PATHS:
+                _audit_card_frame_r1_entry(repo_root, entry)
 
         entry_count += len(entries)
         registered_by_manifest[current_manifest_path] = current_registered
@@ -606,10 +714,10 @@ def audit(
     product_card_art_estimated_vram_bytes = 0
     product_card_art_source_payload_bytes = 0
     if enforce_product_set:
-        expected_product_paths = {PRODUCT_FALLBACK} | EXPECTED_PRESENTATION_V2_PATHS
+        expected_product_paths = {PRODUCT_FALLBACK} | EXPECTED_PRESENTATION_V2_PATHS | EXPECTED_CARD_FRAME_R1_PATHS
         if product_registered != expected_product_paths:
             raise VisualAssetAuditError(
-                "Product shared manifest must contain the AnimeV1 fallback and exact three Presentation V2 candidates; "
+                "Product shared manifest must contain the AnimeV1 fallback, exact three Presentation V2 and four Card Frame R1 candidates; "
                 f"missing={sorted(expected_product_paths - product_registered)}, "
                 f"unexpected={sorted(product_registered - expected_product_paths)}"
             )
@@ -801,6 +909,10 @@ def audit(
         "asset_count": entry_count,
         "product_asset_count": len(product_registered),
         "presentation_v2_asset_count": len(product_registered & EXPECTED_PRESENTATION_V2_PATHS),
+        "card_frame_r1_asset_count": len(product_registered & EXPECTED_CARD_FRAME_R1_PATHS),
+        "card_frame_r1_source_payload_bytes": sum(
+            (repo_root / path).stat().st_size for path in product_registered & EXPECTED_CARD_FRAME_R1_PATHS
+        ),
         "presentation_v2_source_payload_bytes": sum(
             (repo_root / path).stat().st_size for path in product_registered & EXPECTED_PRESENTATION_V2_PATHS
         ),
@@ -845,7 +957,7 @@ def main() -> int:
         return 1
     print(
         f"audited {result['product_asset_count']} AnimeV1 shared/presentation assets "
-        f"({result['presentation_v2_asset_count']} first-stage Presentation V2 candidates) and "
+        f"({result['presentation_v2_asset_count']} Presentation V2 and {result['card_frame_r1_asset_count']} Card Frame R1 candidates) and "
         f"{result['candidate_asset_count']} R3 candidate assets and "
         f"{result['anime_asset_count']} Gate 6A AnimeV1 assets; "
         f"{result['card_body_asset_count']} Gate 6A-R1 card-body assets; "

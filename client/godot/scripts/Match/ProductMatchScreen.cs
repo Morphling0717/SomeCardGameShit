@@ -670,8 +670,11 @@ public sealed partial class ProductMatchScreen : Control
         direct.SetAnchorsPreset(LayoutPreset.TopLeft);
         direct.Position = new Vector2((viewport.X - width) * 0.5f, 82.0f);
         direct.Size = new Vector2(width, 112.0f);
-        if (BattlePresentationReviewRuntime.Enabled && controller?.State is { Snapshot: { } view } state &&
+        if ((BattlePresentationReviewRuntime.Enabled || CardFrameReviewRuntime.Enabled) && controller?.State is { Snapshot: { } view } state &&
             TryFindSurface(view, state.Selection.Source, out BattlefieldSurfaceRef source) &&
+            // A hand card sits below the board. Anchoring its full prompt above
+            // it would cover legal placement slots with an invisible GUI hitbox.
+            !(CardFrameReviewRuntime.Enabled && source.Kind == BattlefieldSurfaceKind.HandCard) &&
             battlefield.TryGetScreenBounds(source, out Rect2 bounds))
         {
             float left = Math.Clamp(bounds.GetCenter().X - width * .5f, 300f, viewport.X - width - 260f);

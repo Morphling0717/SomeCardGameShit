@@ -24,7 +24,7 @@ internal sealed partial class ProductPresentationDirector
     /// <summary>Read-only, bounded history of actual review animations; no native access.</summary>
     public string CiInspectPresentationPerformance()
     {
-        if (!BattlePresentationReviewRuntime.Enabled)
+        if (!BattlePresentationReviewRuntime.Enabled && !CardFrameReviewRuntime.Enabled)
             return "{\"available\":false,\"reason\":\"review_entry_required\"}";
         return JsonSerializer.Serialize(new
         {
@@ -52,7 +52,7 @@ internal sealed partial class ProductPresentationDirector
 
     private void BeginPerformanceRecording(ProductPresentationBatch batch, bool reduceMotion)
     {
-        if (!BattlePresentationReviewRuntime.Enabled) return;
+        if (!BattlePresentationReviewRuntime.Enabled && !CardFrameReviewRuntime.Enabled) return;
         if (_performanceRecording?.Window.AwaitingDeferredCleanup == true)
             _performanceRecording.Window.AbandonDeferredCleanup("superseded_before_two_drawn_frames");
         if (!_performanceConnected)

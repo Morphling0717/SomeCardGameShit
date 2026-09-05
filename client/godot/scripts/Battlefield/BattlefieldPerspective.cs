@@ -33,6 +33,11 @@ public static class BattlefieldPerspective
     private const float FarHandPreferredScale = 0.64f;
     private const float MinimumVisibleHandStrip = 0.46f;
     private const float SideZoneX = 7.1f;
+    // The R1 equal-scale table lens retains the five original card slots.
+    // Pull only the side furniture into its HUD-safe lane; never compress a
+    // card frame or push its numeric feet outside the unit-slot footprint.
+    private static float SideLaneX => Scgs.GodotClient.PresentationV2.CardFrameReviewRuntime.Enabled
+        ? 6.45f : SideZoneX;
     private const float ZonePileScale = 0.82f;
     private const float DeckDepth = 1.25f;
     private const float GraveyardDepth = 3.45f;
@@ -89,7 +94,10 @@ public static class BattlefieldPerspective
     public static Transform3D LeaderTransform(PlayerId player, PlayerId viewer)
     {
         float z = IsNear(player, viewer) ? CornerZoneDepth : -CornerZoneDepth;
-        float x = IsNear(player, viewer) ? -7.15f : 7.15f;
+        float leaderX = SideLaneX + .05f;
+        if (Scgs.GodotClient.PresentationV2.CardFrameReviewRuntime.Enabled)
+            leaderX = IsNear(player, viewer) ? 7.0f : 6.7f;
+        float x = IsNear(player, viewer) ? -leaderX : leaderX;
         return CreateFlatTransform(player, viewer, new Vector3(x, 0.26f, z));
     }
 
@@ -104,7 +112,7 @@ public static class BattlefieldPerspective
         return CreateFlatTransform(
             player,
             viewer,
-            new Vector3(-SideZoneX * side, 0.24f, 3.42f * side),
+            new Vector3(-SideLaneX * side, 0.24f, 3.42f * side),
             0.76f);
     }
 
@@ -176,7 +184,7 @@ public static class BattlefieldPerspective
         ValidateCountAndIndex(count, index);
         float side = IsNear(player, viewer) ? 1.0f : -1.0f;
         float z = StandbyDepth * side;
-        float xBase = -SideZoneX * side;
+        float xBase = -SideLaneX * side;
         float offset = (index - ((count - 1) / 2.0f)) * 0.26f * side;
         return CreateFlatTransform(
             player,
@@ -191,7 +199,7 @@ public static class BattlefieldPerspective
         return CreateFlatTransform(
             player,
             viewer,
-            new Vector3(-SideZoneX * side, 0.3f, StandbyDepth * side),
+            new Vector3(-SideLaneX * side, 0.3f, StandbyDepth * side),
             ZonePileScale);
     }
 
@@ -204,9 +212,9 @@ public static class BattlefieldPerspective
         float side = near ? 1.0f : -1.0f;
         Vector3 position = zone switch
         {
-            Zone.Deck => new Vector3(SideZoneX * side, 0.25f, DeckDepth * side),
-            Zone.Graveyard => new Vector3(SideZoneX * side, 0.25f, GraveyardDepth * side),
-            Zone.Archive => new Vector3(SideZoneX * side, 0.25f, ArchiveDepth * side),
+            Zone.Deck => new Vector3(SideLaneX * side, 0.25f, DeckDepth * side),
+            Zone.Graveyard => new Vector3(SideLaneX * side, 0.25f, GraveyardDepth * side),
+            Zone.Archive => new Vector3(SideLaneX * side, 0.25f, ArchiveDepth * side),
             _ => throw new ArgumentOutOfRangeException(nameof(zone), zone, "Unsupported pile zone."),
         };
         return CreateFlatTransform(player, viewer, position, ZonePileScale);

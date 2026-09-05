@@ -14,8 +14,12 @@ namespace Scgs.GodotClient.PresentationV2;
 public sealed partial class BattlePresentationReviewScreen : Control
 {
     private const string BaseCommit = "f0602683ea7cd37e2e327a9f389d5f2193c14c02";
+    private const string CardFrameBaseCommit = "a7eb363ba0b3790cced6dc03646bbd8ca2c2aa0c";
     private string sourceSha = BaseCommit;
     private bool suppliedSha;
+    private bool explicitlyConfiguredEntry;
+    private ProductReviewLaunchOptions reviewOptions = ProductReviewLaunchOptions.Parse(
+        new[] { "--battle-presentation-review" })!;
     private Control menu = null!;
     private Control matchHost = null!;
     private Control toolbar = null!;
@@ -28,21 +32,47 @@ public sealed partial class BattlePresentationReviewScreen : Control
 
     public event Action? ExitRequested;
 
+    // The inherited CardFrameReview.tscn can be run with Editor F6/MCP without
+    // requiring command-line arguments. The original scene keeps false.
+    [Export]
+    public bool CardFrameReview { get; set; }
+
+    /// <summary>
+    /// Read-only layout fixture catalogue, not rendered evidence and never a
+    /// mutation of the prepared native match. Each consumer must preserve the
+    /// explicit synthetic label in any separate visual fixture it constructs.
+    /// </summary>
+    public string ReviewDescribeSyntheticSamples() => JsonSerializer.Serialize(new
+    {
+        enabled = CardFrameReviewRuntime.Enabled,
+        synthetic = true,
+        rendered = false,
+        native_session_accessed = false,
+        evidence_kind = "synthetic-card-frame-layout-catalogue-not-gpu-evidence",
+        samples = CardFrameReviewRuntime.Enabled ? CardFrameSyntheticSamples.All : [],
+    }, new JsonSerializerOptions { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower });
+
     public void ConfigureArguments(IReadOnlyList<string> arguments)
     {
-        string[] values = arguments.Where(value => value.StartsWith("--review-source-sha=", StringComparison.Ordinal)).ToArray();
-        if (values.Length > 1) throw new ArgumentException("Only one --review-source-sha may be supplied.");
-        if (values.Length == 0) return;
-        string value = values[0]["--review-source-sha=".Length..];
-        if (value.Length != 40 || value.Any(character => !Uri.IsHexDigit(character)))
-            throw new ArgumentException("--review-source-sha requires a full 40-character commit hash.");
-        sourceSha = value.ToLowerInvariant();
-        suppliedSha = true;
+        ProductReviewLaunchOptions? parsed = ProductReviewLaunchOptions.Parse(arguments);
+        explicitlyConfiguredEntry = parsed is not null;
+        reviewOptions = parsed ??
+            ProductReviewLaunchOptions.Parse(arguments.Append("--battle-presentation-review").ToArray())!;
+        sourceSha = reviewOptions.SourceSha ?? BaseCommit;
+        suppliedSha = reviewOptions.SourceSha is not null;
     }
 
     public override void _Ready()
     {
-        BattlePresentationReviewRuntime.Configure(true);
+        if (CardFrameReview)
+        {
+            if (explicitlyConfiguredEntry && !reviewOptions.EnableCardFrame)
+                throw new ArgumentException("The card-frame scene cannot also enable the battle-presentation entry.");
+            reviewOptions = ProductReviewLaunchOptions.Parse(new[] { "--card-frame-review" })!;
+        }
+        BattlePresentationReviewRuntime.Configure(reviewOptions.EnableBattlePresentation);
+        CardFrameReviewRuntime.Configure(reviewOptions.EnableCardFrame);
+        if (!suppliedSha && reviewOptions.EnableCardFrame) sourceSha = CardFrameBaseCommit;
         menu = GetNode<Control>("%ReviewMenu");
         matchHost = GetNode<Control>("%ReviewMatchHost");
         toolbar = GetNode<Control>("%ReviewToolbar");
@@ -55,6 +85,19 @@ public sealed partial class BattlePresentationReviewScreen : Control
         GetNode<Button>("%ReviewExitButton").Pressed += Exit;
         toolbar.Hide();
         status.Text = "选择场面后，请主动揭示手牌，再亲手出牌或进化。";
+        if (reviewOptions.EnableCardFrame)
+        {
+            const string optionsPath = "ReviewMenu/Panel/Margin/Options/";
+            GetNode<Label>(optionsPath + "Title").Text = "卡框精修 R1 · 独立实机审阅";
+            GetNode<Label>(optionsPath + "Description").Text =
+                "真实 v05 对局、合法命令准备，保留主动揭示与正常操作。\n本入口只审阅三张卡的卡框与可读性，不代表新战斗演出完成。";
+            GetNode<Button>("%ReviewOathguardButton").Text = "曜誓大团长 · 卡框与进化异画";
+            GetNode<Button>("%ReviewPactmageButton").Text = "禁忌毕业生 · 卡框与进化异画";
+            GetNode<Button>("%ReviewSpellButton").Text = "界域裁定 · 法术卡框";
+            GetNode<Button>("%ReviewBackButton").Text = "返回卡框审阅";
+            GetNode<Button>("%ReviewExitButton").Text = "退出卡框审阅";
+            status.Text = "待审阅候选，尚未获视觉批准。请选择场面，再主动揭示；沿用上一轮基础动作，本轮只审卡框。";
+        }
     }
 
     public override void _UnhandledInput(InputEvent @event)
@@ -69,6 +112,7 @@ public sealed partial class BattlePresentationReviewScreen : Control
         leaving = true;
         StopMatch();
         BattlePresentationReviewRuntime.Configure(false);
+        CardFrameReviewRuntime.Configure(false);
     }
 
     private void RequestScene(PresentationReviewKind kind)
@@ -105,7 +149,8 @@ public sealed partial class BattlePresentationReviewScreen : Control
             matchHost.AddChild(product);
             product.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
             product.Begin(session, MatchVisualIdentity.FromDecks(
-                prepared.Config.Player0Deck, prepared.Config.Player1Deck), enablePresentation: true);
+                prepared.Config.Player0Deck, prepared.Config.Player1Deck),
+                enablePresentation: reviewOptions.EnablePresentationPlayback);
             // Begin only constructs a Covered controller. No Reveal, GetView,
             // selection, command or presentation completion is issued here.
             menu.Hide();
@@ -129,12 +174,18 @@ public sealed partial class BattlePresentationReviewScreen : Control
     {
         string directory = ProjectSettings.GlobalizePath("user://review-evidence");
         Directory.CreateDirectory(directory);
-        string filename = $"{DateTime.UtcNow:yyyyMMdd-HHmmssfff}-{prepared.Kind.ToString().ToLowerInvariant()}-{Guid.NewGuid():N}.json";
+        string lane = reviewOptions.EnableCardFrame ? "card-frame-" : string.Empty;
+        string filename = $"{DateTime.UtcNow:yyyyMMdd-HHmmssfff}-{lane}{prepared.Kind.ToString().ToLowerInvariant()}-{Guid.NewGuid():N}.json";
         using FileStream output = new(Path.Combine(directory, filename), FileMode.CreateNew, System.IO.FileAccess.Write);
         JsonSerializer.Serialize(output, new
         {
             schema_version = 1,
-            suite = "real-product-battle-presentation-review",
+            suite = reviewOptions.EvidenceSuite,
+            review_entry = reviewOptions.EnableCardFrame ? "card-frame-review" : "battle-presentation-review",
+            synthetic = false,
+            candidate_battle_presentation_enabled = reviewOptions.EnableBattlePresentation,
+            presentation_playback_enabled = reviewOptions.EnablePresentationPlayback,
+            presentation_effects_revision = "battle-presentation-v2-stage1-unchanged",
             development_private_evidence = true,
             source_sha = sourceSha,
             source_provenance = suppliedSha ? "operator-supplied-not-working-tree-attested" : "base-commit-plus-working-tree",
@@ -204,6 +255,7 @@ public sealed partial class BattlePresentationReviewScreen : Control
         leaving = true;
         StopMatch();
         BattlePresentationReviewRuntime.Configure(false);
+        CardFrameReviewRuntime.Configure(false);
         ExitRequested?.Invoke();
     }
 }

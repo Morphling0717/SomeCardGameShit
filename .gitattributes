@@ -16,3 +16,9 @@ client/godot/assets/visual/anime_v1/cards/*.png binary
 client/godot/assets/visual/anime_v1/cards/*.png.import text eol=lf
 client/godot/assets/visual/anime_v1/cards/PRODUCT_CARD_ART_ASSET_MANIFEST.json text eol=lf
 client/godot/assets/visual/anime_v1/cards/PROVENANCE.md text eol=lf
+scripts/art/build_card_frame_r1.py text eol=lf
+art/card_frame_r1/frame-manifest.json text eol=lf
+art/card_frame_r1/*.blend binary
+art/card_frame_r1/*.png binary
+client/godot/assets/visual/anime_v1/card_frame_r1/*.glb binary
+client/godot/assets/visual/anime_v1/card_frame_r1/GENERATION_RECORD.json text eol=lf

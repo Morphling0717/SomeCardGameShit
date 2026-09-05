@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "kind": "card-frame-r1-generation-record",
+  "date": "2026-09-06",
+  "approval": "candidate_not_user_approved",
+  "authorization": "Created specifically for this project under the user's explicit development authorization. Original generated concepts/material and repository-authored geometry/bakes; no third-party game reference images or copied card frames. Development/redistribution candidate subject to human commercial-release review; no exclusive-copyright or trademark-clearance claim.",
+  "generated_assets": [
+    {
+      "id": "concept-master-r1",
+      "generation_method": "OpenAI built-in image generation; text-to-image, no referenced input images",
+      "purpose": "Original modeling concept only; outside the Godot project and excluded from the four runtime PNG inventory",
+      "reference_images": [],
+      "prompt": "Use case: stylized-concept. Asset type: ORIGINAL collectible fantasy card FRAME sculpting concept, NOT a finished card texture. Create a single large portrait 3:4 frame shown perfectly face-on on pale neutral grey, entire silhouette visible. Empty luminous pale grey artwork window occupies the middle and lower majority, with NO illustration. A top independent continuous platinum-and-pale-gold name ribbon lies fully ABOVE the art window; its text channel is empty, wide, uninterrupted and has NO text. Ribbon is structurally joined to a compact emerald-green faceted crystal socket at upper left. Bottom left blue bladed jewel socket and bottom right red shield jewel socket are integrated as the two feet of the frame, not pasted circular badges. Elegant original classical fantasy jewelry construction: fine curving relief leaves only at crown and corners, paired sculpted scrolls, restrained polished bevels, recessed ivory enamel grooves, thin clean side rails with varied thickness, small holding claws and genuinely faceted gems. Silhouette should read as a fine thin metal card, not a heavy wall picture frame; no ornamental wings extending far outside card, no big crown. Expensive luminous platinum with soft antique gold highlights, rich colored jewels, beautiful coherent controlled hierarchy. Fine surface engraving is subtle; no uniform noisy floral wallpaper. Neutral product softbox lighting with obvious geometry and material response. No letters, numbers, text, logos, watermark, characters, artwork, known game design, commercial franchise ornament or copyrighted visual. All motifs original. This is a modeling reference, not final engine art.",
+      "selected_output": "C:/Users/ASUS/.codex/generated_images/01a0282d-d6c8-7153-9921-cdaa1ef92331/exec-0e2ad967-088e-4559-9cb3-b64d9ccdf07c.png",
+      "committed_path": "art/card_frame_r1/concept-master-r1.png",
+      "sha256": "38462cf384146e02f055ee4c5a201f9892e9df31ed1c9a6d71a6d964b6df21fe",
+      "dimensions": [1086, 1448],
+      "copied_without_raster_editing": true,
+      "modification_history": ["2026-09-06: Generated the original unlettered card-frame concept and copied the selected RGB8 output to the project-external art source directory without raster editing; used only as a modeling reference."]
+    },
+    {
+      "id": "platinum-albedo-source",
+      "generation_method": "OpenAI built-in image generation; text-to-image, no referenced input images",
+      "purpose": "Restrained low-contrast albedo source beneath separately authored geometry and baked normal/roughness; not a finished frame or a generated PBR map",
+      "reference_images": [],
+      "prompt": "Use case: stylized-concept. Asset type: seamless physically-based fantasy jewelry METAL ALBEDO SOURCE texture, square. Entire canvas only a flat uniform ivory platinum surface, extremely subtle cool pale silver with tiny hand-polished variations and faint hairline burnishing. Even diffuse neutral illumination, no lighting hotspot, no directional cast shadows, no bevels, no frame, no objects, no ornaments, no gems, no symbols. Very restrained contrast and texture scale, pristine luxurious jewelry metal rather than scratched industrial plate. Should tile seamlessly and be usable as only low contrast base color beneath separately modeled engravings and baked normal/roughness. No text, letters, logo, watermark or identifiable motif.",
+      "selected_output": "C:/Users/ASUS/.codex/generated_images/01a0282d-d6c8-7153-9921-cdaa1ef92331/exec-7e385763-b262-4ee8-a28c-bfd1af9de8cb.png",
+      "committed_path": "client/godot/assets/visual/anime_v1/card_frame_r1/platinum-albedo-source.png",
+      "sha256": "5c59f2e73c832604a62ee5618541b39aefedaf57fee4951935552cab67bc2cc6",
+      "dimensions": [1254, 1254],
+      "copied_without_raster_editing": true,
+      "modification_history": ["2026-09-06: Generated the original wordless platinum albedo source and copied the selected RGB8 output without raster editing. Geometry, normal, AO and roughness are not generated from this image."]
+    }
+  ],
+  "bake": {
+    "ai_generated": false,
+    "blender_version": "4.5.13",
+    "engine": "CYCLES",
+    "device": "CPU",
+    "samples": 8,
+    "selected_to_active": true,
+    "source_mesh": "EditableShallowIncisions",
+    "receiver_mesh": "BakeReceiver",
+    "source_mesh_resolution": [257, 257],
+    "description": "Actual selected-high-mesh to active-UV-receiver Cycles NORMAL/AO/ROUGHNESS bakes. Shallow crossed curved incisions are authored as editable geometry, not derived from image color/noise. The ROUGHNESS bake transfers the high mesh material's roughness; no additional hand-painted variation or imagegen PBR-map claim.",
+    "authoring_script": "scripts/art/build_card_frame_r1.py",
+    "source_hash_manifest": "art/card_frame_r1/frame-manifest.json",
+    "editable_source": {
+      "path": "art/card_frame_r1/engraving-bake.blend",
+      "sha256": "d38f3a3624f5f55920d8f0e0248f32c886ca945138ccbc351396adbfb4e99b2b"
+    },
+    "cage_extrusion": 0.015,
+    "max_ray_distance": 0.035,
+    "margin_pixels": 8,
+    "dimensions": [1024, 1024],
+    "source_color_space": "Non-Color",
+    "outputs": [
+      {"role": "normal", "bake_type": "NORMAL", "path": "client/godot/assets/visual/anime_v1/card_frame_r1/relief-normal.png", "sha256": "e5d5c44bd81b8656e37b591b0804729b67c9b315201b3c2149bc9e8d9690ff30"},
+      {"role": "ao", "bake_type": "AO", "path": "client/godot/assets/visual/anime_v1/card_frame_r1/relief-ao.png", "sha256": "691dbb125a52c14fecf2a0edb50b4b17e7f5ba8f87615e08f48bd4f4d14e733e"},
+      {"role": "roughness", "bake_type": "ROUGHNESS", "path": "client/godot/assets/visual/anime_v1/card_frame_r1/relief-roughness.png", "sha256": "7f6adda414545d7e960870923bbed9559be83b23e67e06023a6a6b5b66b09b84"}
+    ],
+    "modification_history": ["2026-09-06: Authored a UV receiver and editable shallow-relief high mesh in Blender; selected the high mesh and receiver with the receiver active, then baked NORMAL, AO and ROUGHNESS using Cycles.", "2026-09-06: Saved the three RGB8 bake outputs and the editable engraving-bake.blend. Subsequent --skip-bake model exports do not rewrite these texture files."]
+  },
+  "geometry_modification_history": [
+    "2026-09-06: Built and iterated the editable high/low jewelry frame, gem tables, clear title channel and integrated feet in Blender 4.5.13. All model/script/source hashes are in art/card_frame_r1/frame-manifest.json.",
+    "2026-09-06: Added three selectable original geometric inlays to the shared lower knot: eight-ray sun, split rift and plain ring. They share the same structural frame; anonymous clearing removes each variant's visibility and material overrides."
+  ],
+  "runtime_import": {
+    "compression_mode": 2,
+    "high_quality": true,
+    "mipmaps": true,
+    "normal_map_processing": {"relief-normal.png": 1, "other_runtime_pngs": 0},
+    "note": "Godot desktop import settings; not evidence that final GPU appearance or memory/performance budget has passed. Data maps must be consumed as non-color material inputs."
+  },
+  "review_boundary": "The four runtime images and project-external concept are registered candidates, not user-approved visuals. Full prompts are provenance, not a guarantee of seamlessness, readability, correct rendering, commercial clearance or completion of the battle presentation overhaul."
+}

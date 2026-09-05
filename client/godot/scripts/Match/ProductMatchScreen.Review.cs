@@ -12,7 +12,8 @@ public sealed partial class ProductMatchScreen
     // reads a session; private candidates only exist in the already revealed UI.
     public string ReviewDescribe()
     {
-        if (!BattlePresentationReviewRuntime.Enabled) return "{\"enabled\":false}";
+        if (!BattlePresentationReviewRuntime.Enabled && !CardFrameReviewRuntime.Enabled)
+            return "{\"enabled\":false}";
         var state = controller?.State;
         var surfaces = new List<object>();
         if (state?.Snapshot is { } view && state.Viewer is not null)
@@ -29,7 +30,13 @@ public sealed partial class ProductMatchScreen
             }
         }
         return System.Text.Json.JsonSerializer.Serialize(new {
-            enabled = true, mode = state?.Mode.ToString(), revision = state?.Interaction.Revision,
+            enabled = true,
+            review_entry = CardFrameReviewRuntime.Enabled ? "card-frame-review" : "battle-presentation-review",
+            synthetic = false,
+            candidate_battle_presentation_enabled = BattlePresentationReviewRuntime.Enabled,
+            presentation_playback_enabled = controller?.PresentationEnabled ?? false,
+            presentation_effects_revision = "battle-presentation-v2-stage1-unchanged",
+            mode = state?.Mode.ToString(), revision = state?.Interaction.Revision,
             viewer = state?.Viewer?.ToString(), step = state?.Interaction.Step.ToString(),
             cue = presentationDirector?.CurrentCueKind, progress = presentationDirector?.CurrentCueProgress,
             surfaces = surfaces.Distinct().ToArray(),

@@ -1481,14 +1481,17 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
             : null;
         LeaderPortraitEntry leaderIdentity = _visualIdentity.ForPlayer(player);
         SlotActor3D actor = RentSlot();
+        Transform3D leaderPose = BattlefieldPerspective.LeaderTransform(player, viewer);
         actor.BindLeader(
-            BattlefieldPerspective.LeaderTransform(player, viewer),
+            leaderPose,
             health,
             maximumHealth,
             BattlefieldPerspective.IsNear(player, viewer),
             surface,
             leaderIdentity.Faction,
             LeaderPortraitCatalog.Shared.LoadPortrait(leaderIdentity.DeckId));
+        if (Scgs.GodotClient.PresentationV2.CardFrameReviewRuntime.Enabled)
+            actor.SetPresentationScale(.65f);
         Register(surface, actor);
     }
 

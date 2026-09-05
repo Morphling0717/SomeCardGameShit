@@ -48,6 +48,54 @@
       "generation_record": "client/godot/assets/visual/anime_v1/presentation_v2/GENERATION_RECORD.json",
       "authorization": "Generated and edited for this project at the user's explicit request, using only its recorded original evolved artwork. Project-authorized development and redistribution candidate, subject to human commercial-release review; no third-party game asset, exclusive copyright or trademark-clearance claim.",
       "transparency": "rgb_chroma_key_runtime"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_frame_r1/platinum-albedo-source.png",
+      "sha256": "5c59f2e73c832604a62ee5618541b39aefedaf57fee4951935552cab67bc2cc6",
+      "purpose": "Independent Card Frame R1 candidate low-contrast platinum albedo beneath modeled relief; no card identity or text",
+      "generation_method": "OpenAI built-in image generation; original text-to-image albedo source with no input image; not an AI-generated PBR normal or roughness map",
+      "date": "2026-09-06",
+      "prompt_summary": "Uniform ivory platinum with subtle hand-polishing and faint hairline burnishing under diffuse neutral light; no bevel, frame, object, ornament, gem, logo, text or watermark. Complete original prompt and selected output in GENERATION_RECORD.json.",
+      "material_role": "albedo",
+      "generation_record": "client/godot/assets/visual/anime_v1/card_frame_r1/GENERATION_RECORD.json",
+      "modification_history": ["2026-09-06: Copied the selected original generated RGB8 albedo without raster editing; configured desktop VRAM compression and mipmaps."],
+      "authorization": "Original project-authorized generated development/redistribution candidate; human commercial-release and visual approval remain required, with no exclusive-copyright or trademark-clearance claim."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_frame_r1/relief-normal.png",
+      "sha256": "e5d5c44bd81b8656e37b591b0804729b67c9b315201b3c2149bc9e8d9690ff30",
+      "purpose": "Card Frame R1 tangent-space normal data for real shallow engraving, separate from visible card identity",
+      "generation_method": "Blender 4.5.13 Cycles selected-to-active NORMAL bake from editable high mesh to UV receiver; non-AI",
+      "date": "2026-09-06",
+      "prompt_summary": "Not an image-generation prompt: transfer the actual authored shallow-incision high-mesh normals to BakeReceiver using Cycles NORMAL. Source blend, script, bake settings and output hash are recorded in GENERATION_RECORD.json.",
+      "material_role": "normal",
+      "generation_record": "client/godot/assets/visual/anime_v1/card_frame_r1/GENERATION_RECORD.json",
+      "modification_history": ["2026-09-06: Baked real high-to-receiver NORMAL data with Cycles and saved RGB8 PNG; no AI PBR map or albedo-derived fake normal.", "2026-09-06: Configured desktop VRAM compression, mipmaps and Godot normal-map processing."],
+      "authorization": "Original repository-authored geometry and bake, produced under project development authorization; visual and human commercial-release review remain required."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_frame_r1/relief-ao.png",
+      "sha256": "691dbb125a52c14fecf2a0edb50b4b17e7f5ba8f87615e08f48bd4f4d14e733e",
+      "purpose": "Card Frame R1 baked shallow-relief occlusion data, not card art or baked gameplay information",
+      "generation_method": "Blender 4.5.13 Cycles selected-to-active AO bake from editable high mesh to UV receiver; non-AI",
+      "date": "2026-09-06",
+      "prompt_summary": "Not an image-generation prompt: transfer occlusion from the actual authored shallow-incision high mesh to BakeReceiver using Cycles AO. Editable source and exact bake settings are recorded in GENERATION_RECORD.json.",
+      "material_role": "ao",
+      "generation_record": "client/godot/assets/visual/anime_v1/card_frame_r1/GENERATION_RECORD.json",
+      "modification_history": ["2026-09-06: Baked real high-to-receiver AO data with Cycles and saved RGB8 PNG, without AI generation; configured desktop VRAM compression and mipmaps."],
+      "authorization": "Original repository-authored geometry and bake, produced under project development authorization; visual and human commercial-release review remain required."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/card_frame_r1/relief-roughness.png",
+      "sha256": "7f6adda414545d7e960870923bbed9559be83b23e67e06023a6a6b5b66b09b84",
+      "purpose": "Card Frame R1 source-material roughness transferred through a real Cycles bake, separate from metallic albedo",
+      "generation_method": "Blender 4.5.13 Cycles selected-to-active ROUGHNESS bake from editable high mesh to UV receiver; non-AI",
+      "date": "2026-09-06",
+      "prompt_summary": "Not an image-generation prompt: transfer the authored high mesh material roughness to BakeReceiver using Cycles ROUGHNESS. Does not claim extra painted variation; full bake source and settings are in GENERATION_RECORD.json.",
+      "material_role": "roughness",
+      "generation_record": "client/godot/assets/visual/anime_v1/card_frame_r1/GENERATION_RECORD.json",
+      "modification_history": ["2026-09-06: Baked real high-to-receiver ROUGHNESS material data with Cycles and saved RGB8 PNG, without AI generation; configured desktop VRAM compression and mipmaps."],
+      "authorization": "Original repository-authored geometry and bake, produced under project development authorization; visual and human commercial-release review remain required."
     }
   ]
 }

@@ -1,11 +1,73 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 using Scgs.GodotClient.Ci;
+using V05 = Scgs.Client.V05;
 
 namespace Scgs.Client.Tests;
 
 [TestClass]
 public sealed class ProductSmokeCompletionPolicyTests
 {
+    [TestMethod]
+    public void BoardAccumulationRequiresCompleteUiEvidenceAndAnOutstandingPerformanceRequest()
+    {
+        int[] covered = Enumerable.Repeat(1, 14).ToArray();
+        Assert.IsTrue(ProductSmokeCompletionPolicy.ShouldAccumulateBoard(true, true, false, covered, true, true));
+        foreach ((bool fullUi, bool requested, bool completed, bool reaction, bool choice) in new[]
+        {
+            (false, true, false, true, true), (true, false, false, true, true),
+            (true, true, true, true, true), (true, true, false, false, true),
+            (true, true, false, true, false),
+        })
+            Assert.IsFalse(ProductSmokeCompletionPolicy.ShouldAccumulateBoard(
+                fullUi, requested, completed, covered, reaction, choice));
+        for (int missing = 0; missing < covered.Length; ++missing)
+        {
+            int[] incomplete = (int[])covered.Clone();
+            incomplete[missing] = 0;
+            Assert.IsFalse(ProductSmokeCompletionPolicy.ShouldAccumulateBoard(true, true, false, incomplete, true, true));
+        }
+    }
+
+    [TestMethod]
+    public void BoardAccumulationOnlyPrioritizesPermanentGrowthTurnEndAndReactionPass()
+    {
+        V05.ActionKind[] allowed = [V05.ActionKind.PlayUnit, V05.ActionKind.PlayAmulet,
+            V05.ActionKind.Deploy, V05.ActionKind.EndTurn, V05.ActionKind.PassReaction];
+        foreach (V05.ActionKind action in Enum.GetValues<V05.ActionKind>())
+        {
+            int? priority = ProductSmokeCompletionPolicy.AccumulationPriority(Command(action));
+            Assert.AreEqual(allowed.Contains(action), priority.HasValue);
+        }
+        Assert.AreEqual(0, ProductSmokeCompletionPolicy.AccumulationPriority(Command(V05.ActionKind.PlayUnit)));
+        Assert.AreEqual(1, ProductSmokeCompletionPolicy.AccumulationPriority(Command(V05.ActionKind.PlayAmulet)));
+        Assert.AreEqual(2, ProductSmokeCompletionPolicy.AccumulationPriority(Command(V05.ActionKind.Deploy)));
+        Assert.AreEqual(3, ProductSmokeCompletionPolicy.AccumulationPriority(Command(V05.ActionKind.EndTurn)));
+    }
+
+    [TestMethod]
+    public void BoardAccumulationRejectsArchiveCostsAndEnemyTargetsWithoutCardIdentityRules()
+    {
+        Assert.IsNull(ProductSmokeCompletionPolicy.AccumulationPriority(Command(V05.ActionKind.Deploy) with
+        {
+            AdditionalCostCards = [77],
+        }));
+        foreach (V05.ActionKind action in new[] { V05.ActionKind.PlayUnit, V05.ActionKind.PlayAmulet, V05.ActionKind.Deploy })
+        {
+            V05.GameCommandRequest command = Command(action) with
+            {
+                Target = V05.Target.PermanentTarget(V05.PlayerId.Player1, 99),
+            };
+            Assert.IsNull(ProductSmokeCompletionPolicy.AccumulationPriority(command));
+            Assert.IsNotNull(ProductSmokeCompletionPolicy.AccumulationPriority(command with
+            {
+                Target = V05.Target.PermanentTarget(V05.PlayerId.Player0, 77),
+            }));
+            Assert.IsNotNull(ProductSmokeCompletionPolicy.AccumulationPriority(command with { Target = null }));
+        }
+    }
+
+    private static V05.GameCommandRequest Command(V05.ActionKind action) => new(V05.PlayerId.Player0, action, 1);
+
     [TestMethod]
     public void CoveredActionsAndSurrendersCannotReplaceRequiredHeavyBoardEvidence()
     {

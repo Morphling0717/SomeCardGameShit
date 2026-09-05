@@ -163,6 +163,7 @@ internal sealed class ProductSmokeRunner
         used = true;
         var elapsed = Stopwatch.StartNew();
         bool surrender = false;
+        bool accumulatingBoard = false;
         string? profile = null;
         Vector2I physicalSize = host.GetWindow().Size;
         Vector2 size = new(physicalSize.X, physicalSize.Y);
@@ -250,8 +251,19 @@ internal sealed class ProductSmokeRunner
                 await Inject(match.CiRestartInput(), audit);
                 continue;
             }
-            ProductSmokeInput? next = match.CiNextUiInput(CountActions(), surrender, sessions.Count - 1,
-                sessions.Sum(session => session.ChoiceSurrenders) == 0);
+            int[] currentCoverage = CountActions();
+            bool shouldAccumulate = ProductSmokeCompletionPolicy.ShouldAccumulateBoard(
+                options.Coverage == "full-ui", options.RequirePerformance, capture?.PerformanceCompleted == true,
+                currentCoverage, sessions.Sum(session => session.ReactionSurrenders) > 0,
+                sessions.Sum(session => session.ChoiceSurrenders) > 0);
+            if (shouldAccumulate != accumulatingBoard)
+            {
+                accumulatingBoard = shouldAccumulate;
+                GD.Print($"SCGS_PRODUCT_UI_BOARD_ACCUMULATION {(accumulatingBoard ? "started" : "completed")}: " +
+                    $"match={sessions.Count}");
+            }
+            ProductSmokeInput? next = match.CiNextUiInput(currentCoverage, surrender, sessions.Count - 1,
+                sessions.Sum(session => session.ChoiceSurrenders) == 0, accumulatingBoard);
             if (next is not null) await Inject(next, audit);
         }
         throw new TimeoutException("Product UI smoke exceeded its bounded time/input budget.");

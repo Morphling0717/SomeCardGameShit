@@ -20,6 +20,7 @@ public sealed partial class ProductMatchScreen
 {
     private ProductSmokeSession? ciSession;
     private V05.GameCommandRequest? ciDesired;
+    private bool ciAccumulatingBoard;
 
     internal ProductSmokeSession CiAudit => ciSession ??
         throw new InvalidOperationException("Product smoke session was not attached.");
@@ -122,8 +123,13 @@ public sealed partial class ProductMatchScreen
     }
 
     internal ProductSmokeInput? CiNextUiInput(IReadOnlyList<int> coverage, bool surrender, int matchIndex = 0,
-        bool surrenderInChoice = false)
+        bool surrenderInChoice = false, bool accumulateBoard = false)
     {
+        if (ciAccumulatingBoard != accumulateBoard)
+        {
+            ciAccumulatingBoard = accumulateBoard;
+            ciDesired = null;
+        }
         ProductHotseatUiState state = controller?.State ??
             throw new InvalidOperationException("Product UI is not bound.");
         switch (state.Mode)
@@ -182,7 +188,12 @@ public sealed partial class ProductMatchScreen
         {
             ciDesired = state.LegalActions
                 .Where(action => action.Command.Action != V05.ActionKind.Surrender)
-                .OrderBy(action => CiActionPriority(action.Command, view, coverage, matchIndex, surrender))
+                .Where(action => !accumulateBoard ||
+                    ProductSmokeCompletionPolicy.AccumulationPriority(action.Command).HasValue)
+                .OrderBy(action => accumulateBoard
+                    ? ProductSmokeCompletionPolicy.AccumulationPriority(action.Command)!.Value
+                    : CiActionPriority(action.Command, view, coverage, matchIndex, surrender))
+                .ThenBy(action => accumulateBoard && action.Command.Target is not null)
                 .ThenBy(action => matchIndex > 0 && coverage[(int)V05.ActionKind.Deploy] == 0
                     ? !action.Command.UseAdvance : action.Command.UseAdvance)
                 .Select(action => action.Command).FirstOrDefault() ??

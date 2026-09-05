@@ -172,6 +172,41 @@ class WorkflowTieringContractTests(unittest.TestCase):
         self.assertNotIn('"--timeout", "1800"', runner)
         self.assertIn("validate_privacy_directory(output, require_gpu=args.display)", runner)
 
+    def test_import_cache_is_exact_platform_locked_output_only_and_never_skips_import(self) -> None:
+        windows = self.fast.split("  windows-msvc:", 1)[1].split("  macos-arm64:", 1)[0]
+        macos = self.fast.split("  macos-arm64:", 1)[1]
+        keys: list[str] = []
+        for job, target, installer in (
+            (windows, "windows-x86_64", "install_godot_windows.ps1"),
+            (macos, "macos-arm64", "install_godot_macos.sh"),
+            (self.heavy, "windows-x86_64", "install_godot_windows.ps1"),
+        ):
+            with self.subTest(target=target):
+                marker = "      - name: Cache exact Godot imported assets\n"
+                self.assertEqual(1, job.count(marker))
+                cache, following = job.split(marker, 1)[1].split(
+                    "      - name: Godot headless import\n", 1
+                )
+                self.assertIn("uses: actions/cache@v5", cache)
+                self.assertIn("path: client/godot/.godot/imported\n", cache)
+                self.assertEqual(1, cache.count("path:"))
+                self.assertNotIn("restore-keys:", cache)
+                self.assertNotIn("if:", cache)
+                key = next(line.strip() for line in cache.splitlines() if line.strip().startswith("key:"))
+                self.assertIn(f"godot-imported-{target}-4.7.2-mono-v1-", key)
+                self.assertIn(f"hashFiles('scripts/ci/{installer}')", key)
+                for input_path in ("client/godot/assets/**", "client/godot/**/*.import",
+                                   "client/godot/project.godot", "client/godot/export_presets.cfg",
+                                   "client/godot/addons/**"):
+                    self.assertIn(f"'{input_path}'", key)
+                keys.append(key)
+                preparation = following.split("      - name:", 1)[0]
+                self.assertNotIn("if:", preparation)
+                self.assertNotIn("cache-hit", preparation)
+                self.assertIn("--import", preparation)
+        self.assertEqual(keys[0], keys[2])
+        self.assertNotEqual(keys[0], keys[1])
+
 
 if __name__ == "__main__":
     unittest.main()

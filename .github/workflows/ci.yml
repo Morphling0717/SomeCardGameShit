@@ -251,6 +251,13 @@ jobs:
         run: python scripts/ci/run_managed_gate3.py
       - name: Product v05 UI report contracts
         run: python -m unittest scripts.tests.test_run_product_smoke scripts.tests.test_validate_product_smoke_report scripts.tests.test_validate_product_visual_report scripts.tests.test_validate_product_privacy_report scripts.tests.test_audit_godot_export
+      # Exact-key, CI-produced importer outputs only. Never restore editor,
+      # session, Mono, token or whole-.godot state; --import still runs below.
+      - name: Cache exact Godot imported assets
+        uses: actions/cache@v5
+        with:
+          path: client/godot/.godot/imported
+          key: godot-imported-windows-x86_64-4.7.2-mono-v1-${{ hashFiles('scripts/ci/install_godot_windows.ps1') }}-${{ hashFiles('client/godot/assets/**', 'client/godot/**/*.import', 'client/godot/project.godot', 'client/godot/export_presets.cfg', 'client/godot/addons/**') }}
       - name: Godot headless import
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
@@ -419,6 +426,13 @@ jobs:
         run: python scripts/ci/run_managed_gate3.py
       - name: Product v05 UI report contracts
         run: python -m unittest scripts.tests.test_run_product_smoke scripts.tests.test_validate_product_smoke_report scripts.tests.test_validate_product_visual_report scripts.tests.test_validate_product_privacy_report scripts.tests.test_audit_godot_export
+      # The installer hash includes the locked official editor/template SHA-512.
+      # Cache hits do not replace import validation or source/export/ZIP gates.
+      - name: Cache exact Godot imported assets
+        uses: actions/cache@v5
+        with:
+          path: client/godot/.godot/imported
+          key: godot-imported-macos-arm64-4.7.2-mono-v1-${{ hashFiles('scripts/ci/install_godot_macos.sh') }}-${{ hashFiles('client/godot/assets/**', 'client/godot/**/*.import', 'client/godot/project.godot', 'client/godot/export_presets.cfg', 'client/godot/addons/**') }}
       - name: Godot headless import
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}

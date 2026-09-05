@@ -95,6 +95,13 @@ jobs:
           SCGS_V04_NATIVE_PATH: ${{ github.workspace }}/build/ci-visual-heavy/Release/scgs_v04_fixture.dll
           SCGS_NATIVE_V05_LIBRARY: ${{ github.workspace }}/build/stage-visual-heavy/bin/scgs_v05.dll
         run: python scripts/ci/run_managed_gate3.py
+      # Shared exact Windows asset key, never an editor/session or local seed.
+      # Still run --import and every real GPU/interaction/performance gate.
+      - name: Cache exact Godot imported assets
+        uses: actions/cache@v5
+        with:
+          path: client/godot/.godot/imported
+          key: godot-imported-windows-x86_64-4.7.2-mono-v1-${{ hashFiles('scripts/ci/install_godot_windows.ps1') }}-${{ hashFiles('client/godot/assets/**', 'client/godot/**/*.import', 'client/godot/project.godot', 'client/godot/export_presets.cfg', 'client/godot/addons/**') }}
       - name: Godot headless import
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}

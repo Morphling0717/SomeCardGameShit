@@ -1,7 +1,8 @@
 # Battle Presentation V2：Windows 独立验收包操作单
 
-状态：implementation in progress / visual pending user approval。以下是可复现
-流程，不是“已经导出并实际启动通过”的结果。此包保留原 EXE 正常菜单路径，
+状态：stage-one review candidate / visual pending user approval。以下是可复现
+流程；本次真实导出、启动和 CI 结果另见
+[第一阶段测试报告](battle-presentation-v2-stage1-test-report.md)。此包保留原 EXE 正常菜单路径，
 新增独立 `PLAY_BATTLE_PRESENTATION_REVIEW.cmd`，仅它启用三代表卡验收入口。
 
 ## 前置条件
@@ -69,7 +70,7 @@ python scripts/dev/package_battle_presentation_review.py --export $exportExe --n
 if ($LASTEXITCODE -ne 0) { throw 'Review packaging failed' }
 ```
 
-本阶段有未提交实现，`--allow-worktree` 明确标记为未提交验收候选；它不会把
+本机保留未提交 MCP 配置，`--allow-worktree` 明确标记工作区不是干净提交；它不会把
 HEAD 作为已验证构建提交传给游戏。干净工作区则省略此参数。两种情况下来源
 记录均说明：“打包器不重建 export，操作者必须保留独立构建／导出证据”。
 
@@ -102,5 +103,6 @@ ZIP 自身 SHA-256 由脚本成功输出。正常游戏仍由 `SomeCardGameShit.
   不插入现有默认产品包步骤，不把它伪装成 CI 全动作或 GPU 已通过。
 - clean CI 中无需安装本机 MCP addon；本机导出有 addon 时必须用 hook 并通过
   PCK/settings/class-cache 检查。不能把只检查 preset 的通过当作包隔离通过。
-- 本文只报告静态流程。新 shader 在各平台的实际导入/加载、运行和最终四项
-  CI 状态仍待对应运行，不能提前宣称全绿。
+- 本文只描述流程。实施提交 `70425ef` 的四项 CI 已通过，具体运行链接、
+  原生／托管数量、本机真实三卡演出与导出包边界见测试报告。CI 的默认产品
+  smoke 不启用三卡验收路线，不能代替它的硬件 GPU 或用户视觉认可。

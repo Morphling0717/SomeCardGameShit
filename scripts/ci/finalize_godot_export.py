@@ -18,6 +18,8 @@ from audit_native_artifact import audit  # noqa: E402
 
 
 LICENSES = {
+    ROOT / "client/godot/assets/visual/anime_v1/presentation_v2/GENERATION_RECORD.json":
+        "ANIME_V1_PRESENTATION_V2_GENERATION_RECORD.json",
     ROOT / "LICENSE": "GPL-3.0-or-later.txt",
     ROOT / "THIRD_PARTY_NOTICES.md": "THIRD_PARTY_NOTICES.md",
     ROOT / "client/godot/licenses/Godot-LICENSE.txt": "Godot-LICENSE.txt",

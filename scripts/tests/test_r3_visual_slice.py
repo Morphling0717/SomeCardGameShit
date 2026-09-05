@@ -244,7 +244,10 @@ class R3VisualSliceTests(unittest.TestCase):
         product = json.loads(product_path.read_text(encoding="utf-8"))
         self.assertEqual("5C-6C", product["gate"])
         self.assertEqual(
-            {"client/godot/assets/visual/anime_v1/shared/fallback_front.svg"},
+            {"client/godot/assets/visual/anime_v1/shared/fallback_front.svg",
+             "client/godot/assets/visual/anime_v1/presentation_v2/engraved-platinum.png",
+             "client/godot/assets/visual/anime_v1/presentation_v2/LO-11-cutin.png",
+             "client/godot/assets/visual/anime_v1/presentation_v2/AP-11-cutin.png"},
             {entry["path"] for entry in product["assets"]},
         )
         self.assertFalse((ROOT / "client/godot/assets/visual/arena/R3_ASSET_MANIFEST.json").exists())

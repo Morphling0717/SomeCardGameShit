@@ -4,6 +4,7 @@ using Scgs.Client;
 using Scgs.GodotClient.Presentation;
 using Scgs.GodotClient.Visuals;
 using Scgs.GodotClient.CardFaces;
+using Scgs.GodotClient.PresentationV2;
 using V05 = Scgs.Client.V05;
 
 namespace Scgs.GodotClient.UI;
@@ -17,6 +18,7 @@ public sealed partial class CardDetailPanel : PanelContainer
     private Label _title = null!;
     private RichTextLabel _rules = null!;
     private TextureRect _artwork = null!;
+    private SculptedCardDetail? sculptedDetail;
     private Control _detailBody = null!;
     private Button _collapseButton = null!;
     private readonly ICardVisualCatalog _visualCatalog = CardVisualCatalog.Shared;
@@ -49,6 +51,7 @@ public sealed partial class CardDetailPanel : PanelContainer
 
     public void ShowCard(CardView card, string heading = "卡牌详情")
     {
+        sculptedDetail?.ClearSensitive();
         SetCompact(false);
         _title.Text = heading;
         _rules.Text = CardPresentation.FormatRules(card);
@@ -70,6 +73,17 @@ public sealed partial class CardDetailPanel : PanelContainer
         SetCompact(false);
         _title.Text = heading;
         _rules.Text = ProductCardPresentation.FormatRules(card);
+        if (BattlePresentationReviewRuntime.UsesSculptedFace(card.DesignId))
+        {
+            if (sculptedDetail is null)
+            {
+                sculptedDetail = new SculptedCardDetail { Name = "SculptedCardDetail" };
+                AddChild(sculptedDetail);
+            }
+            _artwork.Texture = sculptedDetail.Bind(card);
+            return;
+        }
+        sculptedDetail?.ClearSensitive();
         ProductCardVisualEntry visual = ProductCardVisualCatalog.Shared.Resolve(card.DesignId);
         string artPath = ProductCardVisualCatalog.Shared.ResolveArtPath(
             visual,
@@ -81,6 +95,7 @@ public sealed partial class CardDetailPanel : PanelContainer
 
     public void ShowHiddenCard()
     {
+        sculptedDetail?.ClearSensitive();
         SetCompact(false);
         _title.Text = "隐藏牌";
         _rules.Text = "当前观看者没有收到这张牌的身份。不会显示名称、编号或规则。";
@@ -89,6 +104,7 @@ public sealed partial class CardDetailPanel : PanelContainer
 
     public void ShowPlaceholder()
     {
+        sculptedDetail?.ClearSensitive();
         _title.Text = "卡牌";
         _rules.Text = string.Empty;
         _artwork.Texture = null;
@@ -98,6 +114,7 @@ public sealed partial class CardDetailPanel : PanelContainer
 
     public void ClearSensitive()
     {
+        sculptedDetail?.ClearSensitive();
         _title.Text = string.Empty;
         _rules.Text = string.Empty;
         _artwork.Texture = null;

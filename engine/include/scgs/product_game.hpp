@@ -189,6 +189,7 @@ enum class ProductEventKind : std::uint8_t {
     ChoiceResolved,
     PlayerSurrendered,
     MatchEnded,
+    Observation,
 };
 
 struct ProductGameEvent {
@@ -201,6 +202,7 @@ struct ProductGameEvent {
     int value = 0;
     int secondary_value = 0;
     std::string text;
+    std::optional<ProductObservation> observation;
 };
 
 struct ProductReactionContext {
@@ -254,6 +256,7 @@ private:
         // the mode here prevents response cards and global triggers from
         // accidentally inheriting the suspended origin's mode.
         std::string mode_id;
+        std::uint64_t observation_cause = 0;
     };
 
     struct EffectTask {
@@ -323,6 +326,9 @@ private:
     std::optional<PendingEffectChoice> pending_effect_choice_;
     std::optional<SuspendedOrigin> suspended_origin_;
     std::vector<ProductGameEvent> events_;
+    std::size_t observation_cursor_ = 0;
+    std::uint64_t observation_cause_ = 0;
+    std::unordered_map<InstanceId, std::uint64_t> observation_card_causes_;
     std::uint64_t next_event_sequence_ = 1;
     std::uint64_t next_choice_id_ = 1;
     std::uint64_t revision_ = 0;
@@ -359,6 +365,7 @@ private:
         std::string_view mode) const;
 
     void execute_plan(const ProductActionPlan& plan);
+    void flush_observations();
     void execute_mulligan(const ProductActionPlan& plan);
     void pay(const ProductPaymentPreview& payment, PlayerId player);
     void begin_turn(PlayerId player);

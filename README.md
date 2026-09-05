@@ -4,7 +4,7 @@
 
 ## 当前状态：Product Playable v1
 
-当前开发分支为 `codex/product-playable-v1`，产品入口已经接入 **`scgs_v05` ABI 2.0 / JSON schema 2**。两副新牌组、选择/响应、终局与重开已可玩，Windows x64/macOS ARM64 候选包及四项主 CI 已通过；不是无 native 样片。独立重型 CI 在软件渲染环境下仍有帧时/大尺寸超时失败，真人与平衡验收也未完成，准确边界见 [TEST_REPORT.md](TEST_REPORT.md)。
+已交付试玩基线分支为 `codex/product-playable-v1`，产品入口已经接入 **`scgs_v05` ABI 2.0 / JSON schema 2**。两副新牌组、选择/响应、终局与重开已可玩，Windows x64/macOS ARM64 候选包及四项主 CI 已通过；不是无 native 样片。独立重型 CI 在软件渲染环境下仍有帧时/大尺寸超时失败，真人与平衡验收也未完成，准确边界见 [TEST_REPORT.md](TEST_REPORT.md)。
 
 | 职业与系列 | 产品牌组键 | 玩法 |
 | --- | --- | --- |
@@ -14,6 +14,10 @@
 每副 30 张主牌、15 种定义、4 张不同的公开战备；共享 4 种中立牌。合计 34 个可构筑定义和 1 个衍生物。五格主战场由随从与护符共享，双方各有三个策略位和一个独立场地格；法术必须使用己方空策略位。牌表和规范规则见 [设计文档](docs/product-decks-v1-design.md) 与 [锁定清单](design/product-decks-v1/card-pool.lock.json)。
 
 AnimeV1 现在是唯一产品视觉：菜单、竞技场、相机相对手牌、卡体、HUD 和弹层均使用原创日式幻想动漫资产/组件。卡图和主战者仍是可替换的原创临时资产，不代表商业发布美术已终审；本轮没有声音、联机或牌组编辑器。
+
+战斗表现 V2 正在 `codex/battle-presentation-v2` 进行独立三卡实机质量关，显式参数
+`--battle-presentation-review` 才启用候选卡体与演出；默认产品画面尚未切换。
+详情见 [第一阶段架构与操作说明](docs/battle-presentation-v2-stage1.md)。必须等待用户视觉认可，不能将既有试玩版 CI 或新编译成功当作此候选的品质验收。
 
 ### 旧入口已退役
 

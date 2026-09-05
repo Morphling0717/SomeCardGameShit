@@ -3,6 +3,7 @@ using System.Globalization;
 using Godot;
 using Scgs.Client;
 using Scgs.GodotClient.CardFaces;
+using Scgs.GodotClient.PresentationV2;
 using Scgs.GodotClient.Visual;
 using Scgs.GodotClient.Visuals;
 using Scgs.Hotseat;
@@ -56,6 +57,18 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             0.025f,
             BattlefieldPerspective.CardDepth + 0.14f),
     };
+    private static readonly QuadMesh ReviewContourMesh = new() { Size = new(
+        BattlefieldPerspective.CardWidth + .055f, ProductFaceDepth + .055f) };
+    private static readonly ShaderMaterial ReviewContourMaterial = new() { Shader = new Shader { Code = """
+        shader_type spatial;
+        render_mode unshaded, cull_disabled, depth_draw_never;
+        void fragment() {
+            vec2 q = abs(UV-0.5)-vec2(0.46,0.46);
+            float d = length(max(q,vec2(0.0)))+min(max(q.x,q.y),0.0)-0.021;
+            ALBEDO = vec3(0.83,0.87,0.96);
+            ALPHA = exp(-pow(d*260.0,2.0))*0.62;
+        }
+        """ } };
     private static readonly QuadMesh ArtworkMesh = new()
     {
         Size = new Vector2(
@@ -144,6 +157,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
     private ICardVisualCatalog _visualCatalog = CardVisualCatalog.Shared;
     private ArenaVisualProfile _visualProfile = ArenaVisualProfile.AnimeV1;
     private MeshInstance3D _baseMesh = null!;
+    private SculptedCardBody? _sculptedBody;
     private MeshInstance3D _artworkSurface = null!;
     private MeshInstance3D _outlineMesh = null!;
     private MeshInstance3D _stackUnderlayA = null!;
@@ -231,6 +245,15 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
                 return false;
             }
 
+            if (_sculptedBody is { CiFrontSurfaceBound: true })
+            {
+                return _showsIdentity &&
+                    ProductLayers.All(layer => !layer.Visible && layer.MaterialOverride is null) &&
+                    !_kindBadge.Visible && !_kindLabel.Visible &&
+                    !_costBadge.Visible && !_attackBadge.Visible && !_healthBadge.Visible &&
+                    !_countdownBadge.Visible && CiReadabilityEvidence.MatchesExpectedComposition;
+            }
+
             CardFrameStyle style = face.FrameStyle;
             return _showsIdentity &&
                    ProductLayerIsBound(_productArtwork) &&
@@ -293,7 +316,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
                 usesProductFace && product!.Countdown.HasValue,
                 _faceLabel.Text,
                 _faceLabel.Visible,
-                usesProductFace && ProductLayerIsBound(_productCrest),
+                usesProductFace && (_sculptedBody?.CiTypeCrestBound == true || ProductLayerIsBound(_productCrest)),
                 usesProductFace
                     ? CreateProductBadgeEvidence(_costLabel, _productCostGem)
                     : CreateBadgeEvidence(_costLabel, _costBadge),
@@ -443,13 +466,17 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
 
     internal bool CiAnonymousFaceHasIdentity => Visible && !_showsIdentity &&
         (_productFace is not null || CardPresentation?.DefinitionId is not null ||
-         CardPresentation?.InstanceId is not null || !string.IsNullOrEmpty(_faceLabel.Text));
+         CardPresentation?.InstanceId is not null || !string.IsNullOrEmpty(_faceLabel.Text) ||
+         _sculptedBody?.HasIdentity == true);
 
     internal bool CiUsesSharedCardBack
     {
         get
         {
             EnsureBuilt();
+            if (_sculptedBody is { Visible: true } body)
+                return Visible && !_showsIdentity && !_baseMesh.Visible && !_artworkSurface.Visible &&
+                    _artworkSurface.MaterialOverride is null && body.CiUsesSharedCardBack(_visualCatalog.CardBack);
             return Visible && !_showsIdentity &&
                    ReferenceEquals(
                        _artworkSurface.MaterialOverride,
@@ -618,6 +645,8 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         ClearProductFace();
         ApplyShadowPolicy(layout);
 
+        composition = BattlePresentationReviewRuntime.Compose(composition);
+
         _layout = layout;
         Surface = surface;
         _boundSurface = surface;
@@ -715,6 +744,26 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             composition.ViewModel.Countdown,
             composition.FrameStyle.CountdownGemPath);
 
+        if (BattlePresentationReviewRuntime.UsesSculptedFace(composition.ViewModel.DesignId))
+        {
+            // One continuous face replaces the separate decorative planes. Clear
+            // their identity textures as well as hiding them.
+            ClearProductMaskedMaterial(ref _productArtworkMaterial, "artwork");
+            ClearProductMaskedMaterial(ref _productSurfaceMaterial, "material");
+            ClearProductMaskedMaterial(ref _productFoilMaterial, "foil");
+            foreach (MeshInstance3D layer in ProductLayers)
+            {
+                layer.Visible = false;
+                layer.MaterialOverride = null;
+                ScrubMetadata(layer);
+            }
+            if (_sculptedBody is null)
+            {
+                _sculptedBody = new SculptedCardBody { Name = "SculptedBody" };
+                AddChild(_sculptedBody);
+            }
+            _sculptedBody.Bind(composition);
+        }
         ApplyProductLabels(composition);
         foreach (MeshInstance3D oldPlate in LegacyBadgePlates)
         {
@@ -1013,6 +1062,22 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             ? FrameMaterialFor(CardVisualCatalog.FactionFor(presentation.DefinitionId))
             : HiddenFrameMaterial;
 
+        if (BattlePresentationReviewRuntime.Enabled && !known && layout != BattlefieldCardLayout.Pile)
+        {
+            // The public/hidden hand uses the same rounded thin edge as the
+            // review face, but receives only the common back. Keep the default
+            // product and pile paths unchanged, including their count badges.
+            if (_sculptedBody is null)
+            {
+                _sculptedBody = new SculptedCardBody { Name = "SculptedBody" };
+                AddChild(_sculptedBody);
+            }
+            _sculptedBody.BindSharedCardBack(_visualCatalog.CardBack);
+            _baseMesh.Visible = false;
+            _artworkSurface.Visible = false;
+            _artworkSurface.MaterialOverride = null;
+        }
+
         _displayText = known ? FormatKnownCard(presentation, layout) : string.Empty;
         _faceLabel.Text = known ? NormalizeCardName(presentation.Name) : string.Empty;
         _faceLabel.Visible = known && layout is BattlefieldCardLayout.NearHand;
@@ -1153,6 +1218,25 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
 
     private void UpdateHighlight()
     {
+        if (_sculptedBody is { Visible: true })
+        {
+            _outlineMesh.Visible = false;
+            _sculptedBody.SetHighlight(_highlight == BattlefieldHighlightKind.None ? 0f :
+                _highlight == BattlefieldHighlightKind.Selected ? 2f : 1f);
+            return;
+        }
+        if (BattlePresentationReviewRuntime.Enabled && _productFace is not null)
+        {
+            _outlineMesh.Mesh = ReviewContourMesh;
+            _outlineMesh.RotationDegrees = new(-90,0,0);
+            _outlineMesh.Position = new(0,-.018f,0);
+            _outlineMesh.MaterialOverride = ReviewContourMaterial;
+            _outlineMesh.Visible = _highlight != BattlefieldHighlightKind.None;
+            return;
+        }
+        _outlineMesh.Mesh = OutlineMesh;
+        _outlineMesh.RotationDegrees = Vector3.Zero;
+        _outlineMesh.Position = new(0,-.062f,0);
         _outlineMesh.MaterialOverride = _highlight switch
         {
             BattlefieldHighlightKind.Selected => SelectedOutlineMaterial,
@@ -1687,6 +1771,9 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
     private void ApplyProductLabels(CardFaceComposition composition)
     {
         CardFaceViewModel view = composition.ViewModel;
+        bool overlayText = _layout == BattlefieldCardLayout.NearHand &&
+                           !BattlePresentationReviewRuntime.UsesSculptedFace(view.DesignId);
+        int numberMaximum = BattlePresentationReviewRuntime.UsesSculptedFace(view.DesignId) ? 84 : 38;
         ConfigureProductLabel(
             _faceLabel,
             composition.Layout.NameText,
@@ -1694,7 +1781,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             maximumFontSize: 24,
             minimumFontSize: 14,
             color: new Color("fff8e7"),
-            noDepthTest: _layout == BattlefieldCardLayout.NearHand,
+            noDepthTest: overlayText,
             // The authored NameText socket already clears both ornaments by
             // about 12% of the plaque. Two font pixels keep the rasterized
             // glyphs inside that socket without sacrificing the full name.
@@ -1704,10 +1791,10 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             _costLabel,
             composition.Layout.CostText,
             view.Cost.ToString(CultureInfo.InvariantCulture),
-            maximumFontSize: 38,
+            maximumFontSize: numberMaximum,
             minimumFontSize: 16,
             color: Colors.White,
-            noDepthTest: _layout == BattlefieldCardLayout.NearHand,
+            noDepthTest: overlayText,
             horizontalFitPaddingPixels: 1,
             verticalFitPaddingPixels: 1);
         ConfigureOptionalProductLabel(
@@ -1715,19 +1802,19 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             composition.Layout.AttackText,
             view.Attack,
             new Color("eef8ff"),
-            _layout == BattlefieldCardLayout.NearHand);
+            overlayText, numberMaximum);
         ConfigureOptionalProductLabel(
             _healthLabel,
             composition.Layout.HealthText,
             view.Health,
             new Color("fff1f3"),
-            _layout == BattlefieldCardLayout.NearHand);
+            overlayText, numberMaximum);
         ConfigureOptionalProductLabel(
             _countdownLabel,
             composition.Layout.CountdownText,
             view.Countdown,
             new Color("fff4cf"),
-            _layout == BattlefieldCardLayout.NearHand);
+            overlayText, numberMaximum);
         _kindLabel.Text = string.Empty;
         _kindLabel.Visible = false;
     }
@@ -1737,7 +1824,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
         CardFaceRect? socket,
         int? value,
         Color color,
-        bool noDepthTest)
+        bool noDepthTest, int maximumFontSize = 38)
     {
         if (socket is not { } rect || !value.HasValue)
         {
@@ -1749,7 +1836,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             label,
             rect,
             value.Value.ToString(CultureInfo.InvariantCulture),
-            maximumFontSize: 38,
+            maximumFontSize: maximumFontSize,
             minimumFontSize: 16,
             color: color,
             noDepthTest: noDepthTest,
@@ -1887,6 +1974,7 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
 
     private void ClearProductFace()
     {
+        _sculptedBody?.ClearSensitive();
         _productFace = null;
         _baseMesh.Visible = true;
         _baseMesh.Scale = Vector3.One;
@@ -1904,6 +1992,8 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             label.NoDepthTest = false;
         }
     }
+
+    internal void SetPresentationEnergy(float amount) => _sculptedBody?.SetEnergy(amount);
 
     private static void ValidateProductContext(
         CardFaceContext context,
@@ -2110,10 +2200,23 @@ public sealed partial class CardActor3D : Area3D, IBattlefieldPickTarget
             plateTop);
     }
 
-    private static CardBadgeReadabilityEvidence CreateProductBadgeEvidence(
+    private CardBadgeReadabilityEvidence CreateProductBadgeEvidence(
         Label3D label,
         MeshInstance3D gem)
     {
+        if (_sculptedBody is { CiFrontSurfaceBound: true } body)
+        {
+            bool hasSocket = ReferenceEquals(gem, _productCostGem) ? body.CiCostSocketBound :
+                (ReferenceEquals(gem, _productAttackGem) || ReferenceEquals(gem, _productHealthGem)) &&
+                body.CiFollowerSocketsBound;
+            return new CardBadgeReadabilityEvidence(
+                label.Text,
+                label.IsVisibleInTree(),
+                hasSocket,
+                label.Position.Y,
+                body.CiFrontSurfaceLocalY);
+        }
+
         // Product gems are planar, rotated card-face layers. Their rendered
         // top is the layer Y rather than the unrotated QuadMesh AABB top used
         // by legacy 3D badge plates.

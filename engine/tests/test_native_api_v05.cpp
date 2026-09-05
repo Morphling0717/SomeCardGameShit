@@ -74,6 +74,41 @@ Json events(
     return text.empty() ? Json{} : Json::parse(text);
 }
 
+bool observations_are_safe(const Json& batch0, const Json& batch1) {
+    const auto& left = batch0.at("events");
+    const auto& right = batch1.at("events");
+    if (left.size() != right.size()) return false;
+    for (std::size_t index = 0; index < left.size(); ++index) {
+        for (const Json* event : {&left[index], &right[index]}) {
+            if (!event->contains("observation")) continue;
+            const auto& fact = event->at("observation");
+            if (fact.at("version") != 1U || fact.at("revision") > batch0.at("revision") ||
+                fact.at("cause_sequence") > event->at("sequence")) return false;
+            for (const char* key : {"source", "subject", "target"}) {
+                if (!fact.contains(key)) continue;
+                const auto& endpoint = fact.at(key);
+                if (endpoint.at("hidden") == true &&
+                    (endpoint.contains("card") || endpoint.contains("design_id"))) return false;
+                if (fact.at("public_to_all") == true && endpoint.at("hidden") == true) return false;
+                if (event->at("hidden_card") == true &&
+                    (endpoint.contains("card") || endpoint.contains("design_id"))) return false;
+            }
+            if (event->at("hidden_card") == true && (fact.contains("before") || fact.contains("after"))) return false;
+            for (const char* key : {"from", "to"}) {
+                if (!fact.contains(key)) continue;
+                const auto& location = fact.at(key);
+                const auto zone = location.at("zone").get<unsigned>();
+                if (zone == 3U || zone == 4U) {
+                    if (!location.contains("slot") || location.at("slot") >= (zone == 3U ? 5U : 3U)) return false;
+                } else if (location.contains("slot")) return false;
+            }
+            if (fact.at("public_to_all") == true &&
+                left[index].at("observation") != right[index].at("observation")) return false;
+        }
+    }
+    return true;
+}
+
 std::uint32_t submit(const scgs_v05_handle handle, Json command) {
     command["schema_version"] = 2U;
     const std::string input = command.dump();
@@ -569,6 +604,9 @@ int main() {
         }
         const Json batch0 = events(handle, 0U, event_cursor);
         const Json batch1 = events(handle, 1U, event_cursor);
+        if (!observations_are_safe(batch0, batch1)) {
+            return fail("versioned mutation observations lost privacy, temporal identity or public viewer equivalence");
+        }
         if (batch0.at("last_sequence") != batch1.at("last_sequence")) {
             return fail("viewer event cursors diverged while playing the match");
         }
@@ -589,6 +627,19 @@ int main() {
             std::to_string(reaction_seen) + ")");
     }
     const Json final_events = events(handle, 0U, 0U);
+    if (!observations_are_safe(final_events, events(handle, 1U, 0U))) {
+        return fail("final observation history failed the two-viewer privacy contract");
+    }
+    for (std::size_t index = 0; index < initial_events0.at("events").size(); ++index) {
+        const auto& initial = initial_events0.at("events")[index];
+        if (initial.contains("observation") &&
+            initial.at("observation") != final_events.at("events")[index].at("observation")) {
+            return fail("later play/reveal retroactively changed an earlier private observation");
+        }
+    }
+    if (std::none_of(final_events.at("events").begin(), final_events.at("events").end(), [](const Json& event) {
+        return event.contains("observation") && event.at("observation").at("public_to_all") == true;
+    })) return fail("real product game produced no public mutation observations");
     const auto match_ended = std::count_if(
         final_events.at("events").begin(), final_events.at("events").end(), [](const Json& event) {
             return event.at("type") == 23U;

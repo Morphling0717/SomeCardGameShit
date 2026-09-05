@@ -5,7 +5,7 @@ using System.Text.Json.Serialization;
 
 namespace Scgs.Client.V05;
 
-internal static class ScgsV05Json
+internal static partial class ScgsV05Json
 {
     private static readonly HashSet<string> SafeHiddenEventTexts =
     [
@@ -43,7 +43,9 @@ internal static class ScgsV05Json
         "evolution_energy_after", "base_cost", "burn_cost", "advance_cost", "used_advance",
         "slot", "mode_id", "use_advance", "mulligan_cards", "selected_option_ids",
         "additional_cost_cards", "expected_revision", "type", "value", "secondary_value",
-        "hidden_card", "text",
+        "hidden_card", "text", "observation", "version", "cause_sequence",
+        "public_to_all", "hidden", "from", "to", "move_reason", "actual_amount",
+        "damage_kind", "declaration_kind", "barrier_consumed", "before", "after", "health", "max_health", "attack",
     ];
 
     internal static readonly JsonSerializerOptions Options = new()
@@ -296,6 +298,11 @@ internal static class ScgsV05Json
                 if (gameEvent.HiddenCard && !SafeHiddenEventTexts.Contains(gameEvent.Text))
                 {
                     throw new ScgsProtocolException("A hidden v05 event contained unsafe text.");
+                }
+
+                if (gameEvent.Observation is not null)
+                {
+                    ValidateObservation(gameEvent.Observation, gameEvent, envelope.Revision);
                 }
             }
 

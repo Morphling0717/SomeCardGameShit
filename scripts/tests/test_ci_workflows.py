@@ -1,4 +1,4 @@
-"""Contracts for fast-vs-nightly CI routing."""
+"""Contracts for required CI versus explicit functional visual review routing."""
 
 from __future__ import annotations
 
@@ -143,15 +143,21 @@ class WorkflowTieringContractTests(unittest.TestCase):
         self.assertNotIn("--product-native-library", self.heavy)
         self.assertIn("build/ci-visual-heavy/Release/scgs_v04_fixture.dll", self.heavy)
 
-    def test_heavy_workflow_is_explicit_four_resolution_real_product_acceptance(self) -> None:
-        self.assertIn('cron: "17 20 * * *"', self.heavy)
+    def test_hosted_visual_review_is_manual_functional_only_with_explicit_sizes(self) -> None:
+        self.assertNotIn("schedule:", self.heavy)
+        self.assertNotIn("cron:", self.heavy)
+        self.assertNotIn("  push:", self.heavy)
         self.assertIn("workflow_dispatch:", self.heavy)
-        self.assertIn('".github/workflows/windows-visual-heavy.yml"', self.heavy)
         self.assertIn("inputs.ref || github.sha", self.heavy)
-        for marker in ("1280x720", "1600x900", "2560x1440", "2560x1600", "--capture", "--display", "--performance", '"--coverage", "full-ui"'):
+        self.assertIn("default: 1600x900", self.heavy)
+        self.assertIn("SCGS_REVIEW_VIEWPORT", self.heavy)
+        for marker in ("1280x720", "1600x900", "2560x1440", "2560x1600", "--capture", "--display", '"--coverage", "full-ui"'):
             self.assertIn(marker, self.heavy)
-        for marker in ("--skip-performance-budget", "--ci-smoke", "--legacy-2d-board", "--export-release", "Compress-Archive", "--require-anime"):
+        for marker in ("--performance", "--skip-performance-budget", "--ci-smoke", "--legacy-2d-board", "--export-release", "Compress-Archive", "--require-anime"):
             self.assertNotIn(marker, self.heavy)
+        hardware = (ROOT / "scripts/dev/validate_hardware_gpu_acceptance.py").read_text(encoding="utf-8")
+        self.assertIn("software", hardware)
+        self.assertIn("validate_performance", hardware)
         self.assertIn("$failedViewports += $viewport", self.heavy)
         self.assertIn("if ($failedViewports.Count -gt 0)", self.heavy)
         self.assertIn('throw "Product visual acceptance failed:', self.heavy)

@@ -675,6 +675,9 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
     public void ClearSensitive()
     {
         EnsureBuilt();
+        ClearPresentationActors();
+        presentationOriginals.Clear();
+        presentationStates.Clear();
         ClearFx();
         SetInputEnabled(false);
         _raycastInput.CancelTransient();
@@ -1677,6 +1680,9 @@ public sealed partial class Battlefield3DPresenter : Node3D, IBattlefieldPresent
 
     private void ResetForRender()
     {
+        ClearPresentationActors();
+        presentationOriginals.Clear();
+        presentationStates.Clear();
         SetInputEnabled(false);
         _raycastInput.CancelTransient();
         _targetArrow.Stop();

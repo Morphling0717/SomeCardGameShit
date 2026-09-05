@@ -109,6 +109,54 @@ twenty-four textures and must not preload the complete thirty-five-card base-art
 catalog. Human full-resolution anatomy, text-like mark, trademark and IP review
 is still required before commercial release.
 
+## Battle Presentation V2, first-stage candidates
+
+Exactly three additional raster candidates were generated on 2026-09-06 under
+`assets/visual/anime_v1/presentation_v2/`. They extend the existing sixty-six
+registered assets to sixty-nine; they do not replace or silently alter any of
+the earlier illustration, card-body or shared asset hashes.
+
+- `engraved-platinum.png` is a new 1254x1254 opaque RGB material generated
+  from text without an input image: fine satin platinum, pale gold and shallow
+  celestial engraving for visible card rims. SHA-256:
+  `7b900cc0fe23c7262a791c54f15ac122aeac63edd674a46d37826a7facb4577b`.
+- `LO-11-cutin.png` is a 1024x1536 RGB green-background cut-in derived with
+  image generation from the project's `slice/cards/LO-11-evolved.png`.
+  Final SHA-256:
+  `de38f7b498328f9240804dba796acc146127e17837baee38db8aa716b50d036f`.
+- `AP-11-cutin.png` is a 1024x1536 RGB green-background cut-in derived with
+  image generation from the project's `slice/cards/AP-11-evolved.png`.
+  Final SHA-256:
+  `f722acc8a78f02d23cb1dfdbf35e5b4abe3ba93041900c56353534a2453338c5`.
+
+The two cut-ins are **not native-alpha transparent PNGs**. Two extraction
+attempts returned RGB with baked checkerboard and were rejected. The first
+rejected extraction was subsequently edited with image generation to replace
+the checkerboard by a flat green background; transparency is produced by a
+runtime CanvasItem chroma-key shader. Rejected intermediate rasters are not
+shipped. Foreground-edge quality, green spill and the final composited result
+remain subject to actual GPU review; passing the inventory audit is not visual
+approval. The selected files were copied without raster post-processing.
+
+The complete material, extraction and final green-edit prompts are retained in
+`assets/visual/anime_v1/presentation_v2/GENERATION_RECORD.json`. The shared
+`assets/visual/ASSET_MANIFEST.json` (packaged as
+`ANIME_V1_SHARED_ASSET_MANIFEST.json`) records each final path and hash, original
+input artwork and its hash, dated modification history, use and generation
+method. Runtime card names, numbers, frames and interface text are not baked
+into these candidates. Their desktop imports use high-quality VRAM compression
+and mipmaps; cut-in identity textures must never bind to hidden cards.
+
+These assets were generated for the project under the user's explicit
+development authorization using OpenAI's built-in image-generation workflow;
+the cut-ins use only recorded original project artwork as reference. No
+third-party game's artwork, frame, logo, audio or trademark material is
+included. They are project-authorized development and redistribution
+candidates, not third-party MIT/OFL assets and not a claim of exclusive
+copyright or trademark clearance. Human commercial-release review remains
+required. This registration covers only the three first-stage presentation
+candidates, not completion of the entire presentation overhaul.
+
 ## Noto Serif CJK SC SemiBold
 
 `assets/fonts/NotoSerifCJKsc-SemiBold.otf` is copied without modification from

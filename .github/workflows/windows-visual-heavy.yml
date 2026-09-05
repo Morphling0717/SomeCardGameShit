@@ -1,19 +1,25 @@
-name: Windows AnimeV1 product visual acceptance
+name: Windows AnimeV1 functional visual review (manual)
 
 on:
-  # Self-validate changes to this heavy lane once. Ordinary product and
-  # documentation pushes do not enter the four-resolution product GPU matrix.
-  push:
-    paths:
-      - ".github/workflows/windows-visual-heavy.yml"
-  schedule:
-    - cron: "17 20 * * *"
+  # Hosted windows-latest can use WARP / Microsoft Basic Render Driver.
+  # This explicit lane checks functionality, capture and structure, NOT hardware
+  # GPU frame time. The four mandatory primary CI jobs are unchanged.
   workflow_dispatch:
     inputs:
       ref:
         description: Exact implementation commit to verify
         type: string
         required: false
+      viewport:
+        description: Functional screenshot resolution (all is a longer explicit review)
+        type: choice
+        default: 1600x900
+        options:
+          - 1280x720
+          - 1600x900
+          - 2560x1440
+          - 2560x1600
+          - all
 
 concurrency:
   group: windows-visual-heavy-${{ github.event_name }}-${{ inputs.ref || github.sha }}
@@ -96,7 +102,7 @@ jobs:
           SCGS_NATIVE_V05_LIBRARY: ${{ github.workspace }}/build/stage-visual-heavy/bin/scgs_v05.dll
         run: python scripts/ci/run_managed_gate3.py
       # Shared exact Windows asset key, never an editor/session or local seed.
-      # Still run --import and every real GPU/interaction/performance gate.
+      # Still run --import and every selected real interaction/capture gate.
       - name: Cache exact Godot imported assets
         uses: actions/cache@v5
         with:
@@ -113,9 +119,10 @@ jobs:
           --forbid-output "ERROR:"
           -- "$env:GODOT4" --headless
           --path client/godot --import
-      - name: Real AnimeV1 product four-resolution visual and heavy-board performance acceptance
+      - name: Explicit real AnimeV1 functional and structural screenshot review
         env:
           GODOT4: ${{ steps.godot.outputs.godot }}
+          SCGS_REVIEW_VIEWPORT: ${{ inputs.viewport || '1600x900' }}
         shell: pwsh
         run: |
           python -m unittest scripts.tests.test_run_product_smoke scripts.tests.test_validate_product_smoke_report scripts.tests.test_validate_product_visual_report scripts.tests.test_validate_product_privacy_report
@@ -125,9 +132,14 @@ jobs:
           # Preserve evidence from every size even when one bounded case fails.
           # Any failure still fails this job; never replace it with a skipped gate.
           $failedViewports = @()
-          foreach ($viewport in @("1280x720", "1600x900", "2560x1440", "2560x1600")) {
+          $supportedViewports = @("1280x720", "1600x900", "2560x1440", "2560x1600")
+          if ($env:SCGS_REVIEW_VIEWPORT -eq "all") {
+            $viewports = $supportedViewports
+          } elseif ($supportedViewports -contains $env:SCGS_REVIEW_VIEWPORT) {
+            $viewports = @($env:SCGS_REVIEW_VIEWPORT)
+          } else { throw "Unsupported functional review viewport" }
+          foreach ($viewport in $viewports) {
             $arguments = @("scripts/ci/run_product_smoke.py", "--executable", "$env:GODOT4", "--project", "client/godot", "--native-library", "build/stage-visual-heavy/bin/scgs_v05.dll", "--artifact", "source", "--coverage", "full-ui", "--viewport", $viewport, "--display", "--capture", "--output", "artifacts/product-heavy/$viewport")
-            if ($viewport -eq "1600x900") { $arguments += "--performance" }
             python @arguments
             if ($LASTEXITCODE -ne 0) { $failedViewports += $viewport }
           }
@@ -139,6 +151,6 @@ jobs:
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: SomeCardGameShit-product-playable-v1-visual-evidence
+          name: SomeCardGameShit-product-playable-v1-functional-visual-evidence
           path: artifacts/product-heavy
           if-no-files-found: warn

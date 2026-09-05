@@ -77,6 +77,9 @@ public sealed class GameEventView
     public required string Text { get; init; }
 
     public PlayerId? FirstPlayer { get; init; }
+
+    // Additive schema-2 observation contract. Omitted by pre-observation producers.
+    public ProductEventObservation? Observation { get; init; }
 }
 
 public sealed record LegalActionsResult(ulong Revision, IReadOnlyList<LegalAction> Actions);

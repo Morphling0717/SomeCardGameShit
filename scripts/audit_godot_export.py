@@ -64,6 +64,7 @@ NATIVE_LAYOUTS = {
 
 
 LICENSE_MARKERS = {
+    "ANIME_V1_PRESENTATION_V2_GENERATION_RECORD.json": '"chroma"',
     "GPL-3.0-or-later.txt": "GNU GENERAL PUBLIC LICENSE",
     "THIRD_PARTY_NOTICES.md": "JSON for Modern C++",
     "Godot-LICENSE.txt": "Godot Engine contributors",
@@ -89,6 +90,8 @@ LICENSE_MARKERS = {
 }
 
 EXACT_PACKAGED_SOURCE_FILES = {
+    "ANIME_V1_PRESENTATION_V2_GENERATION_RECORD.json":
+        ROOT / "client/godot/assets/visual/anime_v1/presentation_v2/GENERATION_RECORD.json",
     "ANIME_V1_SHARED_ASSET_MANIFEST.json":
         ROOT / "client/godot/assets/visual/ASSET_MANIFEST.json",
     "ANIME_V1_ASSET_MANIFEST.json":

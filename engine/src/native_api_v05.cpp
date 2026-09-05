@@ -1259,7 +1259,8 @@ std::uint32_t event_type(const scgs::v2::ProductGameEvent& event) noexcept {
         case Kind::CostPaid: return 6U;
         case Kind::CardPlayed:
         case Kind::CardMoved:
-        case Kind::ChoiceResolved: return 8U;
+        case Kind::ChoiceResolved:
+        case Kind::Observation: return 8U;
         case Kind::AttackDeclared: return 14U;
         case Kind::AttackCancelled: return 15U;
         case Kind::Damage: return event.target.has_value() ? 10U : 11U;
@@ -1279,6 +1280,13 @@ bool event_hidden_from_viewer(
     const ProductSession& session,
     const scgs::v2::ProductGameEvent& event,
     const std::uint32_t viewer) {
+    if (event.observation) {
+        const auto hidden = [viewer](const auto& endpoint) {
+            return endpoint && (endpoint->visibility & (1U << viewer)) == 0;
+        };
+        return hidden(event.observation->source) || hidden(event.observation->subject) ||
+            hidden(event.observation->target);
+    }
     const bool opponent_view = viewer != static_cast<std::uint32_t>(event.player);
     if (!opponent_view) {
         return false;
@@ -1332,8 +1340,74 @@ std::string event_text(
         case Kind::ChoiceResolved: return "choice resolved";
         case Kind::PlayerSurrendered: return "player surrendered";
         case Kind::MatchEnded: return "match ended";
+        case Kind::Observation: return "observed state change";
     }
     return "event";
+}
+
+Json observation_state_json(const scgs::v2::ObservationState& state) {
+    Json result = Json::object();
+    if (state.health) result["health"] = *state.health;
+    if (state.max_health) result["max_health"] = *state.max_health;
+    if (state.attack) result["attack"] = *state.attack;
+    if (state.countdown) result["countdown"] = *state.countdown;
+    if (state.evolved) result["evolved"] = *state.evolved;
+    if (state.keywords) result["keywords"] = *state.keywords;
+    return result;
+}
+
+Json observation_json(const scgs::v2::ProductGameEvent& event, const std::uint32_t viewer,
+    const bool hidden) {
+    const auto& observation = *event.observation;
+    const auto public_endpoint = [](const auto& endpoint) { return !endpoint || endpoint->visibility == 3U; };
+    Json result{{"version", 1}, {"revision", event.revision}, {"kind", observation.kind},
+        {"cause_sequence", observation.cause_sequence},
+        {"public_to_all", public_endpoint(observation.source) && public_endpoint(observation.subject) &&
+            public_endpoint(observation.target)}};
+    const auto endpoint = [&](const char* name, const auto& value) {
+        if (!value) return;
+        const bool identity_hidden = !value->leader && (hidden || (value->visibility & (1U << viewer)) == 0);
+        Json item{{"kind", value->leader ? "leader" : "card"},
+            {"player", static_cast<std::uint32_t>(value->player)}, {"hidden", identity_hidden}};
+        if (!value->leader && !identity_hidden && value->card) {
+            item["card"] = *value->card;
+            item["design_id"] = value->design_id;
+        }
+        result[name] = std::move(item);
+    };
+    endpoint("source", observation.source);
+    endpoint("subject", observation.subject);
+    endpoint("target", observation.target);
+    const auto location = [&](const char* name, const auto& value) {
+        if (!value) return;
+        Json item{{"player", static_cast<std::uint32_t>(value->player)},
+            {"zone", static_cast<std::uint32_t>(value->zone)}};
+        if (value->slot) item["slot"] = *value->slot;
+        result[name] = std::move(item);
+    };
+    location("from", observation.from);
+    location("to", observation.to);
+    if (observation.move_reason) {
+        static constexpr const char* reasons[] = {"scenario_setup", "drawn", "played", "resolved",
+            "destroyed", "countdown_expired", "field_replaced", "discarded", "archived",
+            "additional_cost", "hand_overflow", "returned_to_deck_bottom", "token_summoned", "terminal_cleanup"};
+        result["move_reason"] = reasons[static_cast<std::size_t>(*observation.move_reason)];
+    }
+    if (observation.actual_amount) result["actual_amount"] = hidden ? 0 : *observation.actual_amount;
+    if (!observation.damage_kind.empty()) result["damage_kind"] = observation.damage_kind;
+    if (!observation.declaration_kind.empty()) result["declaration_kind"] = observation.declaration_kind;
+    if (observation.barrier_consumed) result["barrier_consumed"] = hidden ? false : *observation.barrier_consumed;
+    if (!hidden) {
+        if (observation.before) {
+            Json state = observation_state_json(*observation.before);
+            if (!state.empty()) result["before"] = std::move(state);
+        }
+        if (observation.after) {
+            Json state = observation_state_json(*observation.after);
+            if (!state.empty()) result["after"] = std::move(state);
+        }
+    }
+    return result;
 }
 
 void prepare_output(std::uint64_t* required_bytes) {
@@ -1716,6 +1790,7 @@ scgs_v05_native_code SCGS_V05_CALL scgs_v05_read_events_json(
                 {"secondary_value", hidden ? 0 : event.secondary_value},
                 {"hidden_card", hidden},
                 {"text", event_text(event, hidden)}};
+            if (event.observation) value["observation"] = observation_json(event, parsed_viewer, hidden);
             if (!hidden && event.source.has_value() &&
                 session->game.board().contains_instance(*event.source)) {
                 value["card"] = *event.source;

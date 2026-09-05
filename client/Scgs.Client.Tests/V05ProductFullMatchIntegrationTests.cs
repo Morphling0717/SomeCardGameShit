@@ -126,9 +126,13 @@ public sealed class V05ProductFullMatchIntegrationTests
 
     [TestMethod]
     [TestCategory("NativeIntegrationV05")]
-    [DataRow(V05.FirstPlayerMode.Player0)]
-    [DataRow(V05.FirstPlayerMode.Player1)]
-    public void LockedProductDecksReachNaturalTerminalThroughHotseatController(V05.FirstPlayerMode firstPlayer)
+    [DataRow(V05.FirstPlayerMode.Player0, false)]
+    [DataRow(V05.FirstPlayerMode.Player1, false)]
+    [DataRow(V05.FirstPlayerMode.Player0, true)]
+    [DataRow(V05.FirstPlayerMode.Player1, true)]
+    public void LockedProductDecksReachNaturalTerminalThroughHotseatController(
+        V05.FirstPlayerMode firstPlayer,
+        bool enablePresentation)
     {
         var config = new V05.GameConfigRequest(
             "oathguard_luminous_oath_v1", "pactmage_abyssal_pact_v1")
@@ -139,9 +143,12 @@ public sealed class V05ProductFullMatchIntegrationTests
         };
         using V05.ScgsV05GameSession session = V05.ScgsV05GameSession.Create(config, GetNativeLibraryPath());
         Assert.IsTrue(session.Start().IsSuccess);
-        using var controller = new ProductHotseatMatchController(session);
+        using var controller = new ProductHotseatMatchController(session, enablePresentation);
         int submissions = 0;
         int reveals = 0;
+        int presentations = 0;
+        ulong lastPresentationId = 0;
+        ulong lastObservationSequence = 0;
         while (submissions < 2_000)
         {
             ProductHotseatUiState state = controller.State;
@@ -174,10 +181,35 @@ public sealed class V05ProductFullMatchIntegrationTests
                 case ProductHotseatUiMode.Finished:
                     Assert.AreNotEqual(V05.GameResult.Ongoing, state.Snapshot!.Result);
                     Assert.IsGreaterThan(1, reveals);
+                    Assert.AreEqual(enablePresentation ? submissions : 0, presentations);
                     V05.EventBatch terminal = session.ReadEvents(state.Snapshot.Viewer, 0);
                     Assert.AreEqual(V05.EventType.MatchEnded, terminal.Events[^1].Type);
                     Assert.HasCount(1, terminal.Events.Where(item => item.Type == V05.EventType.MatchEnded));
                     return;
+                case ProductHotseatUiMode.Presenting:
+                    Assert.IsTrue(enablePresentation);
+                    Assert.IsNull(state.Snapshot);
+                    Assert.IsNull(state.Viewer);
+                    Assert.IsEmpty(state.Events);
+                    Assert.IsEmpty(state.PendingEvents);
+                    Assert.IsEmpty(state.LegalActions);
+                    ProductPresentationBatch presentation = state.Presentation!;
+                    Assert.IsGreaterThan(lastPresentationId, presentation.Id);
+                    Assert.AreEqual(presentation.PreviousRevision + 1, presentation.Revision);
+                    ProductHotseatEventCursors cursors = state.EventCursors;
+                    foreach (ProductPresentationObservation observation in presentation.Observations)
+                    {
+                        Assert.IsGreaterThan(lastObservationSequence, observation.Sequence);
+                        Assert.IsTrue(observation.Observation.PublicToAll);
+                        Assert.AreEqual(presentation.Revision, observation.Observation.Revision);
+                        lastObservationSequence = observation.Sequence;
+                    }
+
+                    Assert.IsTrue(controller.CompletePresentation(presentation.Id, presentation.Revision));
+                    Assert.AreEqual(cursors, controller.State.EventCursors);
+                    lastPresentationId = presentation.Id;
+                    ++presentations;
+                    break;
                 default:
                     Assert.Fail($"Product controller entered {state.Mode}: {state.FailureText}");
                     break;

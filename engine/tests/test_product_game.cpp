@@ -876,8 +876,12 @@ void test_locked_lifesteal_lethal_uses_actual_damage_and_final_event(TestContext
     EXPECT(context, events.back().kind == product::ProductEventKind::MatchEnded);
     EXPECT(context, events[events.size() - 2U].kind == product::ProductEventKind::Healing);
     EXPECT(context, events[events.size() - 2U].value == 1);
-    EXPECT(context, events[events.size() - 3U].kind == product::ProductEventKind::Damage);
-    EXPECT(context, events[events.size() - 3U].value == 1);
+    std::vector<product::ProductGameEvent> legacy_events;
+    std::copy_if(events.begin(), events.end(), std::back_inserter(legacy_events), [](const auto& event) {
+        return !event.observation.has_value();
+    });
+    EXPECT(context, legacy_events[legacy_events.size() - 3U].kind == product::ProductEventKind::Damage);
+    EXPECT(context, legacy_events[legacy_events.size() - 3U].value == 1);
     const auto revision = game.revision();
     const auto count = events.size();
     EXPECT_GAME_CODE(context, game.submit_command(command(game, PlayerId::Player1, product::ActionKind::Surrender)),
@@ -1709,6 +1713,11 @@ void test_reaction_cancel_lifo_and_attack_spent(TestContext& context) {
     EXPECT(context, game.phase() == product::ProductGamePhase::Reaction);
     EXPECT(context, game.reaction_context().priority == PlayerId::Player1);
     EXPECT(context, game.board().instance(follower).attacked_this_turn);
+    const auto declared_fact = std::find_if(game.events().rbegin(), game.events().rend(), [](const auto& event) {
+        return event.observation && event.observation->declaration_kind == "attack";
+    });
+    EXPECT(context, declared_fact != game.events().rend());
+    const auto attack_cause = declared_fact == game.events().rend() ? 0U : declared_fact->observation->cause_sequence;
 
     auto invalid_target = command(game, PlayerId::Player1, product::ActionKind::ActivateTrap);
     invalid_target.source = trap;
@@ -1742,6 +1751,17 @@ void test_reaction_cancel_lifo_and_attack_spent(TestContext& context) {
     EXPECT(context, std::count_if(game.events().begin(), game.events().end(), [](const auto& event) {
         return event.kind == product::ProductEventKind::AttackCancelled;
     }) == 1);
+    const auto cancelled_fact = std::find_if(game.events().rbegin(), game.events().rend(), [](const auto& event) {
+        return event.observation && event.observation->declaration_kind == "attack_cancelled";
+    });
+    EXPECT(context, cancelled_fact != game.events().rend());
+    if (cancelled_fact != game.events().rend()) {
+        EXPECT(context, cancelled_fact->observation->cause_sequence == attack_cause);
+        EXPECT(context, cancelled_fact->observation->source->card == follower);
+        EXPECT(context, cancelled_fact->observation->target->leader &&
+            cancelled_fact->observation->target->player == PlayerId::Player1);
+        EXPECT(context, cancelled_fact->revision > reaction_revision);
+    }
     expect_invariants(context, game);
 }
 
@@ -1881,6 +1901,21 @@ void test_paid_choice_blocks_resumes_and_cleans_spell(TestContext& context) {
     EXPECT(context, !game.pending_choice().has_value());
     EXPECT(context, game.board().instance(choice_spell).zone == product::Zone::Graveyard);
     EXPECT(context, game.board().player(PlayerId::Player0).deck.size() == deck_before + 1U);
+    std::vector<product::ProductGameEvent> spell_moves;
+    for (const auto& event : game.events()) {
+        if (event.observation && event.observation->kind == "move" &&
+            event.observation->subject->card == choice_spell) spell_moves.push_back(event);
+    }
+    EXPECT(context, spell_moves.size() >= 2U);
+    if (spell_moves.size() >= 2U) {
+        const auto& entered = spell_moves[spell_moves.size() - 2U];
+        const auto& left = spell_moves.back();
+        EXPECT(context, entered.observation->to->zone == product::Zone::Tactic);
+        EXPECT(context, left.observation->from->zone == product::Zone::Tactic && left.observation->from->slot == 1U);
+        EXPECT(context, left.observation->to->zone == product::Zone::Graveyard);
+        EXPECT(context, entered.observation->cause_sequence == left.observation->cause_sequence);
+        EXPECT(context, entered.revision < left.revision);
+    }
     expect_invariants(context, game);
 }
 
@@ -2190,6 +2225,93 @@ void test_locked_product_catalog_and_multiseed_matches(TestContext& context) {
     EXPECT(context, commands > 1000U);
 }
 
+void test_observation_representatives_capture_real_transitions(TestContext& context) {
+    for (const std::string id : {"LO-11", "AP-11"}) {
+        product::ProductGame game(semantic_catalog(), semantic_config(id == "LO-11" ? 0U : 1U,
+            {id, "SEM-FILL-9", "SEM-FILL-9", "SEM-FILL-8"}));
+        EXPECT(context, game.start());
+        finish_mulligan(game);
+        pass_to_owner_turn(game, 10);
+        const auto start = game.events().size();
+        const auto card = play_from_hand(game, id, product::ActionKind::PlayFollower, 3U);
+        const auto entry = std::find_if(game.events().begin() + static_cast<std::ptrdiff_t>(start),
+            game.events().end(), [card](const auto& event) {
+                return event.observation && event.observation->kind == "move" &&
+                    event.observation->subject->card == card;
+            });
+        EXPECT(context, entry != game.events().end());
+        if (entry == game.events().end()) continue;
+        const auto entry_fact = *entry;
+        EXPECT(context, entry_fact.observation->from->zone == product::Zone::Hand);
+        EXPECT(context, !entry_fact.observation->from->slot);
+        EXPECT(context, entry_fact.observation->to->zone == product::Zone::MainBoard);
+        EXPECT(context, entry_fact.observation->to->slot == 3U);
+        EXPECT(context, entry_fact.observation->subject->visibility == 3U);
+        EXPECT(context, entry_fact.observation->subject->design_id == id);
+        EXPECT(context, entry_fact.revision == game.revision());
+        EXPECT(context, entry_fact.observation->cause_sequence <= entry_fact.sequence);
+        const int old_attack = game.board().instance(card).current_attack;
+        const int old_health = game.board().instance(card).current_health;
+        auto evolve = command(game, PlayerId::Player0, product::ActionKind::Evolve);
+        evolve.source = card;
+        EXPECT(context, game.submit_command(evolve));
+        const auto evolved = std::find_if(game.events().rbegin(), game.events().rend(), [card](const auto& event) {
+            return event.observation && event.observation->kind == "evolve" && event.observation->subject->card == card;
+        });
+        EXPECT(context, evolved != game.events().rend());
+        if (evolved != game.events().rend()) {
+            EXPECT(context, evolved->observation->before->evolved == false);
+            EXPECT(context, evolved->observation->after->evolved == true);
+            EXPECT(context, evolved->observation->before->attack == old_attack);
+            EXPECT(context, evolved->observation->after->attack == old_attack + 2);
+            EXPECT(context, evolved->observation->before->health == old_health);
+            EXPECT(context, evolved->observation->after->health == old_health + 2);
+            EXPECT(context, evolved->observation->to->slot == 3U);
+        }
+        EXPECT(context, entry_fact.observation->after->evolved == false);
+        EXPECT(context, game.board().observations().size() > 0U);
+        expect_invariants(context, game);
+    }
+
+    auto config = semantic_config(0, {"NT-04", "SEM-FILL-9", "SEM-FILL-9", "SEM-FILL-8"});
+    config.main_decks[1].back() = "SEM-TARGET";
+    product::ProductGame game(semantic_catalog(), std::move(config));
+    EXPECT(context, game.start());
+    finish_mulligan(game);
+    const auto target = prepare_enemy_permanent(game, "SEM-TARGET", product::ActionKind::PlayFollower);
+    pass_to_owner_turn(game, 5);
+    auto cast = command(game, PlayerId::Player0, product::ActionKind::CastSpell);
+    cast.source = find_card(game, PlayerId::Player0, product::Zone::Hand, "NT-04");
+    cast.target = target;
+    cast.mode_id = "damage_follower";
+    const auto start = game.events().size();
+    const auto board_facts = game.board().observations().size();
+    EXPECT_GAME_CODE(context, game.submit_command(cast), product::ProductGameError::InvalidSlot);
+    EXPECT(context, game.events().size() == start && game.board().observations().size() == board_facts);
+    cast.slot = 2U;
+    EXPECT(context, game.submit_command(cast));
+    std::vector<product::ProductObservation> facts;
+    for (std::size_t index = start; index < game.events().size(); ++index) {
+        if (game.events()[index].observation) facts.push_back(*game.events()[index].observation);
+    }
+    EXPECT(context, facts.size() == 3U);
+    if (facts.size() == 3U) {
+        EXPECT(context, facts[0].kind == "move" && facts[0].to->slot == 2U);
+        EXPECT(context, facts[1].kind == "damage" && facts[1].source->card == cast.source);
+        EXPECT(context, facts[1].target->card == target && facts[1].subject->card == target);
+        EXPECT(context, facts[1].actual_amount == 4 && facts[1].damage_kind == "effect");
+        EXPECT(context, facts[1].before->health == 20 && facts[1].after->health == 16);
+        EXPECT(context, facts[1].barrier_consumed == false);
+        EXPECT(context, facts[2].kind == "move" && facts[2].subject->card == cast.source);
+        EXPECT(context, facts[2].from->zone == product::Zone::Tactic && facts[2].from->slot == 2U);
+        EXPECT(context, facts[2].to->zone == product::Zone::Graveyard &&
+            facts[2].move_reason == product::MoveReason::Resolved);
+        EXPECT(context, facts[0].cause_sequence == facts[1].cause_sequence &&
+            facts[1].cause_sequence == facts[2].cause_sequence);
+    }
+    expect_invariants(context, game);
+}
+
 struct TestCase {
     std::string_view name;
     void (*function)(TestContext&);
@@ -2200,6 +2322,7 @@ struct TestCase {
 
 int main() {
     const std::vector<TestCase> tests = {
+        {"observation_representatives_capture_real_transitions", test_observation_representatives_capture_real_transitions},
         {"locked_healers_use_actual_repair_and_evolution_continues", test_locked_healers_use_actual_repair_and_evolution_continues, {"LO-02", "LO-09"}},
         {"locked_last_words_debt_and_neutral_outnumbered_rush", test_locked_last_words_debt_and_neutral_outnumbered_rush, {"AP-01", "NT-01"}},
         {"locked_debt_four_book_draws_two_and_repair_mode_reduces_two", test_locked_debt_four_book_draws_two_and_repair_mode_reduces_two, {"AP-04", "AP-08"}},

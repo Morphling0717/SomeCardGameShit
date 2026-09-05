@@ -454,7 +454,9 @@ class AnimeVisualSliceSourceContractTests(unittest.TestCase):
         for viewport in ("1280x720", "1600x900", "2560x1440", "2560x1600"):
             self.assertIn(viewport, heavy)
         self.assertIn("--capture", heavy)
-        self.assertIn("--performance", heavy)
+        self.assertNotIn("--performance", heavy)
+        self.assertNotIn("schedule:", heavy)
+        self.assertTrue((ROOT / "scripts/dev/validate_hardware_gpu_acceptance.py").is_file())
 
         suite = (ROOT / "client/godot/scripts/Ci/AnimeVisualSliceSuite.cs").read_text(encoding="utf-8")
         policy = (ROOT / "client/godot/scripts/Preview/AnimeSliceMotionProfile.cs").read_text(encoding="utf-8")

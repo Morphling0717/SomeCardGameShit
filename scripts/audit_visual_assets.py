@@ -37,6 +37,12 @@ MEDIA_SUFFIXES = {".png", ".webp", ".svg"}
 RETIRED_PRODUCT_ROOTS = tuple((VISUAL_ROOT / suffix).as_posix() + "/"
     for suffix in ("cards/art", "cards/shared", "shared", "menu", "portraits", "arena", "r3"))
 PRODUCT_FALLBACK = (VISUAL_ROOT / "anime_v1/shared/fallback_front.svg").as_posix()
+PRESENTATION_V2_ROOT = VISUAL_ROOT / "anime_v1/presentation_v2"
+PRESENTATION_V2_RECORD = (PRESENTATION_V2_ROOT / "GENERATION_RECORD.json").as_posix()
+EXPECTED_PRESENTATION_V2_PATHS = {
+    (PRESENTATION_V2_ROOT / name).as_posix()
+    for name in ("engraved-platinum.png", "LO-11-cutin.png", "AP-11-cutin.png")
+}
 R3_CANDIDATE_FLOOR = (
     VISUAL_ROOT / "arena/r3_industrial_floor_albedo.png"
 ).as_posix()
@@ -158,11 +164,73 @@ EXPECTED_ASSET_FIELDS = {
     "date",
     "prompt_summary",
 }
+EXPECTED_PRESENTATION_V2_FIELDS = EXPECTED_ASSET_FIELDS | {
+    "source_images", "modification_history", "generation_record", "authorization",
+    "transparency",
+}
 SHA256_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
 class VisualAssetAuditError(ValueError):
     """Raised when the committed visual inventory is incomplete or unsafe."""
+
+
+def _audit_presentation_v2_entry(repo_root: Path, entry: dict[str, Any]) -> None:
+    """Keep the three review assets truthful without relaxing older inventories."""
+    relative = entry["path"]
+    if set(entry) != EXPECTED_PRESENTATION_V2_FIELDS or entry["date"] != "2026-09-06":
+        raise VisualAssetAuditError("Presentation V2 requires exact provenance fields and date")
+    if entry["generation_record"] != PRESENTATION_V2_RECORD:
+        raise VisualAssetAuditError("Presentation V2 must refer to its complete generation record")
+    record = _load_json(repo_root / PRESENTATION_V2_RECORD)
+    if not isinstance(record, dict) or not isinstance(record.get("material"), str):
+        raise VisualAssetAuditError("Presentation V2 is missing its complete material prompt")
+    if not isinstance(entry["authorization"], str) or not entry["authorization"].strip():
+        raise VisualAssetAuditError("Presentation V2 authorization/review boundary is missing")
+    history = entry["modification_history"]
+    if not isinstance(history, list) or not history or any(
+        not isinstance(item, str) or not item.startswith("2026-09-06: ") for item in history
+    ):
+        raise VisualAssetAuditError("Presentation V2 dated modification history is missing")
+    is_cutin = relative.endswith("-cutin.png")
+    expected_transparency = "rgb_chroma_key_runtime" if is_cutin else "opaque_rgb_material"
+    if entry["transparency"] != expected_transparency:
+        raise VisualAssetAuditError("Presentation V2 RGB sources must not claim native alpha")
+    sources = entry["source_images"]
+    if not isinstance(sources, list) or len(sources) != int(is_cutin):
+        raise VisualAssetAuditError("Presentation V2 must identify the exact original input image")
+    if is_cutin:
+        design_id = Path(relative).stem.removesuffix("-cutin")
+        expected_source = (ANIME_V1_ROOT / "cards" / f"{design_id}-evolved.png").as_posix()
+        source = sources[0]
+        if not isinstance(source, dict) or set(source) != {"path", "sha256"} or source["path"] != expected_source:
+            raise VisualAssetAuditError("Presentation V2 source must be its original evolved artwork")
+        source_path = repo_root / expected_source
+        if not source_path.is_file() or hashlib.sha256(source_path.read_bytes()).hexdigest() != source["sha256"]:
+            raise VisualAssetAuditError("Presentation V2 original input SHA-256 mismatch")
+        cutouts, chroma = record.get("cutouts"), record.get("chroma")
+        if not isinstance(cutouts, list) or not any(
+            isinstance(item, list) and len(item) == 2 and item[0] == design_id
+            and isinstance(item[1], str) and item[1].strip() for item in cutouts
+        ) or not isinstance(chroma, list) or not any(
+            isinstance(item, dict) and item.get("id") == design_id
+            and isinstance(item.get("prompt"), str) and item["prompt"].strip() for item in chroma
+        ):
+            raise VisualAssetAuditError("Presentation V2 extraction and final chroma prompts are required")
+    asset_path = repo_root / relative
+    expected_dimensions = (1024, 1536) if is_cutin else (1254, 1254)
+    if _png_dimensions(asset_path) != expected_dimensions or asset_path.read_bytes()[24:26] != b"\x08\x02":
+        raise VisualAssetAuditError("Presentation V2 expected RGB8 dimensions do not match the source")
+    import_path = repo_root / f"{relative}.import"
+    try:
+        import_text = import_path.read_text(encoding="utf-8")
+    except (FileNotFoundError, UnicodeDecodeError) as error:
+        raise VisualAssetAuditError("Presentation V2 Godot import sidecar is missing") from error
+    expected_source = "res://" + relative.removeprefix("client/godot/")
+    required = {'"vram_texture": true', "compress/mode=2", "compress/high_quality=true",
+                "mipmaps/generate=true", "process/premult_alpha=false", f'source_file="{expected_source}"'}
+    if missing := sorted(setting for setting in required if setting not in import_text):
+        raise VisualAssetAuditError(f"Presentation V2 requires desktop compression and mipmaps: {missing}")
 
 
 def _load_json(path: Path) -> Any:
@@ -429,9 +497,15 @@ def audit(
 
         current_registered: set[str] = set()
         for index, entry in enumerate(entries):
-            if not isinstance(entry, dict) or set(entry) != EXPECTED_ASSET_FIELDS:
+            expected_asset_fields = (
+                EXPECTED_PRESENTATION_V2_FIELDS
+                if isinstance(entry, dict) and isinstance(entry.get("path"), str)
+                and entry["path"] in EXPECTED_PRESENTATION_V2_PATHS
+                else EXPECTED_ASSET_FIELDS
+            )
+            if not isinstance(entry, dict) or set(entry) != expected_asset_fields:
                 raise VisualAssetAuditError(
-                    f"asset[{index}] fields must be exactly {sorted(EXPECTED_ASSET_FIELDS)}"
+                    f"asset[{index}] fields must be exactly {sorted(expected_asset_fields)}"
                 )
             relative = _validate_relative_path(entry["path"])
             if relative in registered:
@@ -486,6 +560,8 @@ def audit(
                 raise VisualAssetAuditError(
                     f"asset[{index}].date must be ISO YYYY-MM-DD"
                 ) from error
+            if relative in EXPECTED_PRESENTATION_V2_PATHS:
+                _audit_presentation_v2_entry(repo_root, entry)
 
         entry_count += len(entries)
         registered_by_manifest[current_manifest_path] = current_registered
@@ -530,10 +606,10 @@ def audit(
     product_card_art_estimated_vram_bytes = 0
     product_card_art_source_payload_bytes = 0
     if enforce_product_set:
-        expected_product_paths = {PRODUCT_FALLBACK}
+        expected_product_paths = {PRODUCT_FALLBACK} | EXPECTED_PRESENTATION_V2_PATHS
         if product_registered != expected_product_paths:
             raise VisualAssetAuditError(
-                "Product shared manifest must contain only the identity-free AnimeV1 fallback; "
+                "Product shared manifest must contain the AnimeV1 fallback and exact three Presentation V2 candidates; "
                 f"missing={sorted(expected_product_paths - product_registered)}, "
                 f"unexpected={sorted(product_registered - expected_product_paths)}"
             )
@@ -724,6 +800,10 @@ def audit(
     return {
         "asset_count": entry_count,
         "product_asset_count": len(product_registered),
+        "presentation_v2_asset_count": len(product_registered & EXPECTED_PRESENTATION_V2_PATHS),
+        "presentation_v2_source_payload_bytes": sum(
+            (repo_root / path).stat().st_size for path in product_registered & EXPECTED_PRESENTATION_V2_PATHS
+        ),
         "candidate_asset_count": len(candidate_registered),
         "anime_asset_count": len(anime_registered),
         "card_body_asset_count": len(card_body_registered),
@@ -764,7 +844,8 @@ def main() -> int:
         print(f"visual asset audit failed: {error}", file=sys.stderr)
         return 1
     print(
-        f"audited {result['product_asset_count']} AnimeV1 shared assets and "
+        f"audited {result['product_asset_count']} AnimeV1 shared/presentation assets "
+        f"({result['presentation_v2_asset_count']} first-stage Presentation V2 candidates) and "
         f"{result['candidate_asset_count']} R3 candidate assets and "
         f"{result['anime_asset_count']} Gate 6A AnimeV1 assets; "
         f"{result['card_body_asset_count']} Gate 6A-R1 card-body assets; "
@@ -775,6 +856,7 @@ def main() -> int:
         f"{result['product_card_art_estimated_vram_bytes']}; "
         "product_card_art_source_payload_bytes="
         f"{result['product_card_art_source_payload_bytes']}; "
+        f"presentation_v2_source_payload_bytes={result['presentation_v2_source_payload_bytes']}; "
         "product_card_runtime_max_resident_textures="
         f"{result['product_card_runtime_max_resident_textures']}; "
         f"product_manifest_sha256={result['product_manifest_sha256']}; "

@@ -94,6 +94,18 @@ def _write_packaged_notices(directory: Path, *, commit: str = "local") -> None:
 
 
 class GodotExportAuditTests(unittest.TestCase):
+    def test_presentation_v2_complete_prompts_are_packaged_and_exactly_audited(self) -> None:
+        filename = "ANIME_V1_PRESENTATION_V2_GENERATION_RECORD.json"
+        original = EXACT_PACKAGED_SOURCE_FILES[filename]
+        self.assertEqual(filename, FINALIZED_LICENSES[original])
+        with tempfile.TemporaryDirectory() as temporary:
+            directory = Path(temporary)
+            _write_packaged_notices(directory)
+            _audit_licenses(directory)
+            (directory / filename).write_text('{"chroma": "missing original prompts"}', encoding="utf-8")
+            with self.assertRaises(ExportAuditError):
+                _audit_licenses(directory)
+
     def test_native_editor_and_fixture_payloads_cannot_hide_inside_pck(self) -> None:
         from scripts.tests.test_check_godot_mcp_export import pack, settings
         with tempfile.TemporaryDirectory() as temporary:
@@ -386,6 +398,7 @@ class GodotExportAuditTests(unittest.TestCase):
         self.assertEqual(
             {
                 "ANIME_V1_SHARED_ASSET_MANIFEST.json",
+                "ANIME_V1_PRESENTATION_V2_GENERATION_RECORD.json",
                 "ANIME_V1_ASSET_MANIFEST.json",
                 "ANIME_V1_PROVENANCE.md",
                 "ANIME_V1_SLICE_README.md",

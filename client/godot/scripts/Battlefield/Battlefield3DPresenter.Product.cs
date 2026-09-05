@@ -17,6 +17,25 @@ public sealed partial class Battlefield3DPresenter
     {
         SetVisualCatalog(ProductBackCatalog);
         ConfigureVisualProfile(BattlefieldVisualProfile.AnimeV1);
+        if (Scgs.GodotClient.PresentationV2.BattlePresentationReviewRuntime.Enabled &&
+            _animeArena?.GetNodeOrNull<MeshInstance3D>("PaintedVista") is { } vista)
+        {
+            var shader = new Shader { Code = """
+                shader_type spatial;
+                render_mode unshaded, cull_disabled;
+                uniform sampler2D panorama : source_color, filter_linear_mipmap;
+                void fragment() {
+                    vec3 color = texture(panorama, UV).rgb;
+                    float luma = dot(color, vec3(0.2126, 0.7152, 0.0722));
+                    float center = 1.0 - smoothstep(0.18, 0.62, length((UV-0.5)*vec2(1.0,0.8)));
+                    color = mix(color, vec3(luma), 0.24 + center*0.32);
+                    ALBEDO = mix(color*0.74, vec3(0.14,0.15,0.20), center*0.24);
+                }
+                """ };
+            var material = new ShaderMaterial { Shader = shader };
+            material.SetShaderParameter("panorama", GD.Load<Texture2D>("res://assets/visual/anime_v1/slice/arena/open-fantasy-arena.png"));
+            vista.MaterialOverride = material;
+        }
     }
 
     internal void RenderProductPrivate(
@@ -365,6 +384,7 @@ public sealed partial class Battlefield3DPresenter
             CardActor3D actor = RentCard();
             if (card.HasKnownIdentity && !card.FaceDown)
             {
+                presentationOriginals[card.InstanceId!.Value] = actor;
                 actor.BindProductFace(
                     ComposeProductCard(card, CardFaceContext.Field),
                     transform,
@@ -395,6 +415,7 @@ public sealed partial class Battlefield3DPresenter
         CardActor3D actor = RentCard();
         if (card.HasKnownIdentity && !card.FaceDown)
         {
+            presentationOriginals[card.InstanceId!.Value] = actor;
             actor.BindProductFace(
                 ComposeProductCard(card, CardFaceContext.Field),
                 transform,
@@ -427,7 +448,7 @@ public sealed partial class Battlefield3DPresenter
             hidden: false);
     }
 
-    private static CardFaceComposition ComposeProductCard(
+    internal static CardFaceComposition ComposeProductCard(
         V05.CardView card,
         CardFaceContext context)
     {

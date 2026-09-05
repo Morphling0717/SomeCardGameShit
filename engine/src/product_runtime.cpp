@@ -882,11 +882,13 @@ Status ProductBoard::grant_permanent_stats(
         card.maximum_health + health <= 0) {
         return Status::error(ErrorCode::InvalidKind, "permanent stat target must be a living follower");
     }
+    const ObservationState before = observation_state(card_id);
     card.permanent_attack_bonus += attack;
     card.permanent_health_bonus += health;
     card.current_attack += attack;
     card.maximum_health += health;
     card.current_health += health;
+    observe_card_change(card_id, before, "state_change");
     return Status::ok();
 }
 
@@ -899,8 +901,10 @@ Status ProductBoard::grant_temporary_attack(const InstanceId card_id, const int 
     if (catalog_.at(card.design_id).kind != CardKind::Follower || card.zone != Zone::MainBoard) {
         return Status::error(ErrorCode::InvalidKind, "temporary attack target must be a follower");
     }
+    const ObservationState before = observation_state(card_id);
     card.turn_attack_bonus += attack;
     card.current_attack += attack;
+    observe_card_change(card_id, before, "state_change");
     return Status::ok();
 }
 
@@ -913,7 +917,9 @@ Status ProductBoard::grant_permanent_keyword(const InstanceId card_id, const Key
     if (catalog_.at(card.design_id).kind != CardKind::Follower || card.zone != Zone::MainBoard) {
         return Status::error(ErrorCode::InvalidKind, "permanent keyword target must be a follower");
     }
+    const ObservationState before = observation_state(card_id);
     card.keywords.grant_permanent(keyword);
+    observe_card_change(card_id, before, "state_change");
     return Status::ok();
 }
 
@@ -935,8 +941,21 @@ DamageResult ProductBoard::damage_follower(const InstanceId card_id, const int a
 
 int ProductBoard::heal_leader(const PlayerId player_id, const int amount) {
     PlayerState& state = player(player_id);
+    const int before = state.leader_health;
     const int actual = std::min(std::max(0, amount), state.maximum_leader_health - state.leader_health);
     state.leader_health += actual;
+    ProductObservation observation;
+    observation.kind = "heal";
+    observation.subject = ObservationEndpoint{player_id, true, std::nullopt, {}, 3};
+    observation.target = observation.subject;
+    ObservationState prior;
+    prior.health = before;
+    prior.max_health = state.maximum_leader_health;
+    observation.before = prior;
+    prior.health = state.leader_health;
+    observation.after = prior;
+    observation.actual_amount = actual;
+    observe(std::move(observation));
     return actual;
 }
 
@@ -949,7 +968,9 @@ Status ProductBoard::change_countdown(const InstanceId card_id, const int delta)
     if (catalog_.at(card.design_id).kind != CardKind::Amulet || card.zone != Zone::MainBoard) {
         return Status::error(ErrorCode::InvalidKind, "countdown target must be a battlefield amulet");
     }
+    const ObservationState before = observation_state(card_id);
     card.countdown = std::max(0, card.countdown + delta);
+    observe_card_change(card_id, before, "state_change");
     return Status::ok();
 }
 
@@ -1164,22 +1185,22 @@ CombatResult ProductBoard::resolve_accepted_follower_combat(
     CardInstance& attacker = instances_.at(attacker_id);
     CardInstance& defender = instances_.at(defender_id);
     CombatResult result;
-    result.damage_to_defender = deal_positive_damage(defender, attacker_before.current_attack);
-    result.damage_to_attacker = deal_positive_damage(attacker, defender_before.current_attack);
+    result.damage_to_defender = deal_positive_damage(defender, attacker_before.current_attack, attacker_id, "combat");
+    result.damage_to_attacker = deal_positive_damage(attacker, defender_before.current_attack, defender_id, "combat");
     if (attacker_before.keywords.has(Keyword::Bane) && result.damage_to_defender.actual_damage > 0) {
+        const ObservationState before = observation_state(defender_id);
         defender.current_health = 0;
+        observe_card_change(defender_id, before, "state_change");
     }
     if (defender_before.keywords.has(Keyword::Bane) && result.damage_to_attacker.actual_damage > 0) {
+        const ObservationState before = observation_state(attacker_id);
         attacker.current_health = 0;
+        observe_card_change(attacker_id, before, "state_change");
     }
     // Product rule: only damage from the active attacker can lifesteal. A
     // defending follower's counterattack and effect damage never heal.
     if (attacker_before.keywords.has(Keyword::Lifesteal) && result.damage_to_defender.actual_damage > 0) {
-        PlayerState& owner = players_[to_index(attacker_before.controller)];
-        result.attacker_healed = std::min(
-            result.damage_to_defender.actual_damage,
-            owner.maximum_leader_health - owner.leader_health);
-        owner.leader_health += result.attacker_healed;
+        result.attacker_healed = heal_leader(attacker_before.controller, result.damage_to_defender.actual_damage);
     }
     result.attacker_destroyed = attacker.current_health <= 0;
     result.defender_destroyed = defender.current_health <= 0;
@@ -1376,6 +1397,7 @@ std::optional<std::size_t> ProductBoard::main_slot_of(const InstanceId card) con
 }
 
 void ProductBoard::detach(const InstanceId card_id) {
+    observation_departures_[card_id] = {observation_location(card_id), observation_state(card_id)};
     CardInstance& card = instances_.at(card_id);
     PlayerState& state = players_[to_index(card.controller)];
     switch (card.zone) {
@@ -1423,18 +1445,133 @@ void ProductBoard::record_move(
     const MoveReason reason,
     const bool destroyed) {
     moves_.push_back(MoveRecord{card, instances_.at(card).controller, from, to, reason, destroyed});
+    if (reason == MoveReason::ScenarioSetup) {
+        observation_departures_.erase(card);
+        return;
+    }
+    ProductObservation observation;
+    observation.kind = "move";
+    observation.subject = observation_endpoint(card);
+    observation.from = ObservationLocation{instances_.at(card).controller, from, std::nullopt};
+    if (const auto departure = observation_departures_.find(card); departure != observation_departures_.end()) {
+        observation.from = departure->second.first;
+        observation.before = departure->second.second;
+        observation_departures_.erase(departure);
+    }
+    observation.to = observation_location(card);
+    observation.after = observation_state(card);
+    observation.move_reason = reason;
+    observe(std::move(observation));
 }
 
-DamageResult ProductBoard::deal_positive_damage(CardInstance& target, const int amount) {
-    if (amount <= 0) {
-        return {};
+const std::vector<ProductObservation>& ProductBoard::observations() const noexcept { return observations_; }
+
+void ProductBoard::set_observation_context(const std::optional<InstanceId> source, const std::uint64_t cause) {
+    observation_source_ = source;
+    observation_cause_ = cause;
+}
+
+void ProductBoard::reveal_observation_identity(const InstanceId card) { observation_revealed_.insert(card); }
+
+ObservationEndpoint ProductBoard::observation_endpoint(const InstanceId id) const {
+    const CardInstance& card = instances_.at(id);
+    std::uint8_t visibility = 3;
+    if (card.zone == Zone::Deck || card.zone == Zone::None) visibility = 0;
+    if (card.zone == Zone::Hand || (card.zone == Zone::Tactic &&
+        catalog_.at(card.design_id).kind == CardKind::Trap && !observation_revealed_.contains(id))) {
+        visibility = static_cast<std::uint8_t>(1U << to_index(card.controller));
     }
-    if (target.keywords.consume(Keyword::Barrier)) {
-        return DamageResult{0, true};
+    return ObservationEndpoint{card.controller, false, id, card.design_id, visibility};
+}
+
+ObservationLocation ProductBoard::observation_location(const InstanceId id) const {
+    const CardInstance& card = instances_.at(id);
+    return {card.controller, card.zone,
+        card.zone == Zone::MainBoard || card.zone == Zone::Tactic
+            ? std::optional<std::size_t>(card.sequence) : std::nullopt};
+}
+
+ObservationState ProductBoard::observation_state(const InstanceId id) const {
+    const CardInstance& card = instances_.at(id);
+    const CardKind kind = catalog_.at(card.design_id).kind;
+    ObservationState state;
+    if (kind == CardKind::Follower) {
+        state.health = card.current_health;
+        state.max_health = card.maximum_health;
+        state.attack = card.current_attack;
+        state.evolved = card.evolved;
+        state.keywords = card.keywords.effective();
     }
-    const int actual = std::min(amount, std::max(0, target.current_health));
-    target.current_health -= actual;
-    return DamageResult{actual, false};
+    if (kind == CardKind::Amulet || kind == CardKind::Trap) state.countdown = card.countdown;
+    return state;
+}
+
+void ProductBoard::observe(ProductObservation observation) {
+    observation.cause_sequence = observation_cause_;
+    if (!observation.source && observation_source_ && contains_instance(*observation_source_)) {
+        observation.source = observation_endpoint(*observation_source_);
+    }
+    // A public departure (for example replacement of an existing field) must
+    // not reveal the still-private hand card paying for it. Its public subject
+    // remains observable, but the unrevealed causal source is omitted.
+    if (observation.subject && observation.subject->visibility == 3U &&
+        observation.source && observation.source->visibility != 3U) observation.source.reset();
+    observations_.push_back(std::move(observation));
+}
+
+void ProductBoard::observe_card_change(const InstanceId card, ObservationState before, const std::string_view kind) {
+    ProductObservation observation;
+    observation.kind = kind;
+    observation.subject = observation_endpoint(card);
+    observation.from = observation_location(card);
+    observation.to = observation.from;
+    observation.before = std::move(before);
+    observation.after = observation_state(card);
+    observe(std::move(observation));
+}
+
+void ProductBoard::observe_leader_damage(const PlayerId player_id, const int before,
+    const int actual, const std::string_view kind) {
+    ProductObservation observation;
+    observation.kind = "damage";
+    observation.subject = ObservationEndpoint{player_id, true, std::nullopt, {}, 3};
+    observation.target = observation.subject;
+    ObservationState prior;
+    prior.health = before;
+    prior.max_health = player(player_id).maximum_leader_health;
+    observation.before = prior;
+    prior.health = player(player_id).leader_health;
+    observation.after = prior;
+    observation.actual_amount = actual;
+    observation.damage_kind = kind;
+    observation.barrier_consumed = false;
+    observe(std::move(observation));
+}
+
+DamageResult ProductBoard::deal_positive_damage(CardInstance& target, const int amount,
+    const std::optional<InstanceId> source, const std::string_view kind) {
+    ProductObservation observation;
+    observation.kind = "damage";
+    observation.subject = observation_endpoint(target.id);
+    observation.target = observation.subject;
+    if (source) observation.source = observation_endpoint(*source);
+    observation.from = observation_location(target.id);
+    observation.to = observation.from;
+    observation.before = observation_state(target.id);
+    DamageResult result;
+    if (amount > 0) {
+        result.barrier_consumed = target.keywords.consume(Keyword::Barrier);
+        if (!result.barrier_consumed) {
+            result.actual_damage = std::min(amount, std::max(0, target.current_health));
+            target.current_health -= result.actual_damage;
+        }
+    }
+    observation.after = observation_state(target.id);
+    observation.actual_amount = result.actual_damage;
+    observation.damage_kind = kind;
+    observation.barrier_consumed = result.barrier_consumed;
+    observe(std::move(observation));
+    return result;
 }
 
 bool evaluate_condition(

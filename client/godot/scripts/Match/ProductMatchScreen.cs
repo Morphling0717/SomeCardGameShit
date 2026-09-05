@@ -2,6 +2,8 @@
 using Godot;
 using Scgs.GodotClient.Battlefield;
 using Scgs.GodotClient.Presentation;
+using Scgs.GodotClient.PresentationV2;
+using Scgs.GodotClient.Visual;
 using Scgs.GodotClient.UI;
 using Scgs.GodotClient.Visuals;
 using Scgs.Hotseat.Product;
@@ -28,6 +30,8 @@ public sealed partial class ProductMatchScreen : Control
     private Control standbyTray = null!;
     private Control statusRail = null!;
     private MatchHudPresenter hud = null!;
+    private ProductPresentationDirector? presentationDirector;
+    private ulong? presentingBatch;
     private ProductHotseatMatchController? controller;
     private MatchVisualIdentity visualIdentity = MatchVisualIdentity.FromDecks(
         LeaderPortraitCatalog.OathguardDeckId,
@@ -127,6 +131,13 @@ public sealed partial class ProductMatchScreen : Control
 
     public override void _UnhandledInput(InputEvent @event)
     {
+        if (controller?.State.Mode == ProductHotseatUiMode.Presenting &&
+            @event is InputEventKey { Pressed: true, Echo: false, Keycode: Key.Space })
+        {
+            presentationDirector?.Skip();
+            GetViewport().SetInputAsHandled();
+            return;
+        }
         if (!@event.IsActionPressed("ui_cancel") || controller is null || leavingScene)
         {
             return;
@@ -171,6 +182,7 @@ public sealed partial class ProductMatchScreen : Control
     {
         if (leavingScene) return;
         leavingScene = true;
+        presentationDirector?.Cancel();
         ++sessionGeneration;
         confirmationPurpose = ConfirmationPurpose.None;
         confirmationRevision = null;
@@ -186,7 +198,8 @@ public sealed partial class ProductMatchScreen : Control
 
     public void Begin(
         V05.IScgsV05GameSession session,
-        MatchVisualIdentity identity)
+        MatchVisualIdentity identity,
+        bool enablePresentation = false)
     {
         ArgumentNullException.ThrowIfNull(session);
         ArgumentNullException.ThrowIfNull(identity);
@@ -201,7 +214,15 @@ public sealed partial class ProductMatchScreen : Control
         visualIdentity = identity;
         hud.ConfigureIdentity(identity, LeaderPortraitCatalog.Shared);
         battlefield.ConfigureVisualIdentity(identity);
-        controller = new ProductHotseatMatchController(session);
+        if (enablePresentation)
+        {
+            presentationDirector = new ProductPresentationDirector { Name = "ProductPresentationDirector" };
+            AddChild(presentationDirector);
+            Control capsule = resolving.GetNode<Control>("ResolvingCapsule");
+            capsule.AnchorTop = .095f;
+            capsule.AnchorBottom = .095f;
+        }
+        controller = new ProductHotseatMatchController(session, enablePresentation);
         ++sessionGeneration;
         controller.StateChanged += OnStateChanged;
         RenderState(controller.State);
@@ -231,6 +252,9 @@ public sealed partial class ProductMatchScreen : Control
                 case ProductHotseatUiMode.Resolving:
                     RenderResolving(state);
                     break;
+                case ProductHotseatUiMode.Presenting:
+                    RenderPresenting(state);
+                    break;
                 case ProductHotseatUiMode.Finished:
                     RenderFinished(state);
                     break;
@@ -253,6 +277,7 @@ public sealed partial class ProductMatchScreen : Control
 
     private void RenderCovered(ProductHotseatUiState state)
     {
+        presentationDirector?.Cancel();
         pinnedDetails = false;
         detailRevision = null;
         detailViewer = null;
@@ -316,6 +341,7 @@ public sealed partial class ProductMatchScreen : Control
 
     private void RenderResolving(ProductHotseatUiState state)
     {
+        presentationDirector?.Cancel();
         pinnedDetails = false;
         detailRevision = null;
         detailViewer = null;
@@ -335,6 +361,44 @@ public sealed partial class ProductMatchScreen : Control
         GetNode<Label>("%ResolvingLabel").Text = "◆  正在结算公共战场";
         GetNode<Button>("%EndTurnButton").Disabled = true;
         SubmitPreparedAfterPublicFrames();
+    }
+
+    private async void RenderPresenting(ProductHotseatUiState state)
+    {
+        ProductPresentationBatch batch = state.Presentation ??
+            throw new InvalidOperationException("Presenting requires a public event batch.");
+        if (presentingBatch == batch.Id) return;
+        ProductHotseatMatchController? active = controller;
+        ulong generation = sessionGeneration;
+        presentingBatch = batch.Id;
+        try
+        {
+            if (presentationDirector is null) throw new InvalidOperationException("No presentation director is attached.");
+            CiRevokeViewerAccess();
+            details.ClearSensitive(); dock.ClearSensitive(); direct.ClearSensitive();
+            battlefield.SetInputEnabled(false);
+            GetNode<Button>("%EndTurnButton").Disabled = true;
+            GetNode<Button>("%PauseButton").Disabled = true;
+            resolving.Visible = true;
+            GetNode<Label>("%ResolvingLabel").Text = "◆  演出中 · 空格跳过";
+            await presentationDirector.PlayAsync(batch, battlefield, ClientVisualSettingsRuntime.Current.ReduceMotion);
+            if (!leavingScene && generation == sessionGeneration && ReferenceEquals(active, controller) &&
+                !presentationDirector.LastPlaybackCancelled && active?.State.Mode == ProductHotseatUiMode.Presenting &&
+                active.State.Presentation?.Id == batch.Id)
+                active?.CompletePresentation(batch.Id, batch.Revision);
+        }
+        catch (Exception exception)
+        {
+            if (!leavingScene && generation == sessionGeneration)
+            {
+                GD.PushError(exception.ToString());
+                RenderFaulted(exception.Message, canRetry: false);
+            }
+        }
+        finally
+        {
+            if (presentingBatch == batch.Id) presentingBatch = null;
+        }
     }
 
     private void RenderFinished(ProductHotseatUiState state)
@@ -606,6 +670,13 @@ public sealed partial class ProductMatchScreen : Control
         direct.SetAnchorsPreset(LayoutPreset.TopLeft);
         direct.Position = new Vector2((viewport.X - width) * 0.5f, 82.0f);
         direct.Size = new Vector2(width, 112.0f);
+        if (BattlePresentationReviewRuntime.Enabled && controller?.State is { Snapshot: { } view } state &&
+            TryFindSurface(view, state.Selection.Source, out BattlefieldSurfaceRef source) &&
+            battlefield.TryGetScreenBounds(source, out Rect2 bounds))
+        {
+            float left = Math.Clamp(bounds.GetCenter().X - width * .5f, 300f, viewport.X - width - 260f);
+            direct.Position = new Vector2(left, Math.Max(110f, bounds.Position.Y - 124f));
+        }
     }
 
     private void OnSurfaceGesture(object? sender, BattlefieldSurfaceGestureEventArgs args)

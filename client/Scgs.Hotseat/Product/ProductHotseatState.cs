@@ -16,6 +16,7 @@ public enum ProductHotseatUiMode
     Finished,
     Faulted,
     Disposed,
+    Presenting,
 }
 
 public enum ProductHotseatSelectionStep
@@ -462,7 +463,8 @@ public sealed record ProductHotseatUiState
         bool commandPrepared,
         ProductHotseatPublicBoardView? publicBoard,
         ProductHotseatSelectionStep step,
-        bool canStepBack)
+        bool canStepBack,
+        ProductPresentationBatch? presentation = null)
     {
         Mode = mode;
         CoverReason = coverReason;
@@ -482,8 +484,9 @@ public sealed record ProductHotseatUiState
         FailureText = failureText;
         CommandPrepared = commandPrepared;
         PublicBoard = publicBoard;
+        Presentation = presentation;
         Interaction = new ProductHotseatInteractionContext(
-            snapshot?.Revision ?? publicBoard?.Revision ?? pendingChoice.Revision,
+            snapshot?.Revision ?? presentation?.Revision ?? publicBoard?.Revision ?? pendingChoice.Revision,
             step,
             Selection,
             candidates,
@@ -509,6 +512,7 @@ public sealed record ProductHotseatUiState
     public string? FailureText { get; }
     public bool CommandPrepared { get; }
     public ProductHotseatPublicBoardView? PublicBoard { get; }
+    public ProductPresentationBatch? Presentation { get; }
     public ProductHotseatInteractionContext Interaction { get; }
 
     public bool IsCovered => Mode == ProductHotseatUiMode.Covered;

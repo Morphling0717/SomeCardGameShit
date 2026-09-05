@@ -1110,9 +1110,22 @@ void ProductGame::emit(
     const int value,
     const int secondary_value,
     std::string text) {
+    flush_observations();
     events_.push_back(ProductGameEvent{
         next_event_sequence_++, revision_ + 1U, kind, player, source, target,
-        value, secondary_value, std::move(text)});
+        value, secondary_value, std::move(text), std::nullopt});
+}
+
+void ProductGame::flush_observations() {
+    const auto& observations = board_.observations();
+    while (observation_cursor_ < observations.size()) {
+        ProductObservation observation = observations[observation_cursor_++];
+        const PlayerId player = observation.subject ? observation.subject->player :
+            observation.source ? observation.source->player : active_player_;
+        events_.push_back(ProductGameEvent{next_event_sequence_++, revision_ + 1U,
+            ProductEventKind::Observation, player, std::nullopt, std::nullopt,
+            0, 0, {}, std::move(observation)});
+    }
 }
 
 void ProductGame::execute_mulligan(const ProductActionPlan& plan) {
@@ -1273,6 +1286,10 @@ std::size_t ProductGame::enqueue_effects(
         for (const EffectSpec& effect : effects) {
             if (effect.trigger == trigger) {
                 tasks.push_back(EffectTask{effect, context, std::nullopt, false});
+                if (tasks.back().context.observation_cause == 0) {
+                    tasks.back().context.observation_cause = observation_card_causes_.contains(context.source)
+                        ? observation_card_causes_.at(context.source) : observation_cause_;
+                }
             }
         }
     };
@@ -1330,6 +1347,8 @@ std::vector<ProductGame::EffectTask> ProductGame::collect_global_effects(
                 context.source = source;
                 context.last_repair = event_context.last_repair;
                 context.future_use = event_context.future_use;
+                context.observation_cause = event_context.observation_cause != 0
+                    ? event_context.observation_cause : observation_cause_;
                 result.push_back(EffectTask{effect, std::move(context), std::nullopt, false});
             }
         }
@@ -1577,6 +1596,8 @@ void ProductGame::open_card_choice(
 }
 
 bool ProductGame::execute_effect(EffectTask& task, EffectOutcome& outcome) {
+    board_.set_observation_context(task.context.source,
+        task.context.observation_cause != 0 ? task.context.observation_cause : observation_cause_);
     if (task.effect.trigger_owner_turn_only && task.context.actor != active_player_) {
         return true;
     }
@@ -1732,7 +1753,9 @@ bool ProductGame::execute_effect(EffectTask& task, EffectOutcome& outcome) {
         case EffectKind::GrantKeyword:
             if (target.has_value() && board_.contains_instance(*target)) {
                 if (task.effect.duration == EffectDuration::OwnerTurn) {
+                    const ObservationState before = board_.observation_state(*target);
                     board_.instance(*target).keywords.grant_for_turn(task.effect.granted_keyword);
+                    board_.observe_card_change(*target, before, "state_change");
                 } else {
                     (void)board_.grant_permanent_keyword(*target, task.effect.granted_keyword);
                 }
@@ -1874,6 +1897,8 @@ void ProductGame::apply_effect_choice(const std::span<const std::string> selecte
     }
     PendingEffectChoice pending = std::move(*pending_effect_choice_);
     pending_effect_choice_.reset();
+    board_.set_observation_context(pending.task.context.source,
+        pending.task.context.observation_cause != 0 ? pending.task.context.observation_cause : observation_cause_);
     if (pending.continuation == ChoiceContinuation::OrderTriggers) {
         for (const std::string& option : selected_option_ids) {
             TriggerAbilityTask ability = std::move(pending.trigger_options.at(option));
@@ -1962,7 +1987,18 @@ void ProductGame::finish_resolution() {
     const ProductActionPlan& plan = origin.plan;
     if (plan.operation == ProductPlanOperation::AttackFollower ||
         plan.operation == ProductPlanOperation::AttackLeader) {
+        board_.set_observation_context(plan.command.source,
+            plan.command.source && observation_card_causes_.contains(*plan.command.source)
+                ? observation_card_causes_.at(*plan.command.source) : observation_cause_);
         if (origin.cancelled) {
+            ProductObservation cancelled;
+            cancelled.kind = "declaration";
+            cancelled.declaration_kind = "attack_cancelled";
+            cancelled.source = board_.observation_endpoint(*plan.command.source);
+            cancelled.subject = cancelled.source;
+            cancelled.target = plan.command.target ? board_.observation_endpoint(*plan.command.target)
+                : ObservationEndpoint{opponent(plan.command.player), true, std::nullopt, {}, 3};
+            board_.observe(std::move(cancelled));
             emit(ProductEventKind::AttackCancelled, plan.command.player, plan.command.source, plan.command.target);
         } else if (plan.command.source.has_value() && board_.contains_instance(*plan.command.source) &&
             board_.instance(*plan.command.source).zone == Zone::MainBoard) {
@@ -2003,9 +2039,11 @@ void ProductGame::finish_resolution() {
                 }
             } else if (!plan.command.target.has_value()) {
                 PlayerState& defender = board_.player(opponent(plan.command.player));
+                const int health_before = defender.leader_health;
                 const int damage = std::min(std::max(0, board_.instance(attacker).current_attack),
                     std::max(0, defender.leader_health));
                 defender.leader_health = std::max(0, defender.leader_health - damage);
+                board_.observe_leader_damage(opponent(plan.command.player), health_before, damage, "combat");
                 emit(ProductEventKind::Damage, plan.command.player, attacker, std::nullopt, damage);
                 if (board_.instance(attacker).keywords.has(Keyword::Lifesteal) && damage > 0) {
                     const int healed = board_.heal_leader(plan.command.player, damage);
@@ -2038,7 +2076,9 @@ void ProductGame::process_countdowns(const PlayerId player) {
         if (amulet.countdown <= 1) {
             expiring.push_back(*slot);
         } else {
+            const ObservationState before = board_.observation_state(*slot);
             --amulet.countdown;
+            board_.observe_card_change(*slot, before, "state_change");
         }
     }
     for (const InstanceId amulet : expiring) {
@@ -2100,7 +2140,10 @@ void ProductGame::handle_fatigue(const PlayerId player) {
     ProductPlayerResources& state = resources_[to_index(player)];
     ++state.fatigue_count;
     PlayerState& board_state = board_.player(player);
+    const int before = board_state.leader_health;
     board_state.leader_health = std::max(0, board_state.leader_health - state.fatigue_count);
+    board_.set_observation_context(std::nullopt, observation_cause_);
+    board_.observe_leader_damage(player, before, before - board_state.leader_health, "fatigue");
     emit(ProductEventKind::Damage, opponent(player), std::nullopt, std::nullopt, state.fatigue_count);
     if (board_state.leader_health <= 0) {
         finish_match(opponent(player), "fatigue");
@@ -2167,13 +2210,22 @@ void ProductGame::execute_plan(const ProductActionPlan& plan) {
             continue_effect_resolution();
             return;
         }
-        case ProductPlanOperation::ActivateTrap:
+        case ProductPlanOperation::ActivateTrap: {
+            board_.reveal_observation_identity(*command.source);
+            ProductObservation activation;
+            activation.kind = "declaration";
+            activation.declaration_kind = "trap_activation";
+            activation.source = board_.observation_endpoint(*command.source);
+            activation.subject = activation.source;
+            if (command.target) activation.target = board_.observation_endpoint(*command.target);
+            board_.observe(std::move(activation));
             suspended_origin_->response_chain.push_back(command);
             suspended_origin_->declared_traps.insert(*command.source);
             suspended_origin_->consecutive_passes = 0;
             suspended_origin_->priority = opponent(command.player);
             emit(ProductEventKind::TrapActivated, command.player, command.source);
             return;
+        }
         case ProductPlanOperation::PassReaction:
             ++suspended_origin_->consecutive_passes;
             emit(ProductEventKind::ReactionPassed, command.player);
@@ -2185,12 +2237,14 @@ void ProductGame::execute_plan(const ProductActionPlan& plan) {
             return;
         case ProductPlanOperation::Evolve: {
             pay(plan.payment, command.player);
+            const ObservationState before = board_.observation_state(*command.source);
             CardInstance& follower = board_.instance(*command.source);
             follower.evolved = true;
             follower.current_attack += 2;
             follower.current_health += 2;
             follower.maximum_health += 2;
             resources_[to_index(command.player)].evolved_this_turn = true;
+            board_.observe_card_change(*command.source, before, "evolve");
             emit(ProductEventKind::Evolved, command.player, command.source);
             EffectContext context{command.player, *command.source, command.target,
                 false, std::nullopt, std::nullopt, true, command.mode_id};
@@ -2204,6 +2258,14 @@ void ProductGame::execute_plan(const ProductActionPlan& plan) {
             if (!accepted) {
                 throw std::logic_error(accepted.message);
             }
+            ProductObservation declaration;
+            declaration.kind = "declaration";
+            declaration.declaration_kind = "attack";
+            declaration.source = board_.observation_endpoint(*command.source);
+            declaration.subject = declaration.source;
+            declaration.target = command.target ? board_.observation_endpoint(*command.target)
+                : ObservationEndpoint{opponent(command.player), true, std::nullopt, {}, 3};
+            board_.observe(std::move(declaration));
             emit(ProductEventKind::AttackDeclared, command.player, command.source, command.target);
             open_or_resolve_origin(plan);
             return;
@@ -2264,7 +2326,11 @@ ProductGameStatus ProductGame::submit_command(const ProductGameCommand& command)
     if (!plan) {
         return plan.status;
     }
+    observation_cause_ = next_event_sequence_;
+    if (command.source) observation_card_causes_[*command.source] = observation_cause_;
+    board_.set_observation_context(command.source, observation_cause_);
     execute_plan(plan);
+    flush_observations();
     ++revision_;
     return ProductGameStatus::ok();
 }

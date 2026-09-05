@@ -3,6 +3,7 @@ using Godot;
 using Scgs.GodotClient.Ci;
 using Scgs.GodotClient.Match;
 using Scgs.GodotClient.Native;
+using Scgs.GodotClient.PresentationV2;
 using Scgs.GodotClient.UI;
 using Scgs.GodotClient.Visuals;
 using V05 = Scgs.Client.V05;
@@ -16,6 +17,7 @@ public sealed partial class BootstrapController : Control
     private Control? _currentScreen;
     private MainMenuScreen? _menu;
     private ProductMatchScreen? _productMatch;
+    private BattlePresentationReviewScreen? _presentationReview;
     private V05.IScgsV05GameSession? _productSession;
     private ProductSmokeOptions? _productSmokeOptions;
     private ProductVisualCapture? _productCapture;
@@ -33,6 +35,17 @@ public sealed partial class BootstrapController : Control
         IReadOnlyList<string> arguments = OS.GetCmdlineUserArgs();
         try
         {
+            if (arguments.Contains("--battle-presentation-review"))
+            {
+                if (arguments.Contains("--ci-product-smoke"))
+                    throw new ArgumentException("Battle presentation review cannot replace product CI smoke.");
+                _presentationReview = GD.Load<PackedScene>("res://scenes/review/BattlePresentationReview.tscn")
+                    .Instantiate<BattlePresentationReviewScreen>();
+                _presentationReview.ConfigureArguments(arguments);
+                _presentationReview.ExitRequested += () => GetTree().Quit();
+                ReplaceScreen(_presentationReview);
+                return;
+            }
             _productSmokeOptions = ProductSmokeOptions.Parse(arguments);
             if (_productSmokeOptions is not null)
                 ProductSmokeOptions.ConfigureViewport(GetWindow(), arguments);
@@ -68,7 +81,7 @@ public sealed partial class BootstrapController : Control
 
     public override void _UnhandledInput(InputEvent @event)
     {
-        if (!@event.IsActionPressed("ui_cancel") || _productMatch is not null) return;
+        if (!@event.IsActionPressed("ui_cancel") || _productMatch is not null || _presentationReview is not null) return;
         if (_menu?.HandleCancelNavigation() == true) { GetViewport().SetInputAsHandled(); return; }
         GetViewport().SetInputAsHandled();
         GetTree().Quit();

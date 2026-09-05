@@ -11,6 +11,7 @@ public sealed class ProductHotseatMatchController : IDisposable
     public const int RequiredPublicFramesBeforeSubmit = 2;
 
     private readonly V05.IScgsV05GameSession session;
+    private readonly bool enablePresentation;
     private readonly V05.EventBatch?[] pendingEventBatches = new V05.EventBatch?[2];
     private readonly List<ProductHotseatActionSelection> selectionHistory = [];
     private readonly List<IReadOnlyList<string>> choiceSelectionHistory = [];
@@ -19,12 +20,19 @@ public sealed class ProductHotseatMatchController : IDisposable
     private V05.PlayerId preparedViewer;
     private ulong? lastPublicFrameToken;
     private int publicFramesDrawn;
+    private ulong preparedAfterSequence;
+    private ulong nextPresentationId;
+    private ulong presentationReadSequence;
+    private PresentationCompletion? presentationCompletion;
     private bool submissionInProgress;
     private bool disposed;
 
-    public ProductHotseatMatchController(V05.IScgsV05GameSession session)
+    public ProductHotseatMatchController(
+        V05.IScgsV05GameSession session,
+        bool enablePresentation = false)
     {
         this.session = session ?? throw new ArgumentNullException(nameof(session));
+        this.enablePresentation = enablePresentation;
         State = CoveredState(
             V05.PlayerId.Player0,
             ProductHotseatCoverReason.InitialReveal,
@@ -36,6 +44,8 @@ public sealed class ProductHotseatMatchController : IDisposable
     public ProductHotseatUiState State { get; private set; }
 
     public int PublicFramesDrawn => publicFramesDrawn;
+
+    public bool PresentationEnabled => enablePresentation;
 
     public bool CanSubmitPreparedCommand =>
         State.Mode == ProductHotseatUiMode.Resolving &&
@@ -68,7 +78,8 @@ public sealed class ProductHotseatMatchController : IDisposable
     {
         ThrowIfDisposed();
         if (!State.Viewer.HasValue ||
-            State.Mode is ProductHotseatUiMode.Covered or ProductHotseatUiMode.Resolving)
+            State.Mode is ProductHotseatUiMode.Covered or ProductHotseatUiMode.Resolving or
+                ProductHotseatUiMode.Presenting)
         {
             throw new InvalidOperationException("Only the revealed viewer can acknowledge events.");
         }
@@ -559,6 +570,9 @@ public sealed class ProductHotseatMatchController : IDisposable
             throw new InvalidOperationException("The product snapshot is unavailable.");
         preparedCommand = ProductHotseatCommandComparer.Clone(canonical.Command);
         preparedViewer = State.Viewer.Value;
+        preparedAfterSequence = Math.Max(
+            eventCursors.For(preparedViewer),
+            State.Events.LastOrDefault()?.Sequence ?? 0);
         ResetPublicFrameGate();
         selectionHistory.Clear();
         choiceSelectionHistory.Clear();
@@ -627,6 +641,8 @@ public sealed class ProductHotseatMatchController : IDisposable
 
         V05.GameCommandRequest command = preparedCommand;
         V05.PlayerId previousViewer = preparedViewer;
+        ProductHotseatPublicBoardView before = State.PublicBoard ??
+            throw new InvalidOperationException("The prepared public board is unavailable.");
         preparedCommand = null;
         ResetPublicFrameGate();
         submissionInProgress = true;
@@ -658,7 +674,11 @@ public sealed class ProductHotseatMatchController : IDisposable
 
         try
         {
-            if (command.Action == V05.ActionKind.Mulligan)
+            if (enablePresentation)
+            {
+                BeginPresentation(command, previousViewer, before);
+            }
+            else if (command.Action == V05.ActionKind.Mulligan)
             {
                 ShowMulliganReview(previousViewer);
             }
@@ -674,6 +694,117 @@ public sealed class ProductHotseatMatchController : IDisposable
         }
 
         return status;
+    }
+
+    /// <summary>
+    /// Completes or visually skips exactly one presentation. A stale callback
+    /// cannot perform a viewer read, acknowledge events, or advance the match.
+    /// </summary>
+    public bool CompletePresentation(ulong presentationId, ulong expectedRevision)
+    {
+        if (disposed || State.Mode != ProductHotseatUiMode.Presenting ||
+            State.Presentation is not { } presentation ||
+            presentation.Id != presentationId || presentation.Revision != expectedRevision ||
+            presentationCompletion is not { } completion)
+        {
+            return false;
+        }
+
+        // Clear before calling anything that can re-enter through StateChanged.
+        presentationCompletion = null;
+        try
+        {
+            if (completion.Action == V05.ActionKind.Mulligan)
+            {
+                ShowMulliganReview(completion.Viewer);
+            }
+            else if (completion.NextActor.HasValue && completion.NextActor != completion.Viewer)
+            {
+                SetState(CoveredState(
+                    completion.NextActor.Value,
+                    ProductHotseatCoverReason.PassingDevice,
+                    lastEngineCode: null));
+            }
+            else
+            {
+                RefreshForViewer(completion.Viewer, lastEngineCode: null);
+            }
+        }
+        catch
+        {
+            SetFaulted();
+            throw;
+        }
+
+        return true;
+    }
+
+    private void BeginPresentation(
+        V05.GameCommandRequest command,
+        V05.PlayerId previousViewer,
+        ProductHotseatPublicBoardView before)
+    {
+        // Only the already revealed operator may be read here. Do not retain
+        // this viewer snapshot: only its neutral projection crosses the gate.
+        V05.MatchView after = session.GetView(previousViewer);
+        ValidateView(after, previousViewer);
+        RequireRevision(after.Revision, checked(command.ExpectedRevision + 1));
+        ulong afterSequence = Math.Max(preparedAfterSequence, presentationReadSequence);
+        V05.EventBatch batch = session.ReadEvents(previousViewer, afterSequence);
+        RequireRevision(batch.Revision, after.Revision);
+        ValidateEventBatch(batch, afterSequence);
+
+        var observations = new List<ProductPresentationObservation>();
+        foreach (V05.GameEventView gameEvent in batch.Events)
+        {
+            V05.ProductEventObservation? observation = gameEvent.Observation;
+            if (observation is null || !observation.PublicToAll ||
+                !observation.IsKnownKind || gameEvent.HiddenCard)
+            {
+                continue;
+            }
+
+            if (observation.Version != 1 || observation.Revision != after.Revision ||
+                observation.CauseSequence > gameEvent.Sequence)
+            {
+                throw new ScgsProtocolException("A public presentation observation is inconsistent.");
+            }
+
+            observations.Add(new ProductPresentationObservation(gameEvent.Sequence, observation));
+        }
+
+        // This deduplication watermark is not an acknowledgement. Both viewer
+        // cursors and their pending private event batches remain untouched.
+        presentationReadSequence = batch.LastSequence;
+        var presentation = new ProductPresentationBatch(
+            checked(++nextPresentationId),
+            previousViewer,
+            before,
+            new ProductHotseatPublicBoardView(after),
+            observations);
+        presentationCompletion = new PresentationCompletion(
+            previousViewer, command.Action, DetermineActor(after));
+        SetState(CreateState(
+            ProductHotseatUiMode.Presenting,
+            null,
+            null,
+            null,
+            null,
+            [],
+            [],
+            ProductHotseatActionSelection.Empty,
+            [],
+            null,
+            ProductPendingChoiceState.None(after.Revision),
+            [],
+            [],
+            null,
+            null,
+            null,
+            false,
+            before,
+            ProductHotseatSelectionStep.None,
+            presentation));
     }
 
     public void CompleteMulliganReview()
@@ -704,6 +835,7 @@ public sealed class ProductHotseatMatchController : IDisposable
 
         disposed = true;
         preparedCommand = null;
+        presentationCompletion = null;
         ResetPublicFrameGate();
         submissionInProgress = false;
         selectionHistory.Clear();
@@ -1518,7 +1650,8 @@ public sealed class ProductHotseatMatchController : IDisposable
         string? failureText,
         bool commandPrepared,
         ProductHotseatPublicBoardView? publicBoard,
-        ProductHotseatSelectionStep step) => new(
+        ProductHotseatSelectionStep step,
+        ProductPresentationBatch? presentation = null) => new(
         mode,
         coverReason,
         viewer,
@@ -1539,7 +1672,8 @@ public sealed class ProductHotseatMatchController : IDisposable
         commandPrepared,
         publicBoard,
         step,
-        selectionHistory.Count != 0 || choiceSelectionHistory.Count != 0);
+        selectionHistory.Count != 0 || choiceSelectionHistory.Count != 0,
+        presentation);
 
     private static ProductHotseatUiState CopyState(
         ProductHotseatUiState state,
@@ -1566,10 +1700,13 @@ public sealed class ProductHotseatMatchController : IDisposable
         state.CommandPrepared,
         state.PublicBoard,
         state.Interaction.Step,
-        state.Interaction.CanStepBack);
+        state.Interaction.CanStepBack,
+        state.Presentation);
 
     private void SetFaulted()
     {
+        preparedCommand = null;
+        presentationCompletion = null;
         ResetPublicFrameGate();
         selectionHistory.Clear();
         choiceSelectionHistory.Clear();
@@ -1669,6 +1806,11 @@ public sealed class ProductHotseatMatchController : IDisposable
         State = state;
         StateChanged?.Invoke(this, new ProductHotseatStateChangedEventArgs(state));
     }
+
+    private sealed record PresentationCompletion(
+        V05.PlayerId Viewer,
+        V05.ActionKind Action,
+        V05.PlayerId? NextActor);
 
     private sealed class ProductCommandEqualityComparer : IEqualityComparer<V05.GameCommandRequest>
     {

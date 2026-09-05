@@ -4,7 +4,9 @@
 from __future__ import annotations
 
 import hashlib
+import copy
 import json
+import shutil
 import struct
 import sys
 import tempfile
@@ -27,9 +29,11 @@ from audit_visual_assets import (  # noqa: E402
     EXPECTED_PRODUCT_CARD_ART_PATHS,
     EXPECTED_ANIME_V1_PATHS,
     EXPECTED_CARD_BODY_PATHS,
+    EXPECTED_PRESENTATION_V2_PATHS,
     PRODUCT_CARD_ART_MANIFEST_RELATIVE_PATH,
     VisualAssetAuditError,
     _rgba_alpha_extrema,
+    _audit_presentation_v2_entry,
     audit,
 )
 from compare_visual_golden import (  # noqa: E402
@@ -188,6 +192,63 @@ def _fixture_region(
 
 
 class VisualAssetAuditTests(unittest.TestCase):
+    def _presentation_entries(self) -> list[dict]:
+        manifest = json.loads((SCRIPTS.parent / "client/godot/assets/visual/ASSET_MANIFEST.json").read_text(encoding="utf-8"))
+        return [entry for entry in manifest["assets"] if entry["path"] in EXPECTED_PRESENTATION_V2_PATHS]
+
+    def test_presentation_v2_registers_exact_three_candidates_without_changing_old_sets(self) -> None:
+        entries = self._presentation_entries()
+        self.assertEqual(EXPECTED_PRESENTATION_V2_PATHS, {entry["path"] for entry in entries})
+        for entry in entries:
+            _audit_presentation_v2_entry(SCRIPTS.parent, entry)
+        self.assertEqual(14, len(EXPECTED_ANIME_V1_PATHS))
+        self.assertEqual(23, len(EXPECTED_CARD_BODY_PATHS))
+        self.assertEqual(28, len(EXPECTED_PRODUCT_CARD_ART_PATHS))
+
+    def test_presentation_v2_rejects_false_native_alpha_claim(self) -> None:
+        for original in self._presentation_entries():
+            entry = copy.deepcopy(original)
+            entry["transparency"] = "native_alpha"
+            with self.subTest(path=entry["path"]), self.assertRaisesRegex(VisualAssetAuditError, "must not claim native alpha"):
+                _audit_presentation_v2_entry(SCRIPTS.parent, entry)
+
+    def test_presentation_v2_requires_exact_evolved_source_hash(self) -> None:
+        for original in self._presentation_entries():
+            if not original["source_images"]:
+                continue
+            entry = copy.deepcopy(original)
+            entry["source_images"][0]["sha256"] = "0" * 64
+            with self.subTest(path=entry["path"]), self.assertRaisesRegex(VisualAssetAuditError, "input SHA-256 mismatch"):
+                _audit_presentation_v2_entry(SCRIPTS.parent, entry)
+
+    def test_presentation_v2_requires_dated_history_and_review_boundary(self) -> None:
+        for field, value, expected in (("modification_history", [], "modification history"),
+                                        ("authorization", "", "authorization/review"),
+                                        ("date", "2026-09-05", "exact provenance fields and date")):
+            entry = copy.deepcopy(self._presentation_entries()[0])
+            entry[field] = value
+            with self.subTest(field=field), self.assertRaisesRegex(VisualAssetAuditError, expected):
+                _audit_presentation_v2_entry(SCRIPTS.parent, entry)
+
+    def test_presentation_v2_requires_extraction_and_final_chroma_prompts(self) -> None:
+        entry = next(item for item in self._presentation_entries() if item["source_images"])
+        with patch("audit_visual_assets._load_json", return_value={"material": "synthetic material prompt"}):
+            with self.assertRaisesRegex(VisualAssetAuditError, "extraction and final chroma prompts"):
+                _audit_presentation_v2_entry(SCRIPTS.parent, entry)
+
+    def test_presentation_v2_requires_compressed_mipmapped_import(self) -> None:
+        entry = next(item for item in self._presentation_entries() if not item["source_images"])
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for relative in (entry["path"], entry["path"] + ".import", entry["generation_record"]):
+                destination = root / relative
+                destination.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copyfile(SCRIPTS.parent / relative, destination)
+            sidecar = root / (entry["path"] + ".import")
+            sidecar.write_text(sidecar.read_text(encoding="utf-8").replace("mipmaps/generate=true", "mipmaps/generate=false"), encoding="utf-8")
+            with self.assertRaisesRegex(VisualAssetAuditError, "desktop compression and mipmaps"):
+                _audit_presentation_v2_entry(root, entry)
+
     def test_retired_models_shaders_and_imports_are_rejected_even_without_images(self) -> None:
         for relative in ("arena/retired.glb", "r3/retired.gdshader", "cards/art/retired.png.import"):
             with self.subTest(relative=relative), tempfile.TemporaryDirectory() as temporary:
@@ -197,6 +258,12 @@ class VisualAssetAuditTests(unittest.TestCase):
                     target = root / source_path
                     target.parent.mkdir(parents=True, exist_ok=True)
                     target.write_bytes((SCRIPTS.parent / source_path).read_bytes())
+                # This isolated retirement fixture only needs the neutral front.
+                manifest_path = root / "client/godot/assets/visual/ASSET_MANIFEST.json"
+                manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+                manifest["assets"] = [entry for entry in manifest["assets"]
+                                      if entry["path"].endswith("fallback_front.svg")]
+                manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
                 retired = root / "client/godot/assets/visual" / relative
                 retired.parent.mkdir(parents=True, exist_ok=True)
                 retired.write_bytes(b"synthetic retired resource")
@@ -213,8 +280,10 @@ class VisualAssetAuditTests(unittest.TestCase):
         anime_manifest = root / ANIME_V1_MANIFEST_RELATIVE_PATH
         card_body_manifest = root / CARD_BODY_MANIFEST_RELATIVE_PATH
         product_card_art_manifest = root / PRODUCT_CARD_ART_MANIFEST_RELATIVE_PATH
-        self.assertEqual(66, result["asset_count"])
-        self.assertEqual(1, result["product_asset_count"])
+        self.assertEqual(69, result["asset_count"])
+        self.assertEqual(4, result["product_asset_count"])
+        self.assertEqual(3, result["presentation_v2_asset_count"])
+        self.assertEqual(8_302_778, result["presentation_v2_source_payload_bytes"])
         self.assertEqual(0, result["candidate_asset_count"])
         self.assertEqual(14, result["anime_asset_count"])
         self.assertEqual(23, result["card_body_asset_count"])
@@ -1214,7 +1283,10 @@ class VisualSuiteReportTests(unittest.TestCase):
         self.assertIn("audit_visual_assets.py", workflow)
         self.assertIn("run_product_smoke.py", workflow)
         self.assertIn("--ci-product-capture", read("scripts/ci/run_product_smoke.py"))
-        self.assertIn("--performance", workflow)
+        self.assertNotIn("--performance", workflow)
+        hardware_validator = read("scripts/dev/validate_hardware_gpu_acceptance.py")
+        self.assertIn("validate_performance", hardware_validator)
+        self.assertIn("llvmpipe", hardware_validator)
         self.assertNotIn("update_gate4b_goldens.py", workflow)
         self.assertNotIn("SCGS_R3_VISUAL_SLICE_READY", workflow)
         self.assertNotIn("SomeCardGameShit-gate4b-r2", workflow)

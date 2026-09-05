@@ -321,7 +321,7 @@ if(SCGS_ENABLE_LEGACY_YGO2_TESTS)
     )
     add_test(
         NAME scgs_godot_export_audit_contract
-        COMMAND ${Python3_EXECUTABLE} -m unittest scripts.tests.test_audit_godot_export
+        COMMAND ${Python3_EXECUTABLE} -m unittest scripts.tests.test_audit_godot_export scripts.tests.test_package_battle_presentation_review
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
     )
     add_test(

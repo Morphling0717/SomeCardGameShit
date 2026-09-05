@@ -1,0 +1,112 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/PresentationV2/BattlePresentationReviewScreen.cs" id="1_script"]
+
+[node name="BattlePresentationReview" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1_script")
+
+[node name="ReviewMatchHost" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="ReviewMenu" type="CenterContainer" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="PanelContainer" parent="ReviewMenu"]
+custom_minimum_size = Vector2(650, 0)
+layout_mode = 2
+
+[node name="Margin" type="MarginContainer" parent="ReviewMenu/Panel"]
+layout_mode = 2
+theme_override_constants/margin_left = 32
+theme_override_constants/margin_top = 24
+theme_override_constants/margin_right = 32
+theme_override_constants/margin_bottom = 24
+
+[node name="Options" type="VBoxContainer" parent="ReviewMenu/Panel/Margin"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Title" type="Label" parent="ReviewMenu/Panel/Margin/Options"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 28
+text = "卡体与战斗表现 · 实机验收"
+horizontal_alignment = 1
+
+[node name="Description" type="Label" parent="ReviewMenu/Panel/Margin/Options"]
+layout_mode = 2
+text = "使用真实两副牌组，全部场面由合法行动准备。\n只在这个独立入口启用候选卡体与动作表现。"
+horizontal_alignment = 1
+
+[node name="ReviewOathguardButton" type="Button" parent="ReviewMenu/Panel/Margin/Options"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 64)
+layout_mode = 2
+text = "曜誓大团长 · 出牌与进化"
+
+[node name="ReviewPactmageButton" type="Button" parent="ReviewMenu/Panel/Margin/Options"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 64)
+layout_mode = 2
+text = "禁忌毕业生 · 出牌与进化"
+
+[node name="ReviewSpellButton" type="Button" parent="ReviewMenu/Panel/Margin/Options"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 64)
+layout_mode = 2
+text = "界域裁定 · 法术与伤害"
+
+[node name="ReviewStatus" type="Label" parent="ReviewMenu/Panel/Margin/Options"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(586, 64)
+layout_mode = 2
+autowrap_mode = 2
+horizontal_alignment = 1
+
+[node name="ReviewExitButton" type="Button" parent="ReviewMenu/Panel/Margin/Options"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(0, 48)
+layout_mode = 2
+text = "退出验收"
+
+[node name="ReviewToolsLayer" type="CanvasLayer" parent="."]
+layer = 95
+
+[node name="ReviewToolbar" type="HBoxContainer" parent="ReviewToolsLayer"]
+unique_name_in_owner = true
+offset_left = 16.0
+offset_top = 8.0
+offset_right = 320.0
+offset_bottom = 46.0
+theme_override_constants/separation = 8
+
+[node name="ReviewBackButton" type="Button" parent="ReviewToolsLayer/ReviewToolbar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(140, 38)
+layout_mode = 2
+text = "返回验收选择"
+
+[node name="ReviewRestartButton" type="Button" parent="ReviewToolsLayer/ReviewToolbar"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(140, 38)
+layout_mode = 2
+text = "重新准备场面"

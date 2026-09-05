@@ -1,0 +1,24 @@
+{
+  "material": "Use case: stylized-concept. Asset type: seamless square game material texture, not a card illustration or finished UI. Primary request: an original high-end fantasy jeweler's engraved platinum and warm pale-gold alloy surface for fine collectible card rims. Orthographic close-up, perfectly even diffuse illumination, edge-to-edge seamless coverage. Extremely fine shallow acanthus and flowing celestial filigree etched into satin silver, restrained warm highlights inside the engraving, broad clean satin areas between fine ornament. Hand-painted luxurious Japanese fantasy game material finish, tactile fine grain, crisp shallow relief without heavy black outlines. Neutral silver base, champagne-gold accents, no yellow flood, no blue industrial circuits. No bevel around the image itself. No objects, characters, text, letters, numbers, logos, emblems, watermarks, borders, layout sheets or drop shadows. The game will apply this bitmap through controlled border masks and its own material lighting; keep the contrast restrained and the scale fine enough for narrow frame rails.",
+  "cutouts": [
+    [
+      "LO-11",
+      "Extract the existing white-gold armored female knight, her sword and shield, and her winged horse as one clean transparent foreground cutout for a 2.5D evolution cut-in. Preserve the exact existing face, hair, body, armor details, pose, proportions, horse anatomy and hand-painted anime style. Remove only the sky, golden concentric background magic circles, distant rays and floating background fragments. Keep full subject framing including sword and visible horse, do not invent missing limbs or redraw the character. Truly transparent alpha outside the subject, clean anti-aliased hair and feather edges, no opaque or checkerboard background, no text, no logo, no watermark."
+    ],
+    [
+      "AP-11",
+      "Extract the existing purple-haired dark-clad female sorceress and her immediately held magical cards as one clean transparent foreground cutout for a 2.5D evolution cut-in. Preserve the exact existing face, expression, hair, costume, hands, pose, proportions and painted anime style. Remove only the black-purple magical environment, background exploding shards, rings and trailing environmental light. Keep full subject framing and the reaching hand. Do not redesign or restyle. Truly transparent alpha around the subject, clean hair and fingers, no opaque or checkerboard background, no text, logo or watermark."
+    ]
+  ],
+  "chroma": [
+    {
+      "id": "LO-11",
+      "prompt": "Edit only the background of this existing image. Preserve the exact foreground character, horse, sword and wings in the exact same pose and colors. Replace ALL grey and white checkerboard background squares with one completely flat solid vivid pure green RGB(0,255,0), #00FF00, color-key studio backdrop. Absolutely no checkerboard, no gradients, no texture, no shadow or reflection on the green backdrop. This is a runtime chroma-key source. Sharp clean non-green subject edges, do not add any green light or green spill to character. Keep subject unchanged and complete, no text."
+    },
+    {
+      "id": "AP-11",
+      "prompt": "Edit only the background of this existing image. Preserve the exact foreground character and floating purple card-seals in the exact same pose and colors. Replace ALL grey and white checkerboard background squares with one completely flat solid vivid pure green RGB(0,255,0), #00FF00, color-key studio backdrop. Absolutely no checkerboard, no gradients, no texture, no shadow or reflection on the green backdrop. This is a runtime chroma-key source. Sharp clean non-green subject edges, do not add any green light or green spill to character. Keep subject unchanged and complete, no text."
+    }
+  ],
+  "note": "Image generator returned RGB with baked checkerboard on first alpha-only attempts (rejected). Final sources use a generated pure green key, removed by a runtime CanvasItem shader, not a false PNG alpha claim."
+}

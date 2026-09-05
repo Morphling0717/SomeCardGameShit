@@ -229,6 +229,15 @@ public:
     [[nodiscard]] const PlayerState& player(PlayerId player) const;
     [[nodiscard]] PlayerState& player(PlayerId player);
     [[nodiscard]] const std::vector<MoveRecord>& moves() const noexcept;
+    [[nodiscard]] const std::vector<ProductObservation>& observations() const noexcept;
+    void set_observation_context(std::optional<InstanceId> source, std::uint64_t cause);
+    void reveal_observation_identity(InstanceId card);
+    [[nodiscard]] ObservationEndpoint observation_endpoint(InstanceId card) const;
+    [[nodiscard]] ObservationState observation_state(InstanceId card) const;
+    [[nodiscard]] ObservationLocation observation_location(InstanceId card) const;
+    void observe(ProductObservation observation);
+    void observe_card_change(InstanceId card, ObservationState before, std::string_view kind);
+    void observe_leader_damage(PlayerId player, int before, int actual, std::string_view kind);
     [[nodiscard]] std::optional<ResolutionFrameId> reserved_by(PlayerId player, std::size_t slot) const;
     [[nodiscard]] std::size_t main_board_count(PlayerId player) const;
     [[nodiscard]] bool field_is(PlayerId player, std::string_view design_id) const;
@@ -240,6 +249,11 @@ private:
     std::unordered_map<InstanceId, CardInstance> instances_;
     std::array<std::array<std::optional<ResolutionFrameId>, kMainBoardSize>, kPlayerCount> reservations_{};
     std::vector<MoveRecord> moves_;
+    std::vector<ProductObservation> observations_;
+    std::optional<InstanceId> observation_source_;
+    std::uint64_t observation_cause_ = 0;
+    std::unordered_set<InstanceId> observation_revealed_;
+    std::unordered_map<InstanceId, std::pair<ObservationLocation, ObservationState>> observation_departures_;
     InstanceId next_instance_id_ = 1;
 
     [[nodiscard]] Status ensure_card(InstanceId card) const;
@@ -248,7 +262,8 @@ private:
     void detach(InstanceId card);
     void attach_vector(std::vector<InstanceId>& destination, InstanceId card);
     void record_move(InstanceId card, Zone from, Zone to, MoveReason reason, bool destroyed);
-    [[nodiscard]] DamageResult deal_positive_damage(CardInstance& target, int amount);
+    [[nodiscard]] DamageResult deal_positive_damage(CardInstance& target, int amount,
+        std::optional<InstanceId> source = std::nullopt, std::string_view kind = "effect");
 };
 
 struct RepairResult {

@@ -9,6 +9,45 @@
       "generation_method": "Original repository-authored SVG; no generated image or reference asset",
       "date": "2026-09-05",
       "prompt_summary": "Deep indigo and moon-gold circular rune; no profession, series, card identity, name, numerical badge, logo or industrial circuitry. Replaces the retired blue-steel fallback."
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/presentation_v2/engraved-platinum.png",
+      "sha256": "7b900cc0fe23c7262a791c54f15ac122aeac63edd674a46d37826a7facb4577b",
+      "purpose": "First-stage Presentation V2 fine engraved platinum and pale-gold surface for visible card-body rims; not card art or gameplay text",
+      "generation_method": "OpenAI built-in image generation; original text-to-image material; no input image",
+      "date": "2026-09-06",
+      "prompt_summary": "Seamless orthographic satin platinum, fine celestial acanthus engraving, restrained champagne highlights and tactile grain; no industrial circuitry, border, text, logo, watermark or character. Full prompt: GENERATION_RECORD.json material.",
+      "source_images": [],
+      "modification_history": ["2026-09-06: Generated an original opaque RGB material from the full material prompt; copied the selected output without raster editing."],
+      "generation_record": "client/godot/assets/visual/anime_v1/presentation_v2/GENERATION_RECORD.json",
+      "authorization": "Generated for this project at the user's explicit request; no third-party reference material. Project-authorized development and redistribution candidate, subject to human commercial-release review; no exclusive copyright or trademark-clearance claim.",
+      "transparency": "opaque_rgb_material"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/presentation_v2/LO-11-cutin.png",
+      "sha256": "de38f7b498328f9240804dba796acc146127e17837baee38db8aa716b50d036f",
+      "purpose": "LO-11 evolution foreground cut-in candidate for first-stage Presentation V2; visible identity only",
+      "generation_method": "OpenAI built-in image editing of the project's original evolved illustration, followed by generated green-background replacement; runtime CanvasItem chroma key, not native PNG alpha",
+      "date": "2026-09-06",
+      "prompt_summary": "Preserve the white-gold knight, sword, shield, winged horse, pose and anime paint style; remove environmental sky/rays/rings. Rejected baked-checkerboard attempts; final edit replaces the background with solid green for runtime chroma-key removal. Complete extraction and final green-edit prompts: GENERATION_RECORD.json cutouts and chroma, LO-11.",
+      "source_images": [{"path": "client/godot/assets/visual/anime_v1/slice/cards/LO-11-evolved.png", "sha256": "d6bd41ab1f3bbb9516a7a8e3a85e4e45afe6f99d6700df7da4be10e2696d6af8"}],
+      "modification_history": ["2026-09-06: Inspected the original evolved artwork and requested a foreground extraction with image generation.", "2026-09-06: Two alpha-only attempts returned RGB with baked checkerboard and were rejected; those intermediate files are not shipped.", "2026-09-06: Used the first rejected extraction as input to image generation to replace the checkerboard with a flat green backdrop; copied the selected RGB result without raster editing. Transparency is produced only by the runtime chroma-key shader."],
+      "generation_record": "client/godot/assets/visual/anime_v1/presentation_v2/GENERATION_RECORD.json",
+      "authorization": "Generated and edited for this project at the user's explicit request, using only its recorded original evolved artwork. Project-authorized development and redistribution candidate, subject to human commercial-release review; no third-party game asset, exclusive copyright or trademark-clearance claim.",
+      "transparency": "rgb_chroma_key_runtime"
+    },
+    {
+      "path": "client/godot/assets/visual/anime_v1/presentation_v2/AP-11-cutin.png",
+      "sha256": "f722acc8a78f02d23cb1dfdbf35e5b4abe3ba93041900c56353534a2453338c5",
+      "purpose": "AP-11 evolution foreground cut-in candidate for first-stage Presentation V2; visible identity only",
+      "generation_method": "OpenAI built-in image editing of the project's original evolved illustration, followed by generated green-background replacement; runtime CanvasItem chroma key, not native PNG alpha",
+      "date": "2026-09-06",
+      "prompt_summary": "Preserve the purple-haired sorceress, hands, costume and held magical cards; remove the environmental shards, rings and background light. Rejected baked-checkerboard attempts; final edit replaces the background with solid green for runtime chroma-key removal. Complete extraction and final green-edit prompts: GENERATION_RECORD.json cutouts and chroma, AP-11.",
+      "source_images": [{"path": "client/godot/assets/visual/anime_v1/slice/cards/AP-11-evolved.png", "sha256": "f4fc5ae921e3651ff8b6bd144332d382595450e3b213c7e297030466751041f5"}],
+      "modification_history": ["2026-09-06: Inspected the original evolved artwork and requested a foreground extraction with image generation.", "2026-09-06: Two alpha-only attempts returned RGB with baked checkerboard and were rejected; those intermediate files are not shipped.", "2026-09-06: Used the first rejected extraction as input to image generation to replace the checkerboard with a flat green backdrop; copied the selected RGB result without raster editing. Transparency is produced only by the runtime chroma-key shader."],
+      "generation_record": "client/godot/assets/visual/anime_v1/presentation_v2/GENERATION_RECORD.json",
+      "authorization": "Generated and edited for this project at the user's explicit request, using only its recorded original evolved artwork. Project-authorized development and redistribution candidate, subject to human commercial-release review; no third-party game asset, exclusive copyright or trademark-clearance claim.",
+      "transparency": "rgb_chroma_key_runtime"
     }
   ]
 }

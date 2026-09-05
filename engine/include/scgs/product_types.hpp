@@ -439,6 +439,48 @@ struct MoveRecord {
     bool destroyed = false;
 };
 
+// Observation-only, immutable facts captured at each mutation. These never
+// participate in validation, payment, targeting or rule resolution.
+struct ObservationEndpoint {
+    PlayerId player = PlayerId::Player0;
+    bool leader = false;
+    std::optional<InstanceId> card;
+    std::string design_id;
+    std::uint8_t visibility = 3; // bit 0/1: identity visible to that viewer
+};
+
+struct ObservationLocation {
+    PlayerId player = PlayerId::Player0;
+    Zone zone = Zone::None;
+    std::optional<std::size_t> slot;
+};
+
+struct ObservationState {
+    std::optional<int> health;
+    std::optional<int> max_health;
+    std::optional<int> attack;
+    std::optional<int> countdown;
+    std::optional<bool> evolved;
+    std::optional<KeywordMask> keywords;
+};
+
+struct ProductObservation {
+    std::string kind;
+    std::uint64_t cause_sequence = 0;
+    std::optional<ObservationEndpoint> source;
+    std::optional<ObservationEndpoint> subject;
+    std::optional<ObservationEndpoint> target;
+    std::optional<ObservationLocation> from;
+    std::optional<ObservationLocation> to;
+    std::optional<MoveReason> move_reason;
+    std::optional<int> actual_amount;
+    std::string damage_kind;
+    std::string declaration_kind;
+    std::optional<bool> barrier_consumed;
+    std::optional<ObservationState> before;
+    std::optional<ObservationState> after;
+};
+
 enum class ErrorCode : std::uint8_t {
     Ok,
     InvalidPlayer,

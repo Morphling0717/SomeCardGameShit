@@ -4,7 +4,7 @@
 
 ## 当前状态：Product Playable v1
 
-当前开发分支为 `codex/product-playable-v1`，产品入口已经接入 **`scgs_v05` ABI 2.0 / JSON schema 2**，不再是仅展示卡牌的无 native 样片。源码已接通两副新牌组、选择/响应、终局与重开；完整实机、导出和 CI 验收仍以 [TEST_REPORT.md](TEST_REPORT.md) 为准，不能把实现存在当成最终验收完成。
+当前开发分支为 `codex/product-playable-v1`，产品入口已经接入 **`scgs_v05` ABI 2.0 / JSON schema 2**。两副新牌组、选择/响应、终局与重开已可玩，Windows x64/macOS ARM64 候选包及四项主 CI 已通过；不是无 native 样片。独立重型 CI 在软件渲染环境下仍有帧时/大尺寸超时失败，真人与平衡验收也未完成，准确边界见 [TEST_REPORT.md](TEST_REPORT.md)。
 
 | 职业与系列 | 产品牌组键 | 玩法 |
 | --- | --- | --- |
@@ -66,6 +66,16 @@ dotnet build client/Scgs.Client.Tests/Scgs.Client.Tests.csproj -c Release --no-r
 dotnet test --project client/Scgs.Client.Tests/Scgs.Client.Tests.csproj --configuration Release --no-restore --minimum-expected-tests 1
 dotnet build client/godot/SomeCardGameShit.csproj -c Release
 ```
+
+真实托管集成测试还必须指定同源码动态库的绝对路径：`SCGS_NATIVE_LIBRARY` 指向仅测试用的 `scgs_v04_fixture`，`SCGS_NATIVE_V05_LIBRARY` 指向产品 `scgs_v05`。Windows PowerShell 示例：
+
+```powershell
+$env:SCGS_NATIVE_LIBRARY = (Resolve-Path build/v05-msvc/scgs_v04_fixture.dll).Path
+$env:SCGS_NATIVE_V05_LIBRARY = (Resolve-Path build/v05-msvc/scgs_v05.dll).Path
+dotnet test --project client/Scgs.Client.Tests/Scgs.Client.Tests.csproj --configuration Release --no-restore --minimum-expected-tests 1
+```
+
+macOS 使用对应 ARM64 dylib。没有提供真实库的测试可能标记 Inconclusive／跳过，不能据此宣称本报告的 166 项真实集成已复现；同时检查最终 skipped 为 0。
 
 `SCGS_ENABLE_LEGACY_YGO2_TESTS` 默认 ON；这个历史命名开关注册 Python 契约组，开启时必须找到 Python 3.10+。关闭它的 13 项针对性 CTest 不能被当作完整测试。历史报告 schema/wire 可以使用独立 fixture 验证，不要求恢复旧产品入口或素材。
 

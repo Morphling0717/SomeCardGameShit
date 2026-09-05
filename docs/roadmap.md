@@ -1,8 +1,8 @@
 # 路线图
 
-## 当前：Product Playable v1（2026-09-05，验收收尾中）
+## 当前：Product Playable v1（2026-09-05，可玩候选已交付，重型 CI 待解决）
 
-当前分支 `codex/product-playable-v1` 将 Gate 5C 的两副产品牌运行时与 AnimeV1 产品画面接通；以下“已实现”只说明源码，不代表远端 CI 或真人验收已经完成。
+当前分支 `codex/product-playable-v1` 已将 Gate 5C 的两副产品牌运行时与 AnimeV1 产品画面接通；`90e361e` 四项主 CI 全绿，但独立重型 CI 和真人验收不是已完成事项。
 
 - [x] 34 可构筑定义＋1 衍生物声明式执行，ProductGame/可暂停选择/响应/职业充能/终局；真实逐卡与合成能力证据分开记录。
 - [x] v05 ABI 2.0/schema 2 与纯托管会话接入产品菜单、对局、私密选择及重开源码路径。
@@ -10,12 +10,13 @@
 - [x] 旧 midrange/advance 定义/工厂/菜单/科幻卡图退出产品；v04 成功回归使用不打包的独立 synthetic fixture。
 - [x] AnimeV1 为唯一产品路径，旧 preview/legacy 启动参数受控拒绝；历史 schema/wire/报告通过独立合同保留。
 - [x] 输入落点对齐 owner/zone/index，详情保持与两帧隐私提交接入。
-- [ ] 完整当前源码/正式导出/ZIP 往返产品验证、四分辨率真实截图、隐私/性能/包体和远端 CI 收尾；只按 [TEST_REPORT](../TEST_REPORT.md) 勾选。
+- [x] 当前源码/正式导出/ZIP 往返验证、173 项托管、253 项脚本测试、四项主 CI 与 Windows/macOS 可玩候选包；本机四尺寸实拍、保护帧及600帧硬件性能通过。
+- [ ] 独立 Windows 重型 CI：软件渲染下 1600 帧时失败、两种大尺寸整局超时。保留门槛，先确定有硬件 GPU 的验收环境；不能用本机通过改判远端通过。证据见 [TEST_REPORT](../TEST_REPORT.md)。
 - [ ] 两名真人热座与目标 Windows/物理 Apple Silicon Mac 试玩，修复实机阻塞后再确认版本交付。
 - [ ] Gate 5D：固定策略代理、互换先后手、真人局平衡；48～52% 胜率和赢家 T10～12 是目标，不是已取得的数据。
 - [ ] 商业美术人工终审、精细演出及单独声音 Gate；联机/录像/牌组编辑仍为后续能力。
 
-规则验收细分见 [原生证据](product-playable-v1-engine-evidence.md)，接续开发见 [当前交接](DSH-HANDOFF-v0.4-ui.md)。当前工作区不可借历史 CI 成功记录声称尖端已绿。
+规则验收细分见 [原生证据](product-playable-v1-engine-evidence.md)，接续开发见 [当前交接](DSH-HANDOFF-v0.4-ui.md)。区分四项主 CI、独立重型任务和真人验收；不得混称“全部全绿”。
 
 ## 历史路线图（以下勾选只对各 Gate 当时版本有效）
 

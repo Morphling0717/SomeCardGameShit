@@ -2,7 +2,7 @@
 
 ## 2026-09-05 接手者先读
 
-本文保留历史 Gate 交接，但当前工作在 `codex/product-playable-v1`，基底 `6e0204e391d0d0b377f7b62d18f1b1fd65d56e81` 上有大量未提交开发。必须保留现有 dirty；不能把下方历史尖端或旧计划当成回退/重做指令。
+本文保留历史 Gate 交接。当前工作在 `codex/product-playable-v1`，产品开发为 `e71bafe`，后续编译/验收修正至 `90e361e` 均已推送；开发基底是 `6e0204e`。`90e361e` 四项主 CI 全绿，独立重型 CI 未通过，详见总报告。剩余本机 `project.godot` 与 `addons/` dirty 属于先前的 MCP 安装，不在产品提交中，必须保留。不能把下方历史尖端或旧计划当成回退/重做指令。
 
 - 产品已经接 `ProductGame → scgs_v05/schema 2 → Scgs.Client.V05 → ProductHotseatMatchController → ProductMatchScreen`，不再是 foundation 占位器。
 - 两个真实牌组键为 `oathguard_luminous_oath_v1`、`pactmage_abyssal_pact_v1`；34 张构筑定义＋1 衍生物已编译效果并具有逐牌语义场景，不等于平衡已验收。
@@ -10,7 +10,7 @@
 - `midrange/advance` 已退役，不得改成新牌组别名。正式 v04 仅冻结 ABI/schema 形状和14导出；成功协议测试用独立 `scgs_v04_fixture` 的 synthetic_alpha/beta，禁止安装到玩家包。
 - 现行测试入口为 `--ci-product-smoke`；旧 `--ci-smoke`、legacy 2D、R3/Anime 审批样片参数被拒绝。历史报告保留为 fixture，不能代替产品真实输入。
 - 原生已知边界修复、35定义实际覆盖和命令见 [engine evidence](product-playable-v1-engine-evidence.md)；全平台/GUI/导出/CI 实际状态只看 [TEST_REPORT](../TEST_REPORT.md)。没有当前 run 证据不能写“全绿”。
-- 当前收尾重点：真实 v05 Godot 全流程与交接隐私、错误拖放零 native/无状态变化、四尺寸、导出与ZIP剥离审计、旧合同迁移、完整测试/CI与真人试玩。
+- 已完成真实 v05 全流程、交接隐私、错误拖放零 native、四尺寸本机实拍、导出/ZIP剥离、173托管/253脚本、四项主CI与双平台可玩候选。当前技术收尾为独立重型CI的图形环境：GitHub标准Windows实际用Microsoft Basic Render/WARP软件渲染，4＋4场面资源不增长但帧时351ms，两种大尺寸还超时。不能调大门槛骗绿；需要用户确定GPU验收安排。没有注册个人self-hosted runner或开通付费GPU。
 - 后续平衡及声音另立工作，不在收尾中暗改卡牌数值。参考 [路线图](roadmap.md)、[架构](architecture.md)、[UI状态](ui-state-map.md)。
 
 UI 修改按根 `AGENTS.md`：优先通过配置的 Godot MCP 观察真实项目/运行场景/截图/输入；构建或旧 smoke 不能代替实机证据。使用锁定 SDK 的启动脚本，不重复开编辑器，不覆盖用户未保存场景。MCP 只开发使用，导出必须剥离并实启审计。
